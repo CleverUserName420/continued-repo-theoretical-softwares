@@ -3242,64 +3242,636 @@ IOC_FREQUENCIES_SIGINT: List[Dict] = [
 
 
 # ============================================================
+# COMPREHENSIVE BLUETOOTH IOC DATABASES
+# ============================================================
+# Bluetooth-based indicators of compromise and threat intelligence
+# For defensive signals intelligence and forensic analysis
+
+# Bluetooth Manufacturer IDs with threat assessments
+# Based on Bluetooth SIG Assigned Numbers and threat intelligence
+BLUETOOTH_MANUFACTURER_IOCS: Dict[int, Dict] = {
+    # High-risk IoT/attack platform manufacturers
+    0x02E5: {"name": "Espressif Inc.", "threat_level": "high", "notes": "ESP32/ESP8266 - Most popular BLE attack platform, Flipper Zero compatible"},
+    0x000D: {"name": "Texas Instruments", "threat_level": "medium", "notes": "CC2540/CC2541/CC26xx - Common in skimmers and beacons"},
+    0x0059: {"name": "Nordic Semiconductor", "threat_level": "medium", "notes": "nRF51/nRF52 - Popular for covert beacons and sniffers"},
+    0x00D2: {"name": "Dialog Semiconductor", "threat_level": "medium", "notes": "DA14xxx - Used in badge cloners and small form factor bugs"},
+    0x000A: {"name": "Qualcomm", "threat_level": "low", "notes": "CSR chips - Found in some audio surveillance devices"},
+    0x005D: {"name": "Realtek", "threat_level": "medium", "notes": "RTL87xx - Common in cheap IoT devices and hidden bugs"},
+    0x000F: {"name": "Broadcom", "threat_level": "low", "notes": "BCM2xxx - Raspberry Pi, legitimate but used in attacks"},
+    0x00E0: {"name": "Silicon Labs", "threat_level": "medium", "notes": "EFR32/BGM - Common in mesh network attacks"},
+    0x0131: {"name": "Cypress Semiconductor", "threat_level": "medium", "notes": "CYW series - Low-level BLE attacks"},
+    0x0030: {"name": "STMicroelectronics", "threat_level": "medium", "notes": "BlueNRG - Covert beacons and implants"},
+    0x0046: {"name": "MediaTek", "threat_level": "low", "notes": "MTK BLE - No-brand devices, often poorly secured"},
+    0x00CD: {"name": "Microchip", "threat_level": "medium", "notes": "RN/BTLC series - POS and badge attacks"},
+    
+    # Legitimate major manufacturers (for comparison)
+    0x004C: {"name": "Apple Inc.", "threat_level": "benign", "notes": "AirPods, AirTags, iPhones - Look for cloned patterns"},
+    0x0006: {"name": "Microsoft", "threat_level": "benign", "notes": "Surface, Xbox controllers"},
+    0x0075: {"name": "Samsung", "threat_level": "benign", "notes": "Galaxy devices, SmartThings - Watch for impersonation"},
+    0x00E0: {"name": "Google", "threat_level": "benign", "notes": "Pixel devices, Nest - Fast Pair enabled"},
+    0x0087: {"name": "Tile Inc.", "threat_level": "medium", "notes": "Tile trackers - Can be used for stalking"},
+    0x0499: {"name": "Ruuvi Innovations", "threat_level": "benign", "notes": "Environmental sensors"},
+    
+    # Known surveillance/tracking device manufacturers
+    0x0822: {"name": "Shenzhen Minew Technologies", "threat_level": "high", "notes": "Cheap beacons often used in covert tracking"},
+    0x0757: {"name": "Ingics Technology", "threat_level": "high", "notes": "Industrial beacons, can be repurposed for tracking"},
+    0x004E: {"name": "SKF", "threat_level": "medium", "notes": "Industrial sensors - unusual in consumer contexts"},
+}
+
+# Bluetooth Service UUIDs with threat classifications
+BLUETOOTH_SERVICE_IOCS: Dict[str, Dict] = {
+    # Standard potentially-sensitive services
+    "0x1812": {"name": "Human Interface Device", "threat_level": "high", "notes": "HID - Keystroke injection attacks possible"},
+    "0x180F": {"name": "Battery Service", "threat_level": "low", "notes": "Often exposed, device fingerprinting"},
+    "0x1803": {"name": "Link Loss", "threat_level": "low", "notes": "Proximity tracking capability"},
+    "0x1802": {"name": "Immediate Alert", "threat_level": "low", "notes": "Can trigger device actions"},
+    "0x1804": {"name": "Tx Power", "threat_level": "medium", "notes": "Distance estimation - tracking enabler"},
+    "0x180A": {"name": "Device Information", "threat_level": "medium", "notes": "Fingerprinting - reveals manufacturer/model"},
+    "0x1811": {"name": "Alert Notification Service", "threat_level": "medium", "notes": "Can leak notification content"},
+    "0x1819": {"name": "Location and Navigation", "threat_level": "high", "notes": "Direct location data exposure"},
+    "0x181C": {"name": "User Data", "threat_level": "high", "notes": "Personal information exposure"},
+    
+    # Audio/Voice services - potential bugs
+    "0x1843": {"name": "Audio Input Control", "threat_level": "critical", "notes": "Microphone access - potential audio bug"},
+    "0x1844": {"name": "Volume Control", "threat_level": "medium", "notes": "Audio device - verify legitimacy"},
+    "0x184E": {"name": "Audio Stream Control", "threat_level": "high", "notes": "Audio streaming - potential exfiltration"},
+    "0x184F": {"name": "Broadcast Audio Scan", "threat_level": "high", "notes": "Audio scanning capability"},
+    
+    # Medical device services
+    "0x1808": {"name": "Glucose", "threat_level": "intel", "notes": "Medical device - privacy sensitive"},
+    "0x180D": {"name": "Heart Rate", "threat_level": "intel", "notes": "Health monitoring - biometric data"},
+    "0x1809": {"name": "Health Thermometer", "threat_level": "intel", "notes": "Medical data exposure"},
+    "0x1816": {"name": "Cycling Speed and Cadence", "threat_level": "low", "notes": "Fitness tracking"},
+    "0x1818": {"name": "Cycling Power", "threat_level": "low", "notes": "Fitness tracking"},
+    "0x181A": {"name": "Environmental Sensing", "threat_level": "low", "notes": "Environmental monitoring"},
+    "0x181B": {"name": "Body Composition", "threat_level": "intel", "notes": "Biometric data"},
+    
+    # Vendor-specific services (common attack vectors)
+    "6E400001-B5A3-F393-E0A9-E50E24DCCA9E": {"name": "Nordic UART Service", "threat_level": "high", "notes": "Serial-over-BLE - common debug interface"},
+    "0000FFE0-0000-1000-8000-00805F9B34FB": {"name": "HM-10 Serial Service", "threat_level": "high", "notes": "Cheap BLE modules - often unsecured"},
+    "0000FFF0-0000-1000-8000-00805F9B34FB": {"name": "Generic Serial Service", "threat_level": "high", "notes": "Custom serial protocol - inspect carefully"},
+}
+
+# Bluetooth advertising data patterns for threat detection
+BLUETOOTH_ADV_PATTERNS: Dict[str, Dict] = {
+    # Apple-specific patterns
+    "apple_airtag": {
+        "manufacturer_id": 0x004C,
+        "data_pattern": "^07.*",  # Apple FindMy type 0x07
+        "threat_level": "medium",
+        "notes": "AirTag or compatible - check for unwanted tracking"
+    },
+    "apple_findmy": {
+        "manufacturer_id": 0x004C,
+        "data_pattern": "^12.*",  # Apple FindMy beacon
+        "threat_level": "medium",
+        "notes": "FindMy network beacon - verify ownership"
+    },
+    "apple_nearby": {
+        "manufacturer_id": 0x004C,
+        "data_pattern": "^10.*",  # Apple Nearby
+        "threat_level": "low",
+        "notes": "Apple Nearby handoff - normal if you own Apple devices"
+    },
+    "apple_continuity": {
+        "manufacturer_id": 0x004C,
+        "data_pattern": "^(01|05|06|07|08|09|0a|0b|0c|0d|0e|0f).*",
+        "threat_level": "low",
+        "notes": "Apple Continuity protocols - device type exposure"
+    },
+    
+    # Tracking device patterns
+    "tile_tracker": {
+        "manufacturer_id": 0x0087,
+        "threat_level": "medium",
+        "notes": "Tile tracker - verify it's yours"
+    },
+    "samsung_smarttag": {
+        "manufacturer_id": 0x0075,
+        "data_pattern": "SmartTag",
+        "threat_level": "medium",
+        "notes": "Samsung SmartTag - verify ownership"
+    },
+    "generic_ibeacon": {
+        "type": 0xFF,  # Manufacturer specific
+        "data_pattern": "^02150.*",  # iBeacon prefix
+        "threat_level": "medium",
+        "notes": "iBeacon - can be used for tracking"
+    },
+    "eddystone": {
+        "service_uuid": "0xFEAA",
+        "threat_level": "medium",
+        "notes": "Google Eddystone beacon - tracking capability"
+    },
+    
+    # Attack indicators
+    "btlejack_sniffer": {
+        "manufacturer_id": 0x0059,  # Nordic
+        "device_name_pattern": ".*sniffer.*|.*btlejack.*",
+        "threat_level": "critical",
+        "notes": "Potential BLE sniffer detected"
+    },
+    "flipper_zero": {
+        "manufacturer_id": 0x02E5,  # Espressif
+        "device_name_pattern": ".*flipper.*|^Flipper.*",
+        "threat_level": "critical",
+        "notes": "Flipper Zero detected - multi-tool attack platform"
+    },
+    "esp32_default": {
+        "manufacturer_id": 0x02E5,
+        "device_name_pattern": "^ESP.*|.*ESP32.*",
+        "threat_level": "high",
+        "notes": "ESP32 with default name - likely development/attack device"
+    },
+    "nrf_dev_kit": {
+        "manufacturer_id": 0x0059,
+        "device_name_pattern": "^nRF.*|.*Nordic.*DK.*",
+        "threat_level": "high",
+        "notes": "Nordic dev kit - unusual in consumer environment"
+    },
+}
+
+# BLE Address type indicators
+BLUETOOTH_ADDRESS_IOCS: Dict[str, Dict] = {
+    "random_static": {
+        "pattern": "^[CDEF][0-9A-F]:",  # First two bits are 11
+        "threat_level": "low",
+        "notes": "Random static address - changes per boot"
+    },
+    "random_resolvable": {
+        "pattern": "^[4567][0-9A-F]:",  # First two bits are 01
+        "threat_level": "low",
+        "notes": "Random resolvable private address - IRK protected"
+    },
+    "random_non_resolvable": {
+        "pattern": "^[0123][0-9A-F]:",  # First two bits are 00
+        "threat_level": "medium",
+        "notes": "Random non-resolvable - may change frequently, harder to track"
+    },
+    "public_oui": {
+        "pattern": ".*",
+        "threat_level": "low",
+        "notes": "Public address - IEEE OUI assigned, trackable"
+    },
+}
+
+# Known malicious device signatures
+BLUETOOTH_MALICIOUS_SIGNATURES: List[Dict] = [
+    {
+        "name": "MouseJack Vulnerable Device",
+        "indicators": ["HID service", "Unencrypted", "Logitech Unifying"],
+        "threat_level": "critical",
+        "notes": "Vulnerable to MouseJack keystroke injection"
+    },
+    {
+        "name": "KNOB Attack Vulnerable",
+        "indicators": ["Legacy pairing", "Low entropy negotiation"],
+        "threat_level": "high",
+        "notes": "Key Negotiation of Bluetooth - MITM possible"
+    },
+    {
+        "name": "BIAS Attack Vulnerable",
+        "indicators": ["Legacy Secure Connections", "Role switch during auth"],
+        "threat_level": "high",
+        "notes": "Bluetooth Impersonation Attacks"
+    },
+    {
+        "name": "BLURtooth Vulnerable",
+        "indicators": ["CTKD support", "Cross-transport key derivation"],
+        "threat_level": "high",
+        "notes": "Cross-transport key overwrite attack"
+    },
+    {
+        "name": "SweynTooth Vulnerable",
+        "indicators": ["BLE stack crash", "Malformed L2CAP", "Invalid sequence"],
+        "threat_level": "medium",
+        "notes": "BLE stack vulnerabilities - DoS possible"
+    },
+    {
+        "name": "BrakTooth Vulnerable",
+        "indicators": ["Classic BT", "LMP overflow", "Feature page crash"],
+        "threat_level": "high",
+        "notes": "Classic Bluetooth stack vulnerabilities"
+    },
+]
+
+# Bluetooth Channel frequencies (2.4 GHz ISM band)
+BLUETOOTH_CHANNEL_FREQUENCIES: Dict[int, float] = {
+    # BLE advertising channels
+    37: 2402e6,  # Advertising channel
+    38: 2426e6,  # Advertising channel
+    39: 2480e6,  # Advertising channel
+    # BLE data channels (0-36)
+    **{i: 2404e6 + (i * 2e6) for i in range(37) if i not in [37, 38, 39]},
+}
+
+# Comprehensive lookup function for Bluetooth IOCs
+def find_bluetooth_ioc(identifier: str, identifier_type: str = "auto") -> Optional[Dict]:
+    """
+    Find Bluetooth IOC by various identifier types.
+    
+    Args:
+        identifier: The identifier to look up (UUID, manufacturer ID, MAC address pattern)
+        identifier_type: Type of identifier: "uuid", "manufacturer", "mac", "name", or "auto"
+    
+    Returns:
+        Dict with IOC metadata or None
+    """
+    if identifier_type == "auto":
+        # Auto-detect identifier type
+        if identifier.startswith("0x") or (len(identifier) <= 6 and identifier.isdigit()):
+            identifier_type = "manufacturer"
+        elif len(identifier) == 17 and identifier.count(":") == 5:
+            identifier_type = "mac"
+        elif len(identifier) in [4, 36, 32]:
+            identifier_type = "uuid"
+        else:
+            identifier_type = "name"
+    
+    if identifier_type == "manufacturer":
+        # Convert to int if string
+        if isinstance(identifier, str):
+            if identifier.startswith("0x"):
+                manufacturer_id = int(identifier, 16)
+            else:
+                manufacturer_id = int(identifier)
+        else:
+            manufacturer_id = identifier
+        return BLUETOOTH_MANUFACTURER_IOCS.get(manufacturer_id)
+    
+    elif identifier_type == "uuid":
+        # Normalize UUID format
+        uuid_clean = identifier.lower().replace("-", "")
+        if len(uuid_clean) == 4:
+            # 16-bit UUID
+            uuid_key = f"0x{uuid_clean.upper()}"
+        else:
+            uuid_key = uuid_clean
+        
+        # Check service IOCs
+        result = BLUETOOTH_SERVICE_IOCS.get(uuid_key)
+        if result:
+            return result
+        
+        # Check full 128-bit format
+        for key, value in BLUETOOTH_SERVICE_IOCS.items():
+            if key.lower().replace("-", "") == uuid_clean:
+                return value
+    
+    elif identifier_type == "mac":
+        # Check MAC address patterns
+        import re
+        mac_upper = identifier.upper()
+        for pattern_name, pattern_info in BLUETOOTH_ADDRESS_IOCS.items():
+            if re.match(pattern_info["pattern"], mac_upper):
+                return pattern_info
+    
+    elif identifier_type == "name":
+        # Check device name patterns
+        import re
+        for pattern_name, pattern_info in BLUETOOTH_ADV_PATTERNS.items():
+            name_pattern = pattern_info.get("device_name_pattern")
+            if name_pattern and re.match(name_pattern, identifier, re.IGNORECASE):
+                return pattern_info
+    
+    return None
+
+
+def analyze_bluetooth_threat(
+    mac_address: str = None,
+    device_name: str = None,
+    manufacturer_id: int = None,
+    service_uuids: List[str] = None,
+    rssi: int = None
+) -> Dict:
+    """
+    Comprehensive Bluetooth device threat analysis.
+    
+    Args:
+        mac_address: Device MAC address
+        device_name: Device advertised name
+        manufacturer_id: Bluetooth SIG manufacturer ID
+        service_uuids: List of advertised service UUIDs
+        rssi: Received signal strength indicator
+    
+    Returns:
+        Dict with comprehensive threat assessment
+    """
+    result = {
+        "mac_address": mac_address,
+        "device_name": device_name,
+        "manufacturer_id": manufacturer_id,
+        "service_uuids": service_uuids or [],
+        "rssi": rssi,
+        "threats_detected": [],
+        "overall_threat_level": "benign",
+        "recommendations": []
+    }
+    
+    threat_scores = {"critical": 4, "high": 3, "medium": 2, "low": 1, "benign": 0, "intel": 1}
+    max_threat_score = 0
+    
+    # Check manufacturer
+    if manufacturer_id is not None:
+        mfg_ioc = BLUETOOTH_MANUFACTURER_IOCS.get(manufacturer_id)
+        if mfg_ioc:
+            result["manufacturer_info"] = mfg_ioc
+            threat_level = mfg_ioc.get("threat_level", "low")
+            score = threat_scores.get(threat_level, 0)
+            if score > max_threat_score:
+                max_threat_score = score
+            if threat_level in ["high", "critical", "medium"]:
+                result["threats_detected"].append({
+                    "type": "manufacturer",
+                    "level": threat_level,
+                    "description": f"Manufacturer {mfg_ioc['name']}: {mfg_ioc.get('notes', '')}"
+                })
+    
+    # Check service UUIDs
+    if service_uuids:
+        for uuid in service_uuids:
+            svc_ioc = find_bluetooth_ioc(uuid, "uuid")
+            if svc_ioc:
+                threat_level = svc_ioc.get("threat_level", "low")
+                score = threat_scores.get(threat_level, 0)
+                if score > max_threat_score:
+                    max_threat_score = score
+                if threat_level in ["high", "critical"]:
+                    result["threats_detected"].append({
+                        "type": "service",
+                        "level": threat_level,
+                        "uuid": uuid,
+                        "description": f"{svc_ioc['name']}: {svc_ioc.get('notes', '')}"
+                    })
+    
+    # Check device name patterns
+    if device_name:
+        name_ioc = find_bluetooth_ioc(device_name, "name")
+        if name_ioc:
+            threat_level = name_ioc.get("threat_level", "low")
+            score = threat_scores.get(threat_level, 0)
+            if score > max_threat_score:
+                max_threat_score = score
+            if threat_level in ["high", "critical", "medium"]:
+                result["threats_detected"].append({
+                    "type": "device_name",
+                    "level": threat_level,
+                    "description": f"Device name pattern match: {name_ioc.get('notes', '')}"
+                })
+    
+    # Check MAC address type
+    if mac_address:
+        addr_ioc = find_bluetooth_ioc(mac_address, "mac")
+        if addr_ioc:
+            result["address_type"] = addr_ioc
+    
+    # Distance estimation from RSSI
+    if rssi is not None:
+        # Approximate distance using log-distance path loss model
+        # Assuming 1m reference RSSI of -59 dBm (typical for BLE)
+        tx_power = -59
+        n = 2.0  # Path loss exponent (free space)
+        estimated_distance = 10 ** ((tx_power - rssi) / (10 * n))
+        result["estimated_distance_m"] = round(estimated_distance, 1)
+        
+        if rssi > -40:
+            result["recommendations"].append("⚠️ Very close proximity (<1m) - verify device ownership")
+    
+    # Set overall threat level
+    threat_level_map = {4: "critical", 3: "high", 2: "medium", 1: "low", 0: "benign"}
+    result["overall_threat_level"] = threat_level_map.get(max_threat_score, "unknown")
+    
+    # Add recommendations based on findings
+    if result["overall_threat_level"] == "critical":
+        result["recommendations"].append("🚨 CRITICAL: Potential attack device detected - investigate immediately")
+    elif result["overall_threat_level"] == "high":
+        result["recommendations"].append("⚠️ HIGH RISK: Suspicious device characteristics - verify legitimacy")
+    elif result["overall_threat_level"] == "medium":
+        result["recommendations"].append("ℹ️ MEDIUM: Device has tracking/monitoring capabilities - verify ownership")
+    
+    return result
+
+
+# ============================================================
 # HELPER FUNCTIONS FOR IOC MATCHING AND THREAT ANALYSIS
 # ============================================================
 
 def find_discrete_by_freq(frequency: float, tolerance: float = None) -> dict:
     """
-    Find discrete IOC by frequency with tolerance
-    Returns IOC metadata if found, None otherwise
+    Find discrete IOC by frequency with tolerance.
+    Returns a single IOC dict or None (never a list), checking IOC_FREQUENCIES (original) first.
+    
+    COMPREHENSIVE SEARCH ORDER:
+    1. IOC_FREQUENCIES['discrete'] (original format) - HIGHEST priority
+    2. IOC_FREQUENCIES_EXT (extended structured format)
+    3. IOC_FREQUENCIES_SIGINT (signals intelligence IOCs)
+    4. All band tables with float/int keys (point frequencies only):
+       - VLF_LF_FREQUENCIES, MF_HF_FREQUENCIES, VHF_FREQUENCIES
+       - UHF_LOW_FREQUENCIES, UHF_HIGH_FREQUENCIES, L_BAND_FREQUENCIES
+       - S_BAND_FREQUENCIES, C_BAND_FREQUENCIES, X_BAND_FREQUENCIES
+       - KU_BAND_FREQUENCIES, K_KA_BAND_FREQUENCIES, MMWAVE_FREQUENCIES
+       - UWB_FREQUENCIES, CELLULAR_BANDS
     
     Args:
         frequency: Frequency in Hz to search for
-        tolerance: Tolerance in Hz (auto-calculated if None)
+        tolerance: Tolerance in Hz (auto-calculated if None based on frequency range)
     
     Returns:
-        Dict with IOC metadata or None
+        Dict with IOC metadata including freq_hz, label, source, and other fields, or None
     """
+    # Auto-calculate tolerance if not given
     if tolerance is None:
-        # Auto-calculate tolerance based on frequency range
         if frequency < 10:
             tolerance = 0.1
         elif frequency < 1000:
             tolerance = 1.0
         elif frequency < 10000:
             tolerance = 5.0
+        elif frequency < 1e6:
+            tolerance = 100.0
+        elif frequency < 1e9:
+            tolerance = 10000.0
         else:
-            tolerance = 10.0
-    
-    # Check extended IOC database first
-    if 'IOC_FREQUENCIES_EXT' in globals():
-        for ioc in IOC_FREQUENCIES_EXT:
-            freq_diff = abs(frequency - ioc['freq_hz'])
-            span = ioc.get('span_hz', tolerance)
-            if freq_diff <= span:
-                return ioc
-    
+            tolerance = 1e6  # 1 MHz tolerance for GHz frequencies
+
+    # 1. IOC_FREQUENCIES['discrete'] (list of tuples): HIGHEST priority
+    for f, label in IOC_FREQUENCIES["discrete"]:
+        if abs(f - frequency) <= tolerance:
+            return {"freq_hz": f, "label": label, "source": "IOC_FREQUENCIES"}
+
+    # 2. IOC_FREQUENCIES_EXT
+    ext = globals().get('IOC_FREQUENCIES_EXT', [])
+    for ioc in ext:
+        freq = ioc.get('freq_hz')
+        span = ioc.get('span_hz', tolerance)
+        if freq is not None and abs(frequency - freq) <= span:
+            result = dict(ioc)
+            result['source'] = 'IOC_FREQUENCIES_EXT'
+            return result
+
+    # 3. IOC_FREQUENCIES_SIGINT
+    sigint = globals().get('IOC_FREQUENCIES_SIGINT', [])
+    for ioc in sigint:
+        freq = ioc.get('freq_hz')
+        span = ioc.get('span_hz', tolerance)
+        if freq is not None and abs(frequency - freq) <= span:
+            result = dict(ioc)
+            result['source'] = 'IOC_FREQUENCIES_SIGINT'
+            return result
+
+    # 4. All other band tables with float/int keys (point frequencies only)
+    band_tables = [
+        'VLF_LF_FREQUENCIES', 'MF_HF_FREQUENCIES', 'VHF_FREQUENCIES',
+        'UHF_LOW_FREQUENCIES', 'UHF_HIGH_FREQUENCIES', 'L_BAND_FREQUENCIES',
+        'S_BAND_FREQUENCIES', 'C_BAND_FREQUENCIES', 'X_BAND_FREQUENCIES',
+        'KU_BAND_FREQUENCIES', 'K_KA_BAND_FREQUENCIES', 'MMWAVE_FREQUENCIES',
+        'UWB_FREQUENCIES', 'CELLULAR_BANDS'
+    ]
+    for tab in band_tables:
+        d = globals().get(tab, {})
+        # Handle nested dict structure (band tables have category keys)
+        if isinstance(d, dict):
+            for category, entries in d.items():
+                if isinstance(entries, list):
+                    for entry in entries:
+                        # Handle tuple entries: (freq, label) or (freq_start, freq_end, label)
+                        if isinstance(entry, tuple):
+                            if len(entry) == 2 and isinstance(entry[0], (int, float)):
+                                freq, label = entry
+                                if abs(frequency - freq) <= tolerance:
+                                    return {"freq_hz": freq, "label": label, "source": tab, "category": category}
+                elif isinstance(entries, dict):
+                    # Handle dict with frequency keys
+                    for k, v in entries.items():
+                        if isinstance(k, (float, int)) and abs(frequency - k) <= tolerance:
+                            return {"freq_hz": k, "label": v, "source": tab, "category": category}
+
     return None
+
 
 def find_band_by_freq(frequency: float) -> dict:
     """
-    Find frequency band metadata for a given frequency
+    Find frequency band metadata for a given frequency.
+    
+    COMPREHENSIVE SEARCH ORDER:
+    1. IOC_FREQUENCIES['ranges'] for backwards compatibility
+    2. AUDIO_BANDS for classic audio annotations
+    3. BAND_METADATA (including any 'range' definitions)
+    4. All extended frequency/band tables (dicts of (start, end): label)
+    5. IOC_FREQUENCIES_SIGINT (for band-level matches)
     
     Args:
         frequency: Frequency in Hz
     
     Returns:
-        Dict with band metadata or None
+        Dict with band metadata including name, range, label, category, confidence or None
     """
-    if 'BAND_METADATA' not in globals():
-        return None
-    
-    for band_name, metadata in BAND_METADATA.items():
-        if 'range' in metadata:
-            low, high = metadata['range']
-            if low <= frequency <= high:
-                return {'name': band_name, **metadata}
-    
+
+    # 1. Original IOC_FREQUENCIES['ranges'] (list of tuples)
+    for a, b, desc, conf in IOC_FREQUENCIES["ranges"]:
+        if a <= frequency <= b:
+            return {
+                'name': 'IOC_RANGE',
+                'range': (a, b),
+                'label': desc,
+                'confidence': conf,
+                'category': 'IOC_BAND'
+            }
+
+    # 2. AUDIO_BANDS (optional, for spectrum UI/classification)
+    for a, b, desc in AUDIO_BANDS:
+        if a <= frequency <= b:
+            return {
+                'name': 'AUDIO_BAND',
+                'range': (a, b),
+                'label': desc,
+                'category': 'AUDIO'
+            }
+
+    # 3. BAND_METADATA (dataclass or dict, e.g. ELF/EEG/AUDIO/ULTRASONIC/RF)
+    if 'BAND_METADATA' in globals():
+        for band_name, metadata in BAND_METADATA.items():
+            rng = metadata.get("range")
+            if rng and rng[0] <= frequency <= rng[1]:
+                return {'name': band_name, 'range': rng, **metadata}
+
+    # 4. All custom band tables (dicts where keys are (start, end) tuples or contain range entries)
+    band_tables = [
+        'VLF_LF_FREQUENCIES', 'MF_HF_FREQUENCIES', 'VHF_FREQUENCIES',
+        'UHF_LOW_FREQUENCIES', 'UHF_HIGH_FREQUENCIES', 'L_BAND_FREQUENCIES',
+        'S_BAND_FREQUENCIES', 'C_BAND_FREQUENCIES', 'X_BAND_FREQUENCIES',
+        'KU_BAND_FREQUENCIES', 'K_KA_BAND_FREQUENCIES', 'MMWAVE_FREQUENCIES',
+        'UWB_FREQUENCIES', 'CELLULAR_BANDS'
+    ]
+    for tab in band_tables:
+        d = globals().get(tab, {})
+        if isinstance(d, dict):
+            for category, entries in d.items():
+                if isinstance(entries, list):
+                    for entry in entries:
+                        # Handle (start, end, label) tuples
+                        if isinstance(entry, tuple) and len(entry) == 3:
+                            if isinstance(entry[0], (int, float)) and isinstance(entry[1], (int, float)):
+                                start, end, label = entry
+                                if start <= frequency <= end:
+                                    return {
+                                        'name': tab,
+                                        'range': (start, end),
+                                        'label': label,
+                                        'category': category.upper()
+                                    }
+                elif isinstance(entries, dict):
+                    # Handle CELLULAR_BANDS style with uplink/downlink/tdd dicts
+                    if 'uplink' in entries and 'downlink' in entries:
+                        ul = entries['uplink']
+                        dl = entries['downlink']
+                        if ul[0] <= frequency <= ul[1]:
+                            return {
+                                'name': category,
+                                'range': ul,
+                                'label': f"{category} Uplink",
+                                'category': 'CELLULAR',
+                                'tech': entries.get('tech', 'Unknown')
+                            }
+                        if dl[0] <= frequency <= dl[1]:
+                            return {
+                                'name': category,
+                                'range': dl,
+                                'label': f"{category} Downlink",
+                                'category': 'CELLULAR',
+                                'tech': entries.get('tech', 'Unknown')
+                            }
+                    elif 'tdd' in entries:
+                        tdd = entries['tdd']
+                        if tdd[0] <= frequency <= tdd[1]:
+                            return {
+                                'name': category,
+                                'range': tdd,
+                                'label': f"{category} TDD",
+                                'category': 'CELLULAR',
+                                'tech': entries.get('tech', 'Unknown')
+                            }
+
+    # 5. Check IOC_FREQUENCIES_SIGINT for band-level matches
+    sigint = globals().get('IOC_FREQUENCIES_SIGINT', [])
+    for ioc in sigint:
+        freq = ioc.get('freq_hz')
+        span = ioc.get('span_hz', 0)
+        if freq is not None and span > 0:
+            if (freq - span) <= frequency <= (freq + span):
+                return {
+                    'name': ioc.get('label', 'SIGINT'),
+                    'range': (freq - span, freq + span),
+                    'label': ioc.get('label', 'Unknown'),
+                    'category': ioc.get('category', 'SIGINT'),
+                    'confidence': ioc.get('confidence', 50),
+                    'threat_level': ioc.get('threat_level', 'unknown')
+                }
+
     return None
 
-def band_contains(band_name: str, frequency: float) -> bool:
+
+def band_contains_named(band_name: str, frequency: float) -> bool:
     """
     Check if a frequency falls within a named band
     
@@ -3312,6 +3884,61 @@ def band_contains(band_name: str, frequency: float) -> bool:
     """
     band_info = find_band_by_freq(frequency)
     return band_info is not None and band_info.get('name') == band_name
+
+
+def find_all_matches_by_freq(frequency: float, tolerance: float = None) -> List[Dict]:
+    """
+    Find ALL matching IOCs for a frequency (not just the first match).
+    Useful for comprehensive threat analysis.
+    
+    Args:
+        frequency: Frequency in Hz
+        tolerance: Tolerance in Hz (auto-calculated if None)
+    
+    Returns:
+        List of all matching IOC dicts
+    """
+    matches = []
+    
+    # Auto-calculate tolerance if not given
+    if tolerance is None:
+        if frequency < 10:
+            tolerance = 0.1
+        elif frequency < 1000:
+            tolerance = 1.0
+        elif frequency < 10000:
+            tolerance = 5.0
+        elif frequency < 1e6:
+            tolerance = 100.0
+        elif frequency < 1e9:
+            tolerance = 10000.0
+        else:
+            tolerance = 1e6
+
+    # Search IOC_FREQUENCIES['discrete']
+    for f, label in IOC_FREQUENCIES["discrete"]:
+        if abs(f - frequency) <= tolerance:
+            matches.append({"freq_hz": f, "label": label, "source": "IOC_FREQUENCIES"})
+
+    # Search IOC_FREQUENCIES_EXT
+    for ioc in globals().get('IOC_FREQUENCIES_EXT', []):
+        freq = ioc.get('freq_hz')
+        span = ioc.get('span_hz', tolerance)
+        if freq is not None and abs(frequency - freq) <= span:
+            result = dict(ioc)
+            result['source'] = 'IOC_FREQUENCIES_EXT'
+            matches.append(result)
+
+    # Search IOC_FREQUENCIES_SIGINT
+    for ioc in globals().get('IOC_FREQUENCIES_SIGINT', []):
+        freq = ioc.get('freq_hz')
+        span = ioc.get('span_hz', tolerance)
+        if freq is not None and abs(frequency - freq) <= span:
+            result = dict(ioc)
+            result['source'] = 'IOC_FREQUENCIES_SIGINT'
+            matches.append(result)
+
+    return matches
 
 def get_ioc_references(category: str = None) -> list:
     """
@@ -3559,8 +4186,11 @@ REFERENCES: Dict[str, Tuple[str, str]] = {
 # ============================================================
 # Utility helpers (backwards-compatible lookups)
 # ============================================================
-def find_discrete_by_freq(freq_hz: float, tolerance_hz: float = 0.0):
-    """Return matching discrete IOC entries within tolerance (Hz)."""
+def find_discrete_by_freq_legacy(freq_hz: float, tolerance_hz: float = 0.0):
+    """
+    LEGACY: Return matching discrete IOC entries within tolerance (Hz).
+    For backwards compatibility - use find_discrete_by_freq() for comprehensive search.
+    """
     tol = float(tolerance_hz)
     matches = []
     for f, label in IOC_FREQUENCIES["discrete"]:
@@ -3570,15 +4200,319 @@ def find_discrete_by_freq(freq_hz: float, tolerance_hz: float = 0.0):
 
 
 def band_contains(freq_hz: float):
-    """Return list of AUDIO_BANDS and IOC_FREQUENCIES['ranges'] entries that contain freq_hz."""
+    """
+    Return list of AUDIO_BANDS and IOC_FREQUENCIES['ranges'] entries that contain freq_hz.
+    Enhanced to include all frequency databases.
+    """
     res = []
+    
+    # Original AUDIO_BANDS
     for a, b, desc in AUDIO_BANDS:
         if a <= freq_hz <= b:
             res.append(("audio_band", (a, b, desc)))
+    
+    # Original IOC_FREQUENCIES ranges
     for a, b, desc, conf in IOC_FREQUENCIES["ranges"]:
         if a <= freq_hz <= b:
             res.append(("ioc_range", (a, b, desc, conf)))
+    
+    # Extended: Check IOC_FREQUENCIES_SIGINT
+    for ioc in globals().get('IOC_FREQUENCIES_SIGINT', []):
+        freq = ioc.get('freq_hz')
+        span = ioc.get('span_hz', 0)
+        if freq and span:
+            if (freq - span) <= freq_hz <= (freq + span):
+                res.append(("sigint_range", (freq - span, freq + span, ioc.get('label', 'Unknown'), ioc.get('confidence', 50))))
+    
     return res
+
+
+def get_all_frequency_matches(freq_hz: float, tolerance_hz: float = None) -> Dict:
+    """
+    Comprehensive frequency lookup returning all matching entries from all databases.
+    
+    Args:
+        freq_hz: Frequency in Hz
+        tolerance_hz: Tolerance in Hz (auto-calculated if None)
+    
+    Returns:
+        Dict with keys: discrete_match, band_matches, sigint_matches, all_matches
+    """
+    result = {
+        'frequency_hz': freq_hz,
+        'discrete_match': find_discrete_by_freq(freq_hz, tolerance_hz),
+        'band_match': find_band_by_freq(freq_hz),
+        'all_matches': find_all_matches_by_freq(freq_hz, tolerance_hz),
+        'band_contains': band_contains(freq_hz),
+    }
+    
+    # Add threat assessment
+    threat_levels = []
+    for match in result['all_matches']:
+        if 'threat_level' in match:
+            threat_levels.append(match['threat_level'])
+    
+    if 'critical' in threat_levels:
+        result['overall_threat'] = 'CRITICAL'
+    elif 'high' in threat_levels:
+        result['overall_threat'] = 'HIGH'
+    elif 'medium' in threat_levels:
+        result['overall_threat'] = 'MEDIUM'
+    elif 'surveillance' in threat_levels or 'tracking' in threat_levels:
+        result['overall_threat'] = 'SURVEILLANCE'
+    elif 'intel' in threat_levels:
+        result['overall_threat'] = 'INTEL'
+    elif threat_levels:
+        result['overall_threat'] = threat_levels[0].upper()
+    else:
+        result['overall_threat'] = 'BENIGN'
+    
+    return result
+
+
+# ============================================================
+# UNIFIED SIGNAL IOC LOOKUP FUNCTIONS
+# ============================================================
+# Comprehensive lookup across all frequency and Bluetooth databases
+
+def unified_signal_lookup(
+    frequency_hz: float = None,
+    mac_address: str = None,
+    device_name: str = None,
+    manufacturer_id: int = None,
+    service_uuids: List[str] = None,
+    rssi: int = None,
+    tolerance_hz: float = None
+) -> Dict:
+    """
+    UNIFIED IOC LOOKUP - Comprehensive signal threat intelligence.
+    
+    Searches across ALL IOC databases:
+    - Frequency databases: IOC_FREQUENCIES, IOC_FREQUENCIES_EXT, IOC_FREQUENCIES_SIGINT
+    - Band databases: VLF_LF through MMWAVE, CELLULAR_BANDS
+    - Bluetooth databases: Manufacturer IOCs, Service UUIDs, Device Patterns
+    
+    Args:
+        frequency_hz: Signal frequency in Hz (optional)
+        mac_address: Bluetooth MAC address (optional)
+        device_name: Bluetooth device name (optional)
+        manufacturer_id: Bluetooth SIG manufacturer ID (optional)
+        service_uuids: List of Bluetooth service UUIDs (optional)
+        rssi: Received signal strength in dBm (optional)
+        tolerance_hz: Frequency tolerance in Hz (auto-calculated if None)
+    
+    Returns:
+        Comprehensive threat assessment dict
+    """
+    result = {
+        "timestamp": datetime.now().isoformat(),
+        "input_parameters": {
+            "frequency_hz": frequency_hz,
+            "mac_address": mac_address,
+            "device_name": device_name,
+            "manufacturer_id": manufacturer_id,
+            "service_uuids": service_uuids,
+            "rssi": rssi,
+        },
+        "frequency_analysis": None,
+        "bluetooth_analysis": None,
+        "combined_threats": [],
+        "overall_threat_level": "benign",
+        "recommendations": [],
+    }
+    
+    threat_scores = {"critical": 4, "high": 3, "medium": 2, "low": 1, "benign": 0, "intel": 1, "surveillance": 2, "tracking": 2}
+    max_threat_score = 0
+    
+    # === Frequency Analysis ===
+    if frequency_hz is not None:
+        freq_analysis = get_all_frequency_matches(frequency_hz, tolerance_hz)
+        result["frequency_analysis"] = freq_analysis
+        
+        # Get threat level from frequency analysis
+        freq_threat = freq_analysis.get("overall_threat", "BENIGN")
+        score = threat_scores.get(freq_threat.lower(), 0)
+        if score > max_threat_score:
+            max_threat_score = score
+        
+        # Add frequency-based threats
+        for match in freq_analysis.get("all_matches", []):
+            if match.get("threat_level") in ["critical", "high", "medium", "surveillance", "tracking"]:
+                result["combined_threats"].append({
+                    "source": "frequency",
+                    "level": match.get("threat_level"),
+                    "description": match.get("label", "Unknown"),
+                    "category": match.get("category", "Unknown"),
+                    "frequency_hz": match.get("freq_hz"),
+                })
+    
+    # === Bluetooth Analysis ===
+    if any([mac_address, device_name, manufacturer_id, service_uuids]):
+        bt_analysis = analyze_bluetooth_threat(
+            mac_address=mac_address,
+            device_name=device_name,
+            manufacturer_id=manufacturer_id,
+            service_uuids=service_uuids,
+            rssi=rssi
+        )
+        result["bluetooth_analysis"] = bt_analysis
+        
+        # Get threat level from Bluetooth analysis
+        bt_threat = bt_analysis.get("overall_threat_level", "benign")
+        score = threat_scores.get(bt_threat.lower(), 0)
+        if score > max_threat_score:
+            max_threat_score = score
+        
+        # Add Bluetooth-based threats
+        for threat in bt_analysis.get("threats_detected", []):
+            result["combined_threats"].append({
+                "source": "bluetooth",
+                "level": threat.get("level"),
+                "description": threat.get("description"),
+                "type": threat.get("type"),
+            })
+        
+        # Add Bluetooth recommendations
+        result["recommendations"].extend(bt_analysis.get("recommendations", []))
+    
+    # === Set Overall Threat Level ===
+    threat_level_map = {4: "CRITICAL", 3: "HIGH", 2: "MEDIUM", 1: "LOW", 0: "BENIGN"}
+    result["overall_threat_level"] = threat_level_map.get(max_threat_score, "UNKNOWN")
+    
+    # === Add General Recommendations ===
+    if result["overall_threat_level"] == "CRITICAL":
+        result["recommendations"].append("🚨 CRITICAL THREAT: Immediate investigation required")
+        result["recommendations"].append("📞 Consider reporting to security team")
+    elif result["overall_threat_level"] == "HIGH":
+        result["recommendations"].append("⚠️ HIGH RISK: Verify device legitimacy")
+        result["recommendations"].append("🔍 Document and monitor this signal/device")
+    elif result["overall_threat_level"] == "MEDIUM":
+        result["recommendations"].append("ℹ️ MEDIUM RISK: Monitor for suspicious activity")
+    
+    return result
+
+
+def print_ioc_summary(analysis: Dict, verbose: bool = False) -> None:
+    """
+    Print a formatted summary of unified IOC analysis results.
+    
+    Args:
+        analysis: Result from unified_signal_lookup()
+        verbose: If True, print full details
+    """
+    print("\n" + "=" * 70)
+    print("📡 UNIFIED SIGNAL IOC ANALYSIS REPORT")
+    print("=" * 70)
+    print(f"Timestamp: {analysis.get('timestamp', 'Unknown')}")
+    print(f"Overall Threat Level: {analysis.get('overall_threat_level', 'Unknown')}")
+    print("-" * 70)
+    
+    # Frequency Analysis
+    freq = analysis.get("frequency_analysis")
+    if freq:
+        print("\n📻 FREQUENCY ANALYSIS:")
+        freq_hz = freq.get("frequency_hz")
+        if freq_hz:
+            if freq_hz >= 1e9:
+                print(f"   Frequency: {freq_hz/1e9:.4f} GHz")
+            elif freq_hz >= 1e6:
+                print(f"   Frequency: {freq_hz/1e6:.4f} MHz")
+            elif freq_hz >= 1e3:
+                print(f"   Frequency: {freq_hz/1e3:.4f} kHz")
+            else:
+                print(f"   Frequency: {freq_hz:.2f} Hz")
+        
+        discrete = freq.get("discrete_match")
+        if discrete:
+            print(f"   Discrete IOC: {discrete.get('label', 'Unknown')}")
+            print(f"   Source: {discrete.get('source', 'Unknown')}")
+        
+        band = freq.get("band_match")
+        if band:
+            print(f"   Band: {band.get('name', 'Unknown')} - {band.get('label', '')}")
+    
+    # Bluetooth Analysis
+    bt = analysis.get("bluetooth_analysis")
+    if bt:
+        print("\n📶 BLUETOOTH ANALYSIS:")
+        if bt.get("mac_address"):
+            print(f"   MAC Address: {bt['mac_address']}")
+        if bt.get("device_name"):
+            print(f"   Device Name: {bt['device_name']}")
+        if bt.get("manufacturer_info"):
+            mfg = bt["manufacturer_info"]
+            print(f"   Manufacturer: {mfg.get('name', 'Unknown')}")
+        if bt.get("estimated_distance_m"):
+            print(f"   Est. Distance: {bt['estimated_distance_m']:.1f}m")
+    
+    # Threats
+    threats = analysis.get("combined_threats", [])
+    if threats:
+        print("\n🚨 THREATS DETECTED:")
+        for threat in threats:
+            level = threat.get("level", "unknown").upper()
+            desc = threat.get("description", "Unknown")
+            source = threat.get("source", "Unknown")
+            print(f"   [{level}] ({source}) {desc}")
+    
+    # Recommendations
+    recs = analysis.get("recommendations", [])
+    if recs:
+        print("\n💡 RECOMMENDATIONS:")
+        for rec in recs:
+            print(f"   {rec}")
+    
+    print("\n" + "=" * 70)
+
+
+def get_ioc_database_stats() -> Dict:
+    """
+    Get statistics about loaded IOC databases.
+    
+    Returns:
+        Dict with database statistics
+    """
+    stats = {
+        "frequency_databases": {
+            "IOC_FREQUENCIES_discrete": len(IOC_FREQUENCIES.get("discrete", [])),
+            "IOC_FREQUENCIES_ranges": len(IOC_FREQUENCIES.get("ranges", [])),
+            "IOC_FREQUENCIES_EXT": len(globals().get("IOC_FREQUENCIES_EXT", [])),
+            "IOC_FREQUENCIES_SIGINT": len(globals().get("IOC_FREQUENCIES_SIGINT", [])),
+            "AUDIO_BANDS": len(AUDIO_BANDS),
+        },
+        "band_databases": {},
+        "bluetooth_databases": {
+            "BLUETOOTH_MANUFACTURER_IOCS": len(globals().get("BLUETOOTH_MANUFACTURER_IOCS", {})),
+            "BLUETOOTH_SERVICE_IOCS": len(globals().get("BLUETOOTH_SERVICE_IOCS", {})),
+            "BLUETOOTH_ADV_PATTERNS": len(globals().get("BLUETOOTH_ADV_PATTERNS", {})),
+            "BLUETOOTH_MALICIOUS_SIGNATURES": len(globals().get("BLUETOOTH_MALICIOUS_SIGNATURES", [])),
+        },
+        "total_iocs": 0,
+    }
+    
+    # Count band databases
+    band_tables = [
+        'VLF_LF_FREQUENCIES', 'MF_HF_FREQUENCIES', 'VHF_FREQUENCIES',
+        'UHF_LOW_FREQUENCIES', 'UHF_HIGH_FREQUENCIES', 'L_BAND_FREQUENCIES',
+        'S_BAND_FREQUENCIES', 'C_BAND_FREQUENCIES', 'X_BAND_FREQUENCIES',
+        'KU_BAND_FREQUENCIES', 'K_KA_BAND_FREQUENCIES', 'MMWAVE_FREQUENCIES',
+        'UWB_FREQUENCIES', 'CELLULAR_BANDS'
+    ]
+    
+    for tab in band_tables:
+        d = globals().get(tab, {})
+        if isinstance(d, dict):
+            count = sum(len(v) if isinstance(v, (list, dict)) else 1 for v in d.values())
+            stats["band_databases"][tab] = count
+    
+    # Calculate total
+    stats["total_iocs"] = (
+        sum(stats["frequency_databases"].values()) +
+        sum(stats["band_databases"].values()) +
+        sum(stats["bluetooth_databases"].values())
+    )
+    
+    return stats
 
 
 # ============================================================
@@ -4016,9 +4950,11 @@ class IOCMatcher:
         if ioc_match:
             confidence = ioc_match.get('confidence', 85)
             label = ioc_match.get('label', 'Unknown IoC')
-            category = ioc_match.get('category', 'UNKNOWN')
+            category = ioc_match.get('category', 'EXTENDED_IOC')
+            source = ioc_match.get('source', 'IOC_EXT')
+            ioc_type = f"{category}_{source}" if category != 'EXTENDED_IOC' else source
             print(f"[IOC-EXT] ✓ Matched: {label} ({category}) - Confidence: {confidence}%")
-            return True, confidence, label
+            return True, confidence, label, ioc_type
         
         is_discrete, discrete_threat, discrete_desc = IOCMatcher.check_discrete_match(frequency)
         if is_discrete:
@@ -21628,6 +22564,110 @@ class IOCRegistry:
     def get_iocs_by_category(self, category):
         """Get all IOCs in a category"""
         return [ioc for ioc in self.iocs if ioc.category == category]
+    
+    def match(self, ioc_type: str, value: Any, verbose_debug: bool = False) -> List:
+        """
+        Match observations against IOCs of a specific type.
+        
+        Args:
+            ioc_type: Type of IOC to match against (e.g., 'bluetooth', 'audio', 'wifi', 'rf', etc.)
+            value: Observation value to test - can be:
+                   - str: device name, SSID, etc.
+                   - dict: observation with fields like 'freq_hz', 'magnitude', 'name', etc.
+                   - Any: passed directly to detection functions
+            verbose_debug: If True, log matching details
+        
+        Returns:
+            List of matching ThreatIOC objects
+        """
+        matches = []
+        
+        # Build observation dict based on input type
+        if isinstance(value, str):
+            obs = {'name': value, 'ssid': value, 'details': value, 'type': ioc_type}
+        elif isinstance(value, dict):
+            obs = value
+            obs.setdefault('type', ioc_type)
+        else:
+            obs = {'value': value, 'type': ioc_type}
+        
+        # Get IOCs for this type
+        type_iocs = self.get_iocs_by_type(ioc_type)
+        
+        for ioc in type_iocs:
+            try:
+                if ioc.detection_function and ioc.detection_function(obs):
+                    matches.append(ioc)
+                    if verbose_debug:
+                        logging.debug(f"IOCRegistry.match: {ioc.indicator} matched for type={ioc_type}")
+            except Exception as e:
+                if verbose_debug:
+                    logging.debug(f"IOCRegistry.match error for {ioc.indicator}: {e}")
+                continue
+        
+        # Also check all IOCs if no type-specific matches (for flexible matching)
+        if not matches:
+            for ioc in self.iocs:
+                try:
+                    if ioc.detection_function and ioc.detection_function(obs):
+                        matches.append(ioc)
+                        if verbose_debug:
+                            logging.debug(f"IOCRegistry.match (fallback): {ioc.indicator} matched")
+                except Exception:
+                    continue
+        
+        return matches
+    
+    def check_observation(self, observation: Dict) -> List:
+        """
+        Check an observation dict against all relevant IOCs.
+        
+        Args:
+            observation: Dict with observation data (freq_hz, magnitude, name, type, etc.)
+        
+        Returns:
+            List of matching ThreatIOC objects
+        """
+        matches = []
+        obs_type = observation.get('type', '')
+        
+        for ioc in self.iocs:
+            try:
+                # Check if IOC type matches observation type, or if IOC applies to all
+                if ioc.type == obs_type or ioc.type == 'all':
+                    if ioc.detection_function and ioc.detection_function(observation):
+                        matches.append(ioc)
+            except Exception:
+                continue
+        
+        return matches
+    
+    def get_threat_summary(self, matches: List) -> Dict:
+        """
+        Generate a threat summary from a list of IOC matches.
+        
+        Args:
+            matches: List of ThreatIOC objects
+        
+        Returns:
+            Dict with threat summary (max_severity, categories, descriptions)
+        """
+        if not matches:
+            return {
+                'threat_detected': False,
+                'max_severity': 0,
+                'categories': [],
+                'descriptions': [],
+                'indicators': []
+            }
+        
+        return {
+            'threat_detected': True,
+            'max_severity': max(ioc.severity for ioc in matches),
+            'categories': list(set(ioc.category for ioc in matches)),
+            'descriptions': [ioc.description for ioc in matches],
+            'indicators': [ioc.indicator for ioc in matches]
+        }
 #=================================================================================================
 # IR (Infrared) Remote/Surveillance Monitor–Detector–IOC Engine (Research-Grade 2025)
 #=================================================================================================
