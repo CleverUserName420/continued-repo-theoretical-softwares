@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+import uuid
+
 """
 ================================================================================
                     RESEARCH & DEVELOPMENT DISCLAIMER
@@ -855,91 +858,6 @@ def merge_threat_contexts(contexts: List[Dict]) -> Dict:
     return merged
 
 print("[HELPERS] ✓ Loaded threat detection helper functions")
-
-# ============================================================================
-# ACTUAL IEEE OUI DATABASE PARSER - NO PLACEHOLDERS
-# ============================================================================
-
-class IEEEOUIDatabase:
-    """Parse and query the IEEE OUI (Organizationally Unique Identifier) database"""
-    
-    def __init__(self, oui_file_path: str):
-        from pathlib import Path
-        self.oui_file_path = Path(oui_file_path) if oui_file_path else None
-        self.oui_database = {}
-        if self.oui_file_path and self.oui_file_path.exists():
-            self.parse_oui_database()
-    
-    def parse_oui_database(self):
-        """Parse IEEE OUI database from text file"""
-        import re
-        print(f"[IEEE-OUI] 📖 Parsing {self.oui_file_path}...")
-        
-        current_oui = None
-        current_org = None
-        current_address = []
-        
-        with open(self.oui_file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                line = line.strip()
-                oui_match = re.match(r'^([0-9A-F]{2})-([0-9A-F]{2})-([0-9A-F]{2})\s+\(hex\)\s+(.+)$', line)
-                if oui_match:
-                    if current_oui and current_org:
-                        self.oui_database[current_oui] = {
-                            'organization': current_org,
-                            'address': ' '.join(current_address),
-                            'oui_colon': ':'.join([current_oui[i:i+2] for i in range(0, 6, 2)])
-                        }
-                    current_oui = oui_match.group(1) + oui_match.group(2) + oui_match.group(3)
-                    current_org = oui_match.group(4).strip()
-                    current_address = []
-                elif line and not line.startswith(('OUI', 'company_id')) and current_oui:
-                    if '(base 16)' not in line:
-                        current_address.append(line)
-        
-        if current_oui and current_org:
-            self.oui_database[current_oui] = {
-                'organization': current_org,
-                'address': ' '.join(current_address),
-                'oui_colon': ':'.join([current_oui[i:i+2] for i in range(0, 6, 2)])
-            }
-        
-        print(f"[IEEE-OUI] ✓ Loaded {len(self.oui_database):,} OUI assignments")
-    
-    def lookup_oui(self, mac_address: str):
-        """Lookup organization by MAC address"""
-        mac_clean = mac_address.upper().replace(':', '').replace('-', '').replace('.', '')
-        if len(mac_clean) >= 6:
-            oui = mac_clean[:6]
-            return self.oui_database.get(oui)
-        return None
-    
-    def is_cybercrime_vendor(self, mac_address: str):
-        """Check if vendor is associated with cybercrime devices"""
-        oui_info = self.lookup_oui(mac_address)
-        if not oui_info:
-            return False, "Unknown OUI"
-        
-        org = oui_info['organization'].lower()
-        cybercrime_vendors = {
-            'espressif': 'ESP32 - Most popular attack platform',
-            'texas instruments': 'TI CC series - Common in skimmers',
-            'nordic semiconductor': 'nRF series - Popular for BLE attacks',
-            'dialog semiconductor': 'DA series - Badge hacker chip',
-            'qualcomm': 'CSR chips - Audio bugs',
-            'realtek': 'RTL87 series - Disguised bugs',
-            'broadcom': 'BCM series - Raspberry Pi attacks',
-            'silicon labs': 'EFR32 - Mesh attacks',
-            'cypress': 'CYW series - Low-level attacks',
-            'stmicroelectronics': 'BlueNRG - Covert beacons',
-            'mediatek': 'MTK series - No-brand devices',
-            'microchip': 'RN/BTLC series - POS/badge attacks',
-        }
-        
-        for vendor, reason in cybercrime_vendors.items():
-            if vendor in org:
-                return True, reason
-        return False, "Legitimate vendor"
 
 # ============================================================================
 # ACTUAL BLUETOOTH ASSIGNED NUMBERS PDF PARSER - NO PLACEHOLDERS
@@ -16685,194 +16603,199 @@ class BLEDeviceInfo:
             return self.tx_power
         return -59  # Default calibrated TX power at 1m
 
-    # Utility/logging functions - keep these at module level, outside BLEDeviceInfo!
-    def process_ble_device_comprehensive(device_info, ioc_database=None) -> dict:
-        result = {
-            'address': getattr(device_info, 'address', 'unknown'),
-            'name': getattr(device_info, 'name', 'unnamed'),
-            'rssi': getattr(device_info, 'rssi', None),
-            'threat_score': 0,
-            'ioc_matches': [],
-        }
-        if ioc_database:
-            try:
-                matches = check_ble_iocs(device_info)
-                result['ioc_matches'] = matches
-                for _, desc, severity in matches:
-                    result['threat_score'] += severity // 2
-            except: pass
-        return result
 
-    def log_ble_scan_event(event_type: str, details: str = ""):
-        """Log BLE scan events with timestamp"""
-        import time
-        timestamp = time.strftime("%H:%M:%S")
-        print(f"[{timestamp}] [BLE-{event_type}] {details}")
+# ============================================================
+# BLE UTILITY AND LOGGING FUNCTIONS
+# ============================================================
+# Module-level functions for BLE device processing and logging
 
-    def log_ble_device_details(device):
-        """Log the most detailed BLE device summary, leveraging all known fields, company lookup, classification, IoC and anomaly status."""
+def process_ble_device_comprehensive(device_info, ioc_database=None) -> dict:
+    result = {
+        'address': getattr(device_info, 'address', 'unknown'),
+        'name': getattr(device_info, 'name', 'unnamed'),
+        'rssi': getattr(device_info, 'rssi', None),
+        'threat_score': 0,
+        'ioc_matches': [],
+    }
+    if ioc_database:
+        try:
+            matches = check_ble_iocs(device_info)
+            result['ioc_matches'] = matches
+            for _, desc, severity in matches:
+                result['threat_score'] += severity // 2
+        except: pass
+    return result
 
-        # Company/Vendor identifier
-        manid = getattr(device, 'manufacturer_id', None)
-        vendor_name = CompanyIdentifier.get_name(manid) if manid is not None else "Unknown"
-        
-        # Category/classification (wearable, tracker, beacon, etc)
-        from_category = getattr(device, 'device_category', "Unknown")
-        # Security/testing device detection
-        security_tool_name = getattr(device, 'security_tool_name', None)
-        is_security = f"SecurityTool: {security_tool_name}" if security_tool_name else ""
-        
-        # Beacon protocols
-        beacon_fields = []
-        if getattr(device, 'is_beacon', False):
-            if getattr(device, 'ibeacon', None):
-                ibeacon = device.ibeacon
-                beacon_fields.append(
-                    f"iBeacon: UUID={getattr(ibeacon, 'uuid', '?')}, "
-                    f"Major={getattr(ibeacon, 'major', '?')}, "
-                    f"Minor={getattr(ibeacon, 'minor', '?')}, "
-                    f"TX_Power={getattr(ibeacon, 'tx_power_1m', '?')}"
-                )
-            if getattr(device, 'eddystone_uid', None):
-                eu = device.eddystone_uid
-                beacon_fields.append(
-                    f"EddystoneUID: NS={getattr(eu, 'namespace_id', '?')}, "
-                    f"Instance={getattr(eu, 'instance_id', '?')}, "
-                    f"TX_Power={getattr(eu, 'tx_power_0m', '?')}"
-                )
-            if getattr(device, 'eddystone_url', None):
-                eu = device.eddystone_url
-                beacon_fields.append(
-                    f"EddystoneURL: {getattr(eu, 'url', '?')}, "
-                    f"TX_Power={getattr(eu, 'tx_power_0m', '?')}"
-                )
-            if getattr(device, 'eddystone_tlm', None):
-                et = device.eddystone_tlm
-                beacon_fields.append(
-                    f"EddystoneTLM: Battery={getattr(et, 'battery_mv', '?')}mV, "
-                    f"Temp={getattr(et, 'temperature_c', '?')}C, "
-                    f"AdvCount={getattr(et, 'adv_count', '?')}, "
-                    f"Uptime={getattr(et, 'uptime_sec', '?')}"
-                )
+def log_ble_scan_event(event_type: str, details: str = ""):
+    """Log BLE scan events with timestamp"""
+    import time
+    timestamp = time.strftime("%H:%M:%S")
+    print(f"[{timestamp}] [BLE-{event_type}] {details}")
 
-        is_beacon = "Beacon: yes" if getattr(device, 'is_beacon', False) else ""
+def log_ble_device_details(device):
+    """Log the most detailed BLE device summary, leveraging all known fields, company lookup, classification, IoC and anomaly status."""
 
-        # Here, *outside* the block above:
-        if getattr(device, "device_category", "") == "Passive_Backscatter_Candidate":
-            log.warning(
-                f"⚠️ Possible Passive BLE Backscatter tag detected: "
-                f"MAC={device.address} RSSI~{np.median(device.rssi_history):.1f}dBm"
+    # Company/Vendor identifier
+    manid = getattr(device, 'manufacturer_id', None)
+    vendor_name = CompanyIdentifier.get_name(manid) if manid is not None else "Unknown"
+    
+    # Category/classification (wearable, tracker, beacon, etc)
+    from_category = getattr(device, 'device_category', "Unknown")
+    # Security/testing device detection
+    security_tool_name = getattr(device, 'security_tool_name', None)
+    is_security = f"SecurityTool: {security_tool_name}" if security_tool_name else ""
+    
+    # Beacon protocols
+    beacon_fields = []
+    if getattr(device, 'is_beacon', False):
+        if getattr(device, 'ibeacon', None):
+            ibeacon = device.ibeacon
+            beacon_fields.append(
+                f"iBeacon: UUID={getattr(ibeacon, 'uuid', '?')}, "
+                f"Major={getattr(ibeacon, 'major', '?')}, "
+                f"Minor={getattr(ibeacon, 'minor', '?')}, "
+                f"TX_Power={getattr(ibeacon, 'tx_power_1m', '?')}"
             )
-        
-        # Address type (random/static, resolvable, etc)
-        addr_type = getattr(device, 'address_type', "Unknown")
-        trackable = "Trackable: yes" if getattr(device, 'is_trackable', False) else "Trackable: no"
-        
-        # Service info (UUIDs and resolved names)
-        service_uuids = getattr(device, 'service_uuids', [])
-        service_names = []
-        for s in service_uuids:
-            try:
-                service_names.append(ServiceUUID.get_service_name(s))
-            except Exception:
-                service_names.append(str(s))
-        
-        services = ", ".join([f"{s} ({n})" for s, n in zip(service_uuids, service_names)]) if service_uuids else "None"
-        # Manufacturer data (raw hex if present)
-        mdata = getattr(device, 'manufacturer_data', None)
-        mdata_str = mdata.hex().upper() if isinstance(mdata, bytes) else str(mdata) if mdata else "None"
-        
-        # Tx Power
-        tx_power = getattr(device, 'tx_power', None)
-        tx_str = f"{tx_power} dBm" if tx_power is not None else "Unknown"
-        
-        # Recent statistics/behavioral features
-        stats = getattr(device, 'statistics', None)
-        stat_fields = []
-        if stats:
-            stat_fields.append(f"RSSI_mean={getattr(stats, 'mean', '?'):.1f}")
-            stat_fields.append(f"RSSI_std={getattr(stats, 'std', '?'):.1f}")
-            stat_fields.append(f"RSSI_var={getattr(stats, 'variance', '?'):.2f}")
-            stat_fields.append(f"packet_rate={getattr(stats, 'packet_reception_rate', '?')}")
-            stat_fields.append(f"adv_interval_mean_ms={getattr(stats, 'advertisement_interval_mean_ms', '?')}")
-            stat_fields.append(f"mobility_score={getattr(device, 'mobility_score', '?')}")
-        stat_str = ", ".join(stat_fields) if stat_fields else "None"
-        
-        # Distance metrics, last seen, advertisement count, etc
-        est_dist = getattr(device, 'estimated_distance_m', None)
-        distance_str = f"{est_dist:.2f}m" if est_dist is not None else "Unknown"
-        adv_ct = getattr(device, 'advertisement_count', None)
-        adv_str = str(adv_ct) if adv_ct is not None else "Unknown"
-        first_seen = getattr(device, 'first_seen', None)
-        last_seen = getattr(device, 'last_seen', None)
-        now = time.time()
-        age_str = f"{(now - last_seen):.1f}s ago" if last_seen is not None else "Unknown"
-        
-        anomalies = getattr(device, 'anomalies', [])
-        anomaly_msg = f"Anomalies: {anomalies}" if anomalies else ""
+        if getattr(device, 'eddystone_uid', None):
+            eu = device.eddystone_uid
+            beacon_fields.append(
+                f"EddystoneUID: NS={getattr(eu, 'namespace_id', '?')}, "
+                f"Instance={getattr(eu, 'instance_id', '?')}, "
+                f"TX_Power={getattr(eu, 'tx_power_0m', '?')}"
+            )
+        if getattr(device, 'eddystone_url', None):
+            eu = device.eddystone_url
+            beacon_fields.append(
+                f"EddystoneURL: {getattr(eu, 'url', '?')}, "
+                f"TX_Power={getattr(eu, 'tx_power_0m', '?')}"
+            )
+        if getattr(device, 'eddystone_tlm', None):
+            et = device.eddystone_tlm
+            beacon_fields.append(
+                f"EddystoneTLM: Battery={getattr(et, 'battery_mv', '?')}mV, "
+                f"Temp={getattr(et, 'temperature_c', '?')}C, "
+                f"AdvCount={getattr(et, 'adv_count', '?')}, "
+                f"Uptime={getattr(et, 'uptime_sec', '?')}"
+            )
 
-        # Build main log fields
-        details = [
-            f"Address: {getattr(device, 'address', '?')}",
-            f"Type: {addr_type}",
-            f"Vendor: {vendor_name} (0x{manid:04X})" if manid is not None else f"Vendor: Unknown",
-            f"Category/Class: {from_category}",
-            is_security,
-            is_beacon,
-            trackable,
-            f"Name: {getattr(device, 'name', 'unnamed')}",
-            f"RSSI: {getattr(device, 'rssi', 'N/A')} dBm",
-            f"TX Power: {tx_str}",
-            f"Estimated Distance: {distance_str}",
-            f"Adv Count: {adv_str}",
-            f"Services: {services}",
-            f"ManufData: {mdata_str}",
-            *beacon_fields,
-            f"Statistics: {stat_str}",
-            f"First Seen: {first_seen}" if first_seen is not None else "",
-            f"Last Seen: {last_seen}" if last_seen is not None else "",
-            f"Last Seen Age: {age_str}",
-            anomaly_msg
-        ]
-        # Remove blanks and join fields
-        log_ble_scan_event("DEVICE", " | ".join([d for d in details if d and d.strip() != ""]))
+    is_beacon = "Beacon: yes" if getattr(device, 'is_beacon', False) else ""
 
-    def log_ioc_match(ioc_type: str, description: str, severity: int):
-        """Log IOC match with visual indicator"""
-        indicator = "🔴" if severity >= 80 else "🟠" if severity >= 60 else "🟡"
-        log_ble_scan_event(f"IOC-{ioc_type}", f"{indicator} {description} (severity: {severity})")
+    # Here, *outside* the block above:
+    if getattr(device, "device_category", "") == "Passive_Backscatter_Candidate":
+        log.warning(
+            f"⚠️ Possible Passive BLE Backscatter tag detected: "
+            f"MAC={device.address} RSSI~{np.median(device.rssi_history):.1f}dBm"
+        )
+    
+    # Address type (random/static, resolvable, etc)
+    addr_type = getattr(device, 'address_type', "Unknown")
+    trackable = "Trackable: yes" if getattr(device, 'is_trackable', False) else "Trackable: no"
+    
+    # Service info (UUIDs and resolved names)
+    service_uuids = getattr(device, 'service_uuids', [])
+    service_names = []
+    for s in service_uuids:
+        try:
+            service_names.append(ServiceUUID.get_service_name(s))
+        except Exception:
+            service_names.append(str(s))
+    
+    services = ", ".join([f"{s} ({n})" for s, n in zip(service_uuids, service_names)]) if service_uuids else "None"
+    # Manufacturer data (raw hex if present)
+    mdata = getattr(device, 'manufacturer_data', None)
+    mdata_str = mdata.hex().upper() if isinstance(mdata, bytes) else str(mdata) if mdata else "None"
+    
+    # Tx Power
+    tx_power = getattr(device, 'tx_power', None)
+    tx_str = f"{tx_power} dBm" if tx_power is not None else "Unknown"
+    
+    # Recent statistics/behavioral features
+    stats = getattr(device, 'statistics', None)
+    stat_fields = []
+    if stats:
+        stat_fields.append(f"RSSI_mean={getattr(stats, 'mean', '?'):.1f}")
+        stat_fields.append(f"RSSI_std={getattr(stats, 'std', '?'):.1f}")
+        stat_fields.append(f"RSSI_var={getattr(stats, 'variance', '?'):.2f}")
+        stat_fields.append(f"packet_rate={getattr(stats, 'packet_reception_rate', '?')}")
+        stat_fields.append(f"adv_interval_mean_ms={getattr(stats, 'advertisement_interval_mean_ms', '?')}")
+        stat_fields.append(f"mobility_score={getattr(device, 'mobility_score', '?')}")
+    stat_str = ", ".join(stat_fields) if stat_fields else "None"
+    
+    # Distance metrics, last seen, advertisement count, etc
+    est_dist = getattr(device, 'estimated_distance_m', None)
+    distance_str = f"{est_dist:.2f}m" if est_dist is not None else "Unknown"
+    adv_ct = getattr(device, 'advertisement_count', None)
+    adv_str = str(adv_ct) if adv_ct is not None else "Unknown"
+    first_seen = getattr(device, 'first_seen', None)
+    last_seen = getattr(device, 'last_seen', None)
+    now = time.time()
+    age_str = f"{(now - last_seen):.1f}s ago" if last_seen is not None else "Unknown"
+    
+    anomalies = getattr(device, 'anomalies', [])
+    anomaly_msg = f"Anomalies: {anomalies}" if anomalies else ""
 
-    def log_threat_score(score: int, address: str = "unknown"):
-        """Log threat score with level"""
-        if score >= 90:
-            level = "🔴 CRITICAL"
-        elif score >= 75:
-            level = "🟠 HIGH"
-        elif score >= 50:
-            level = "🟡 MEDIUM"
-        elif score >= 25:
-            level = "🟢 LOW"
-        else:
-            level = "⚪ INFO"
-        log_ble_scan_event("THREAT", f"{address}: {score}/100 - {level}")
-        
-    def log_ble_device_summary(device: BLEDeviceInfo):
-        print("\n--- BLE Device Summary ---")
-        print(f"Address: {device.address} ({device.address_type})")
-        print(f"Name: {device.name!r}")
-        print(f"Vendor: {CompanyIdentifier.get_name(device.manufacturer_id) if device.manufacturer_id is not None else 'Unknown'}")
-        print(f"Category: {BLEDeviceClassifier.classify(device)}")
-        if device.security_tool_name:
-            print(f"Security Tool: {device.security_tool_name} (!!!)")
-        print(f"Trackable: {device.is_trackable} | Beacon: {device.is_beacon}")
-        print(f"Services: {[ServiceUUID.get_service_name(s) for s in device.service_uuids]}")
-        if device.ibeacon:
-            print(f"iBeacon: UUID={device.ibeacon.uuid}, Major={device.ibeacon.major}, Minor={device.ibeacon.minor}, TX_PWR={device.ibeacon.tx_power_1m}")
-        if device.eddystone_uid:
-            print(f"Eddystone UID: NS={device.eddystone_uid.namespace_id}, Instance={device.eddystone_uid.instance_id}")
-        if device.statistics:
-            print(f"RSSI/Stats: Mean={device.statistics.mean:.1f}, Std={device.statistics.std:.1f}, Mobility={getattr(device, 'mobility_score', '?')}")
-        print(f"BehavioralProfile: {repr(device.statistics) if device.statistics else 'N/A'}")
+    # Build main log fields
+    details = [
+        f"Address: {getattr(device, 'address', '?')}",
+        f"Type: {addr_type}",
+        f"Vendor: {vendor_name} (0x{manid:04X})" if manid is not None else f"Vendor: Unknown",
+        f"Category/Class: {from_category}",
+        is_security,
+        is_beacon,
+        trackable,
+        f"Name: {getattr(device, 'name', 'unnamed')}",
+        f"RSSI: {getattr(device, 'rssi', 'N/A')} dBm",
+        f"TX Power: {tx_str}",
+        f"Estimated Distance: {distance_str}",
+        f"Adv Count: {adv_str}",
+        f"Services: {services}",
+        f"ManufData: {mdata_str}",
+        *beacon_fields,
+        f"Statistics: {stat_str}",
+        f"First Seen: {first_seen}" if first_seen is not None else "",
+        f"Last Seen: {last_seen}" if last_seen is not None else "",
+        f"Last Seen Age: {age_str}",
+        anomaly_msg
+    ]
+    # Remove blanks and join fields
+    log_ble_scan_event("DEVICE", " | ".join([d for d in details if d and d.strip() != ""]))
+
+def log_ioc_match(ioc_type: str, description: str, severity: int):
+    """Log IOC match with visual indicator"""
+    indicator = "🔴" if severity >= 80 else "🟠" if severity >= 60 else "🟡"
+    log_ble_scan_event(f"IOC-{ioc_type}", f"{indicator} {description} (severity: {severity})")
+
+def log_threat_score(score: int, address: str = "unknown"):
+    """Log threat score with level"""
+    if score >= 90:
+        level = "🔴 CRITICAL"
+    elif score >= 75:
+        level = "🟠 HIGH"
+    elif score >= 50:
+        level = "🟡 MEDIUM"
+    elif score >= 25:
+        level = "🟢 LOW"
+    else:
+        level = "⚪ INFO"
+    log_ble_scan_event("THREAT", f"{address}: {score}/100 - {level}")
+    
+def log_ble_device_summary(device: BLEDeviceInfo):
+    print("\n--- BLE Device Summary ---")
+    print(f"Address: {device.address} ({device.address_type})")
+    print(f"Name: {device.name!r}")
+    print(f"Vendor: {CompanyIdentifier.get_name(device.manufacturer_id) if device.manufacturer_id is not None else 'Unknown'}")
+    print(f"Category: {BLEDeviceClassifier.classify(device)}")
+    if device.security_tool_name:
+        print(f"Security Tool: {device.security_tool_name} (!!!)")
+    print(f"Trackable: {device.is_trackable} | Beacon: {device.is_beacon}")
+    print(f"Services: {[ServiceUUID.get_service_name(s) for s in device.service_uuids]}")
+    if device.ibeacon:
+        print(f"iBeacon: UUID={device.ibeacon.uuid}, Major={device.ibeacon.major}, Minor={device.ibeacon.minor}, TX_PWR={device.ibeacon.tx_power_1m}")
+    if device.eddystone_uid:
+        print(f"Eddystone UID: NS={device.eddystone_uid.namespace_id}, Instance={device.eddystone_uid.instance_id}")
+    if device.statistics:
+        print(f"RSSI/Stats: Mean={device.statistics.mean:.1f}, Std={device.statistics.std:.1f}, Mobility={getattr(device, 'mobility_score', '?')}")
+    print(f"BehavioralProfile: {repr(device.statistics) if device.statistics else 'N/A'}")
 
 
 # ============================================================
@@ -16971,36 +16894,6 @@ except ImportError:
 log = logging.getLogger("BLEClassifier")
 
 # Expanded, robust and modernized signature/IOC list for BLE security/pentest hardware
-
-# Minimal OUI (MAC prefix) vendor lookup. Add BLE dev/test OUIs as desired:
-OUI_VENDOR_DB = {
-    "24:0A:C4": "Espressif",
-    "D8:A0:1D": "Adafruit",
-    "C0:98:E5": "Nordic Semiconductor",
-    "7C:DF:A1": "Bluegiga",
-    "E0:98:06": "Seeed Technology",
-    "30:AE:A4": "Particle",
-    "B4:E6:2D": "STMicroelectronics",
-    "B8:27:EB": "Raspberry Pi",
-    "D0:39:72": "Texas Instruments",
-    "A4:C1:38": "Laird",
-    "60:57:18": "Hak5",
-    "3C:71:BF": "Pycom",
-    # Add more as needed!
-}
-
-def get_oui_vendor(mac_addr):
-    """Return vendor name for IEEE MAC OUI, or None if not found or not public."""
-    if not isinstance(mac_addr, str) or len(mac_addr) < 8:
-        return None
-    # Recognize both colon and dash
-    parts = mac_addr.replace("-", ":").upper().split(":")
-    if len(parts) < 3:
-        return None
-    prefix = ":".join(parts[:3])
-    return OUI_VENDOR_DB.get(prefix, None)
-
-# Expanded, robust and modernized signature/IOC list for BLE security/pentest hardware
 SECURITY_TOOL_IOCS = [
     # Device names (case-insensitive substrings and signature prefixes/patterns)
     {"field": "name", "values": [
@@ -17091,13 +16984,13 @@ SECURITY_TOOL_IOCS = [
     ]}
 ]
 
-# BEGIN: Minimal OUI lookup (add before check_security_tool_ioc—extend as needed for your environment)
+# BEGIN: Comprehensive OUI lookup for passive intelligence
+# ============================================================
+# COMPREHENSIVE OUI DATABASE FOR PASSIVE INTELLIGENCE
+# ============================================================
+# NO DEVICE CONNECTIONS REQUIRED - PASSIVE IDENTIFICATION ONLY
+
 OUI_VENDOR_DB = {
-    # ============================================================
-    # COMPREHENSIVE OUI DATABASE FOR PASSIVE INTELLIGENCE
-    # ============================================================
-    # NO DEVICE CONNECTIONS REQUIRED - PASSIVE IDENTIFICATION ONLY
-    
     # === SURVEILLANCE & HIDDEN CAMERA MANUFACTURERS ===
     "00:12:FA": "SHENZHEN CONCOX (GPS Trackers)",
     "00:1E:C2": "AXIS Communications (Surveillance)",
