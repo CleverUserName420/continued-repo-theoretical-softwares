@@ -2702,6 +2702,16 @@ get_search_paths() {
     [[ -d "$MACPORTS/bin" ]] && paths="$MACPORTS/bin:$paths"
     [[ -d "$HOME/.local/bin" ]] && paths="$HOME/.local/bin:$paths"
     [[ -d "$HOME/bin" ]] && paths="$HOME/bin:$paths"
+    
+    # Add additional search paths for various package managers and installations
+    [[ -d "/opt/homebrew/bin" ]] && paths="/opt/homebrew/bin:$paths"
+    [[ -d "/usr/local/bin" ]] && paths="/usr/local/bin:$paths"
+    [[ -d "/opt/local/bin" ]] && paths="/opt/local/bin:$paths"
+    [[ -d "/snap/bin" ]] && paths="/snap/bin:$paths"
+    [[ -d "/usr/games" ]] && paths="/usr/games:$paths"
+    [[ -d "/usr/local/go/bin" ]] && paths="/usr/local/go/bin:$paths"
+    [[ -d "$HOME/go/bin" ]] && paths="$HOME/go/bin:$paths"
+    
     echo "$paths"
 }
 
@@ -2710,13 +2720,24 @@ find_executable() {
     local cmd="$1"
     local search_paths
     
-    # First check if already in PATH
+    # First check if already in PATH using command -v
     if command -v "$cmd" &>/dev/null; then
         DISCOVERED_PATHS["$cmd"]=$(command -v "$cmd")
         return 0
     fi
     
-    # Search in common locations
+    # Check PATH environment variable explicitly
+    if [[ -n "${PATH:-}" ]]; then
+        IFS=':' read -ra path_env <<< "$PATH"
+        for path in "${path_env[@]}"; do
+            if [[ -x "$path/$cmd" ]]; then
+                DISCOVERED_PATHS["$cmd"]="$path/$cmd"
+                return 0
+            fi
+        done
+    fi
+    
+    # Search in common locations using our extended search paths
     search_paths=$(get_search_paths)
     IFS=':' read -ra path_array <<< "$search_paths"
     
@@ -2733,13 +2754,22 @@ find_executable() {
 # Auto-detect Python installation
 auto_detect_python() {
     local python_paths=(
+        "python3"
+        "python"
         "$HOMEBREW_PREFIX/bin/python3"
         "$HOMEBREW_PREFIX/bin/python"
         "/usr/local/bin/python3"
+        "/usr/local/bin/python"
         "/opt/homebrew/bin/python3"
+        "/opt/homebrew/bin/python"
         "/usr/bin/python3"
+        "/usr/bin/python"
         "$HOME/.pyenv/shims/python3"
+        "$HOME/.pyenv/shims/python"
         "$HOME/.local/bin/python3"
+        "$HOME/.local/bin/python"
+        "/opt/local/bin/python3"
+        "/usr/local/Cellar/python*/*/bin/python3"
     )
     
     # Required modules for this script - used to score Python installations
@@ -2750,8 +2780,17 @@ auto_detect_python() {
     local best_score=0
     
     # Score each Python by how many required modules it has
-    for py in "${python_paths[@]}"; do
-        if [[ -x "$py" ]]; then
+    for py_pattern in "${python_paths[@]}"; do
+        # Handle glob patterns
+        for py in $py_pattern; do
+            # Skip if not executable
+            [[ ! -x "$py" ]] && continue
+            
+            # Check if it's actually Python 3
+            if ! "$py" --version 2>&1 | grep -q "Python 3"; then
+                continue
+            fi
+            
             local score=0
             for mod in "${required_modules[@]}"; do
                 # Handle PIL -> Pillow naming
@@ -2765,22 +2804,23 @@ auto_detect_python() {
             if [[ $score -gt $best_score ]]; then
                 best_score=$score
                 best_python="$py"
-                local pip_path="${py%python3}pip3"
+                local pip_path="${py%python*}pip3"
                 [[ -x "$pip_path" ]] && best_pip="$pip_path"
             fi
             
             # If we haven't found ANY Python yet, use this as fallback
             if [[ -z "$best_python" ]]; then
                 best_python="$py"
-                local pip_path="${py%python3}pip3"
+                local pip_path="${py%python*}pip3"
                 [[ -x "$pip_path" ]] && best_pip="$pip_path"
             fi
-        fi
+        done
     done
     
     # Use the best Python found
     if [[ -n "$best_python" ]]; then
         DISCOVERED_PATHS["python3"]="$best_python"
+        DISCOVERED_PATHS["python"]="$best_python"
         [[ -n "$best_pip" ]] && DISCOVERED_PATHS["pip3"]="$best_pip"
         return 0
     fi
@@ -2790,6 +2830,17 @@ auto_detect_python() {
         local pyenv_python=$(pyenv which python3 2>/dev/null)
         if [[ -n "$pyenv_python" ]]; then
             DISCOVERED_PATHS["python3"]="$pyenv_python"
+            DISCOVERED_PATHS["python"]="$pyenv_python"
+            return 0
+        fi
+    fi
+    
+    # Try conda
+    if command -v conda &>/dev/null; then
+        local conda_python=$(conda run which python3 2>/dev/null)
+        if [[ -n "$conda_python" ]]; then
+            DISCOVERED_PATHS["python3"]="$conda_python"
+            DISCOVERED_PATHS["python"]="$conda_python"
             return 0
         fi
     fi
@@ -2800,19 +2851,28 @@ auto_detect_python() {
 # Auto-detect pip installation
 auto_detect_pip() {
     local pip_paths=(
+        "pip3"
+        "pip"
         "$HOMEBREW_PREFIX/bin/pip3"
+        "$HOMEBREW_PREFIX/bin/pip"
         "/usr/local/bin/pip3"
+        "/usr/local/bin/pip"
         "/opt/homebrew/bin/pip3"
+        "/opt/homebrew/bin/pip"
         "/usr/bin/pip3"
+        "/usr/bin/pip"
         "$HOME/.local/bin/pip3"
+        "$HOME/.local/bin/pip"
         "$HOME/Library/Python/3.*/bin/pip3"
+        "$HOME/Library/Python/3.*/bin/pip"
     )
     
-    for pip in "${pip_paths[@]}"; do
+    for pip_pattern in "${pip_paths[@]}"; do
         # Handle glob patterns
-        for expanded in $pip; do
-            if [[ -x "$expanded" ]]; then
-                DISCOVERED_PATHS["pip3"]="$expanded"
+        for pip in $pip_pattern; do
+            if [[ -x "$pip" ]]; then
+                DISCOVERED_PATHS["pip3"]="$pip"
+                DISCOVERED_PATHS["pip"]="$pip"
                 return 0
             fi
         done
@@ -2820,8 +2880,10 @@ auto_detect_pip() {
     
     # Try using python -m pip
     if [[ -n "${DISCOVERED_PATHS[python3]:-}" ]]; then
-        if "${DISCOVERED_PATHS[python3]:-python3}" -m pip --version &>/dev/null; then
-            DISCOVERED_PATHS["pip3"]="${DISCOVERED_PATHS[python3]:-python3} -m pip"
+        local python_cmd="${DISCOVERED_PATHS[python3]}"
+        if "$python_cmd" -m pip --version &>/dev/null; then
+            DISCOVERED_PATHS["pip3"]="$python_cmd -m pip"
+            DISCOVERED_PATHS["pip"]="$python_cmd -m pip"
             return 0
         fi
     fi
@@ -2847,35 +2909,70 @@ check_python_module() {
     local module="$1"
     local python_cmd="${DISCOVERED_PATHS[python3]:-python3}"
     
-    # Method 1: Direct import
+    # Handle special module-to-package name mappings for pip show
+    local pip_package="$module"
+    case "$module" in
+        "PIL") pip_package="Pillow" ;;
+        "cv2") pip_package="opencv-python" ;;
+        "sklearn") pip_package="scikit-learn" ;;
+        "zxingcpp") pip_package="zxing-cpp" ;;
+        "dbr") pip_package="dynamsoft-barcode-reader" ;;
+    esac
+    
+    # Method 1: Direct import test (most reliable)
     if "$python_cmd" -c "import $module" 2>/dev/null; then
         DISCOVERED_PYTHON_MODULES["$module"]="installed"
         return 0
     fi
     
-    # Method 2: Check with pip
+    # Method 2: Check with pip list (handles package names correctly)
     local pip_cmd="${DISCOVERED_PATHS[pip3]:-pip3}"
-    if $pip_cmd show "$module" &>/dev/null; then
-        DISCOVERED_PYTHON_MODULES["$module"]="installed"
-        return 0
+    if command -v "$pip_cmd" &>/dev/null || [[ "$pip_cmd" == *"-m pip"* ]]; then
+        if $pip_cmd list 2>/dev/null | grep -qiE "^${pip_package}[[:space:]]"; then
+            # Double-check with import to make sure it's actually usable
+            if "$python_cmd" -c "import $module" 2>/dev/null; then
+                DISCOVERED_PYTHON_MODULES["$module"]="installed"
+                return 0
+            fi
+        fi
     fi
     
-    # Method 3: Check in site-packages directories
+    # Method 3: Check with pip show
+    if $pip_cmd show "$pip_package" &>/dev/null 2>&1; then
+        # Double-check with import
+        if "$python_cmd" -c "import $module" 2>/dev/null; then
+            DISCOVERED_PYTHON_MODULES["$module"]="installed"
+            return 0
+        fi
+    fi
+    
+    # Method 4: Check in site-packages directories
     while IFS= read -r site_pkg; do
+        [[ -z "$site_pkg" || ! -d "$site_pkg" ]] && continue
+        
         if [[ -d "$site_pkg/$module" ]] || [[ -f "$site_pkg/${module}.py" ]]; then
             DISCOVERED_PYTHON_MODULES["$module"]="installed"
             return 0
         fi
+        
         # Handle packages with different naming (e.g., PIL for Pillow)
         if [[ "$module" == "PIL" ]] && [[ -d "$site_pkg/PIL" || -d "$site_pkg/Pillow" ]]; then
             DISCOVERED_PYTHON_MODULES["$module"]="installed"
             return 0
         fi
+        
+        # Check for zxingcpp in zxing_cpp directory
+        if [[ "$module" == "zxingcpp" ]] && [[ -d "$site_pkg/zxing_cpp" ]]; then
+            DISCOVERED_PYTHON_MODULES["$module"]="installed"
+            return 0
+        fi
     done < <(get_python_site_packages)
     
-    # Method 4: Check Homebrew site-packages specifically
+    # Method 5: Check Homebrew site-packages specifically
     for py_version in 3.9 3.10 3.11 3.12 3.13; do
         local homebrew_site="$HOMEBREW_PREFIX/lib/python$py_version/site-packages"
+        [[ ! -d "$homebrew_site" ]] && continue
+        
         if [[ -d "$homebrew_site/$module" ]] || [[ -f "$homebrew_site/${module}.py" ]]; then
             DISCOVERED_PYTHON_MODULES["$module"]="installed"
             return 0
@@ -2891,11 +2988,16 @@ get_python_module_install_cmd() {
     local module="$1"
     local pip_cmd="${DISCOVERED_PATHS[pip3]:-pip3}"
     
-    # Handle special module name mappings
+    # Handle special module name mappings (import name -> pip package name)
     case "$module" in
         "PIL") echo "$pip_cmd install Pillow" ;;
         "cv2") echo "$pip_cmd install opencv-python" ;;
         "sklearn") echo "$pip_cmd install scikit-learn" ;;
+        "zxingcpp") echo "$pip_cmd install zxing-cpp" ;;
+        "dbr") echo "$pip_cmd install dynamsoft-barcode-reader" ;;
+        "pyzbar") echo "$pip_cmd install pyzbar" ;;
+        "qreader") echo "$pip_cmd install qreader" ;;
+        "pyzxing") echo "$pip_cmd install pyzxing" ;;
         *) echo "$pip_cmd install $module" ;;
     esac
 }
@@ -2928,9 +3030,12 @@ run_auto_detection() {
     done
     
     # Check Python modules
-    local py_modules=("PIL" "imagehash" "transformers" "pyzbar" "numpy" "cv2")
+    local py_modules=("PIL" "imagehash" "transformers" "pyzbar" "numpy" "cv2" "zxingcpp" "qreader" "pyzxing" "dbr")
     for mod in "${py_modules[@]}"; do
         check_python_module "$mod"
+        if [[ "${DISCOVERED_PYTHON_MODULES[$mod]:-}" == "installed" ]]; then
+            [[ "$VERBOSE" == true ]] && log_info "  Found Python module: $mod"
+        fi
     done
     
     # Create python3 wrapper function to use discovered path
@@ -9994,9 +10099,10 @@ decode_with_dmtxread() {
 decode_with_qreader() {
     local image="$1"
     local output_file="$2"
+    local python_cmd=$(get_python_cmd)
     
     # Check if module exists first - skip entirely if not installed
-    if ! python3 -c "import qreader" 2>/dev/null; then
+    if ! "$python_cmd" -c "import qreader" 2>/dev/null; then
         return 2
     fi
     
@@ -10007,7 +10113,7 @@ decode_with_qreader() {
         trap 'exit 134' ABRT
         exec 2>/dev/null
         
-        timeout 15 python3 2>/dev/null << PYEOF
+        timeout 15 "$python_cmd" 2>/dev/null << PYEOF
 import sys
 import os
 
@@ -10046,9 +10152,10 @@ PYEOF
 decode_with_pyzxing() {
     local image="$1"
     local output_file="$2"
+    local python_cmd=$(get_python_cmd)
     
     # Check if module exists first - skip entirely if not installed
-    if ! python3 -c "import pyzxing" 2>/dev/null; then
+    if ! "$python_cmd" -c "import pyzxing" 2>/dev/null; then
         return 2
     fi
     
@@ -10058,7 +10165,7 @@ decode_with_pyzxing() {
         trap 'exit 134' ABRT
         exec 2>/dev/null
         
-        timeout 15 python3 2>/dev/null << PYEOF
+        timeout 15 "$python_cmd" 2>/dev/null << PYEOF
 import sys
 import signal
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
@@ -10970,7 +11077,8 @@ PYAZTEC_PYZBAR
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 25: PDF417 barcode decoder (ISO 15438)
@@ -11089,7 +11197,8 @@ PYPDF417_PYZBAR
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 26: MaxiCode decoder (ISO/IEC 16023)
@@ -11187,7 +11296,8 @@ PYMAXICODE_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 27: Codabar decoder (NW-7, USD-4, Code 2 of 7)
@@ -11281,7 +11391,8 @@ PYCODABAR_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 28: Code 128 linear barcode decoder (ISO/IEC 15417)
@@ -11391,7 +11502,8 @@ PYCODE128_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 29: Code 39 decoder (ISO/IEC 16388)
@@ -11485,7 +11597,8 @@ PYCODE39_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 30: EAN/UPC decoder (ISO/IEC 15420)
@@ -11608,7 +11721,8 @@ PYEAN_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 31: rMQR (Rectangular Micro QR) decoder (ISO/IEC 23941)
@@ -11694,7 +11808,8 @@ PYRMQR_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 32: Han Xin Code decoder (GB/T 21049 - Chinese national standard)
@@ -11787,7 +11902,8 @@ PYHANXIN_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 33: DotCode decoder (AIM DotCode, ISS DotCode)
@@ -11881,7 +11997,8 @@ PYDOTCODE_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 34: Grid Matrix decoder (GB/T 21049 - Chinese standard)
@@ -11966,7 +12083,8 @@ PYGRIDMATRIX_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 35: Composite barcode decoder (GS1 Composite - CC-A, CC-B, CC-C)
@@ -12032,7 +12150,8 @@ PYCOMPOSITE_PYZBAR
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 36: Interleaved 2 of 5 (ITF) decoder (ISO/IEC 16390)
@@ -12125,7 +12244,8 @@ PYITF_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 37: Code 93 decoder
@@ -12218,7 +12338,8 @@ PYCODE93_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 38: Universal decoder with all formats enabled
@@ -12337,7 +12458,8 @@ PYUNIVERSAL_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 multi_decoder_analysis() {
@@ -13040,6 +13162,8 @@ EOF
                 ((success_count++))
                 all_decoded+=$(cat "$out_aztec" 2>/dev/null)$'\n'
                 decoder_results+=("aztec:$(head -1 "$out_aztec" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ aztec: decoder module not installed"
             else
                 log_info "  ✗ aztec: no Aztec code found"
             fi
@@ -13069,6 +13193,8 @@ EOF
                 all_decoded+=$(cat "$out_pdf417" 2>/dev/null)$'
 '
                 decoder_results+=("pdf417:$(head -1 "$out_pdf417" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ pdf417: decoder module not installed"
             else
                 log_info "  ✗ pdf417: no PDF417 found"
             fi
@@ -13098,6 +13224,8 @@ EOF
                 all_decoded+=$(cat "$out_maxicode" 2>/dev/null)$'
 '
                 decoder_results+=("maxicode:$(head -1 "$out_maxicode" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ maxicode: decoder module not installed"
             else
                 log_info "  ✗ maxicode: no MaxiCode found"
             fi
@@ -13127,6 +13255,8 @@ EOF
                 all_decoded+=$(cat "$out_codabar" 2>/dev/null)$'
 '
                 decoder_results+=("codabar:$(head -1 "$out_codabar" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ codabar: decoder module not installed"
             else
                 log_info "  ✗ codabar: no Codabar found"
             fi
@@ -13156,6 +13286,8 @@ EOF
                 all_decoded+=$(cat "$out_code128" 2>/dev/null)$'
 '
                 decoder_results+=("code128:$(head -1 "$out_code128" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ code128: decoder module not installed"
             else
                 log_info "  ✗ code128: no Code 128 found"
             fi
@@ -13185,6 +13317,8 @@ EOF
                 all_decoded+=$(cat "$out_code39" 2>/dev/null)$'
 '
                 decoder_results+=("code39:$(head -1 "$out_code39" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ code39: decoder module not installed"
             else
                 log_info "  ✗ code39: no Code 39 found"
             fi
@@ -13214,6 +13348,8 @@ EOF
                 all_decoded+=$(cat "$out_ean" 2>/dev/null)$'
 '
                 decoder_results+=("ean:$(head -1 "$out_ean" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ ean: decoder module not installed"
             else
                 log_info "  ✗ ean: no EAN/UPC found"
             fi
@@ -13243,6 +13379,8 @@ EOF
                 all_decoded+=$(cat "$out_rmqr" 2>/dev/null)$'
 '
                 decoder_results+=("rmqr:$(head -1 "$out_rmqr" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ rmqr: decoder module not installed"
             else
                 log_info "  ✗ rmqr: no rMQR found"
             fi
@@ -13272,6 +13410,8 @@ EOF
                 all_decoded+=$(cat "$out_hanxin" 2>/dev/null)$'
 '
                 decoder_results+=("hanxin:$(head -1 "$out_hanxin" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ hanxin: decoder module not installed"
             else
                 log_info "  ✗ hanxin: no Han Xin Code found"
             fi
@@ -13301,6 +13441,8 @@ EOF
                 all_decoded+=$(cat "$out_dotcode" 2>/dev/null)$'
 '
                 decoder_results+=("dotcode:$(head -1 "$out_dotcode" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ dotcode: decoder module not installed"
             else
                 log_info "  ✗ dotcode: no DotCode found"
             fi
@@ -13330,6 +13472,8 @@ EOF
                 all_decoded+=$(cat "$out_gridmatrix" 2>/dev/null)$'
 '
                 decoder_results+=("gridmatrix:$(head -1 "$out_gridmatrix" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ gridmatrix: decoder module not installed"
             else
                 log_info "  ✗ gridmatrix: no Grid Matrix found"
             fi
@@ -13359,6 +13503,8 @@ EOF
                 all_decoded+=$(cat "$out_composite" 2>/dev/null)$'
 '
                 decoder_results+=("composite:$(head -1 "$out_composite" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ composite: decoder module not installed"
             else
                 log_info "  ✗ composite: no Composite barcode found"
             fi
@@ -13388,6 +13534,8 @@ EOF
                 all_decoded+=$(cat "$out_itf" 2>/dev/null)$'
 '
                 decoder_results+=("itf:$(head -1 "$out_itf" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ itf: decoder module not installed"
             else
                 log_info "  ✗ itf: no ITF found"
             fi
@@ -13417,6 +13565,8 @@ EOF
                 all_decoded+=$(cat "$out_code93" 2>/dev/null)$'
 '
                 decoder_results+=("code93:$(head -1 "$out_code93" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ code93: decoder module not installed"
             else
                 log_info "  ✗ code93: no Code 93 found"
             fi
@@ -13446,6 +13596,8 @@ EOF
                 all_decoded+=$(cat "$out_universal" 2>/dev/null)$'
 '
                 decoder_results+=("universal:$(head -1 "$out_universal" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ universal: decoder module not installed"
             else
                 log_info "  ✗ universal: no Universal found"
             fi
