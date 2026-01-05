@@ -16475,12 +16475,20 @@ def check_ble_iocs(device_info) -> list:
     manufacturer_data = safeget('manufacturer_data', None)
     manid = safeget('manufacturer_id', None)
     oui_vendor = safeget('oui_vendor', '')
+    device_address = safeget('address', '')
 
     # Appearance or aggressive interval detection (behavioral)
     adv_interval = safeget('advertisement_interval_mean_ms', None)
 
     for ioc in BLE_IOC_DATABASE:
         matched = False
+
+        # Address prefix matching
+        if ioc['type'] == 'address_prefix' and device_address:
+            prefix = ioc.get('value', '').upper().replace(':', '').replace('-', '')
+            addr_clean = device_address.upper().replace(':', '').replace('-', '')
+            if addr_clean.startswith(prefix):
+                matched = True
 
         # Name pattern matching
         if ioc['type'] == 'name_pattern' and device_name:
@@ -41131,6 +41139,288 @@ def display_privacy_notice():
     time.sleep(2)
 
 
+# ============================================================================
+# PDF REPORT GENERATION
+# ============================================================================
+
+def generate_pdf_report(session_data: dict, output_path: str) -> bool:
+    """
+    Generate a PDF report for the session using reportlab.
+    
+    Args:
+        session_data: Dictionary containing session information
+        output_path: Path where the PDF should be saved
+        
+    Returns:
+        bool: True if report was generated successfully, False otherwise
+    """
+    try:
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+        from reportlab.lib import colors
+        from datetime import datetime
+        
+        print(f"\n[PDF-REPORT] Generating PDF report: {output_path}")
+        
+        # Create PDF document
+        doc = SimpleDocTemplate(output_path, pagesize=letter)
+        story = []
+        styles = getSampleStyleSheet()
+        
+        # Title
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#1a1a1a'),
+            spaceAfter=30,
+            alignment=1  # Center
+        )
+        story.append(Paragraph("Signals Intelligence Report", title_style))
+        story.append(Spacer(1, 12))
+        
+        # Session info
+        session_info = [
+            ['Session ID:', session_data.get('session_id', 'N/A')],
+            ['Generated:', datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
+            ['Duration:', session_data.get('duration', 'N/A')],
+            ['Start Time:', session_data.get('start_time', 'N/A')],
+            ['End Time:', session_data.get('end_time', 'N/A')],
+        ]
+        
+        t = Table(session_info, colWidths=[2*inch, 4*inch])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f0f0f0')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 20))
+        
+        # Summary Statistics
+        story.append(Paragraph("Summary Statistics", styles['Heading2']))
+        story.append(Spacer(1, 12))
+        
+        stats_data = [
+            ['Metric', 'Count'],
+            ['Total BLE Devices', session_data.get('ble_device_count', 0)],
+            ['WiFi Networks', session_data.get('wifi_network_count', 0)],
+            ['Audio Anomalies', session_data.get('audio_anomaly_count', 0)],
+            ['IOC Matches', session_data.get('ioc_match_count', 0)],
+            ['Threat Alerts', session_data.get('threat_alert_count', 0)],
+        ]
+        
+        t = Table(stats_data, colWidths=[3*inch, 2*inch])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498db')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 20))
+        
+        # Threat Detection Summary
+        if session_data.get('threats'):
+            story.append(Paragraph("Detected Threats", styles['Heading2']))
+            story.append(Spacer(1, 12))
+            
+            threat_data = [['Severity', 'Description', 'Count']]
+            for threat in session_data.get('threats', []):
+                threat_data.append([
+                    threat.get('severity', 'N/A'),
+                    threat.get('description', 'N/A')[:50],  # Truncate long descriptions
+                    str(threat.get('count', 0))
+                ])
+            
+            t = Table(threat_data, colWidths=[1.5*inch, 3.5*inch, 1*inch])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e74c3c')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 20))
+        
+        # Footer
+        story.append(Spacer(1, 40))
+        footer_text = """
+        <para align=center>
+        <i>This report was generated by the Defensive Signals Intelligence System.<br/>
+        All monitoring was performed in passive mode with no device connections.<br/>
+        Data is local-only and not transmitted externally.</i>
+        </para>
+        """
+        story.append(Paragraph(footer_text, styles['Normal']))
+        
+        # Build PDF
+        doc.build(story)
+        print(f"[PDF-REPORT] ✓ PDF report generated successfully: {output_path}")
+        return True
+        
+    except ImportError:
+        print("[PDF-REPORT] ⚠️  reportlab not installed - PDF generation skipped")
+        print("[PDF-REPORT] Install with: pip install reportlab")
+        return False
+    except Exception as e:
+        print(f"[PDF-REPORT] ⚠️  PDF generation error: {e}")
+        return False
+
+
+# ============================================================================
+# SYSTEM INITIALIZATION FUNCTION
+# ============================================================================
+
+def initialize_all_systems():
+    """
+    Initialize all lazy singleton systems and wire up components.
+    
+    This function:
+    1. Initializes BLE IOC database with cybercrime chips
+    2. Sets up IEEE OUI database
+    3. Initializes mesh network detector
+    4. Wires up cybercrime chip detector
+    5. Initializes Nordic Bluetooth databases
+    6. Creates forensic database, IOC registry, and threat detection engine
+    
+    Returns:
+        dict: Dictionary containing all initialized components
+    """
+    global ieee_oui_db, bt_assigned_db, mesh_detector, _cybercrime_chip_detector, BLE_IOC_DATABASE
+    
+    print("\n" + "=" * 80)
+    print("🔧 INITIALIZING ALL SYSTEMS")
+    print("=" * 80)
+    
+    components = {}
+    
+    # 1. Initialize BLE IOC database with cybercrime chips
+    try:
+        print("[INIT] Initializing BLE IOC database...")
+        init_ble_ioc_database()
+        extend_ble_ioc_with_cybercrime_chips()
+        print(f"[INIT] ✓ BLE IOC database initialized ({len(BLE_IOC_DATABASE)} indicators)")
+    except Exception as e:
+        print(f"[INIT] ⚠️  BLE IOC database initialization error: {e}")
+    
+    # 2. Initialize IEEE OUI Database
+    try:
+        from pathlib import Path
+        print("[INIT] Initializing IEEE OUI database...")
+        ieee_paths = [
+            Path.home() / 'Desktop' / 'BluetoothID' / 'IEEE.txt',
+            Path('/mnt/user-data/uploads/IEEE.txt'),
+            Path(__file__).parent / 'IEEE.txt',
+        ]
+        for ieee_path in ieee_paths:
+            if ieee_path.exists():
+                print(f"[INIT] Found IEEE database at: {ieee_path}")
+                ieee_oui_db = IEEEOUIDatabase(str(ieee_path))
+                components['ieee_oui_db'] = ieee_oui_db
+                break
+        if ieee_oui_db is None:
+            print("[INIT] ⚠️  IEEE OUI database not found, using built-in OUI_VENDOR_DB")
+            # Create minimal instance without file
+            ieee_oui_db = IEEEOUIDatabase()
+            components['ieee_oui_db'] = ieee_oui_db
+    except Exception as e:
+        print(f"[INIT] ⚠️  IEEE OUI database initialization error: {e}")
+    
+    # 3. Initialize Bluetooth Assigned Numbers
+    try:
+        from pathlib import Path
+        print("[INIT] Initializing Bluetooth Assigned Numbers database...")
+        pdf_paths = [
+            Path.home() / 'Desktop' / 'BluetoothID' / 'Assigned_Numbers.pdf',
+            Path('/mnt/user-data/uploads/Assigned_Numbers.pdf'),
+            Path(__file__).parent / 'Assigned_Numbers.pdf',
+        ]
+        for pdf_path in pdf_paths:
+            if pdf_path.exists():
+                print(f"[INIT] Found Bluetooth database at: {pdf_path}")
+                bt_assigned_db = BluetoothAssignedNumbers(str(pdf_path))
+                components['bt_assigned_db'] = bt_assigned_db
+                break
+        if bt_assigned_db is None:
+            print("[INIT] ⚠️  Bluetooth Assigned Numbers database not found")
+    except Exception as e:
+        print(f"[INIT] ⚠️  Bluetooth Assigned Numbers initialization error: {e}")
+    
+    # 4. Initialize mesh network detector
+    try:
+        print("[INIT] Initializing mesh network detector...")
+        mesh_detector = initialize_mesh_detector(
+            ieee_oui_path=str(ieee_paths[0]) if ieee_oui_db else None
+        )
+        components['mesh_detector'] = mesh_detector
+        print("[INIT] ✓ Mesh network detector initialized")
+    except Exception as e:
+        print(f"[INIT] ⚠️  Mesh detector initialization error: {e}")
+    
+    # 5. Initialize cybercrime chip detector
+    try:
+        print("[INIT] Initializing cybercrime chip detector...")
+        _cybercrime_chip_detector = get_cybercrime_chip_detector()
+        components['cybercrime_chip_detector'] = _cybercrime_chip_detector
+        print("[INIT] ✓ Cybercrime chip detector initialized")
+    except Exception as e:
+        print(f"[INIT] ⚠️  Cybercrime chip detector initialization error: {e}")
+    
+    # 6. Create forensic database
+    try:
+        print("[INIT] Creating forensic database...")
+        from pathlib import Path
+        log_dir = Path.home() / ".signals_intelligence" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        forensic_db = ForensicDatabase(log_dir / "forensic.db")
+        components['forensic_db'] = forensic_db
+        print("[INIT] ✓ Forensic database created")
+    except Exception as e:
+        print(f"[INIT] ⚠️  Forensic database creation error: {e}")
+    
+    # 7. Create IOC registry
+    try:
+        print("[INIT] Creating IOC registry...")
+        ioc_registry = IOCRegistry()
+        components['ioc_registry'] = ioc_registry
+        print("[INIT] ✓ IOC registry created")
+    except Exception as e:
+        print(f"[INIT] ⚠️  IOC registry creation error: {e}")
+    
+    # 8. Create threat detection engine
+    try:
+        print("[INIT] Creating threat detection engine...")
+        threat_engine = ThreatDetectionEngine(
+            ioc_registry=components.get('ioc_registry'),
+            forensic_db=components.get('forensic_db')
+        )
+        components['threat_engine'] = threat_engine
+        print("[INIT] ✓ Threat detection engine created")
+    except Exception as e:
+        print(f"[INIT] ⚠️  Threat detection engine creation error: {e}")
+    
+    print("=" * 80)
+    print(f"✅ System initialization complete ({len(components)} components initialized)")
+    print("=" * 80)
+    print()
+    
+    return components
+
+
 def main():
     # Display privacy and ethical use notice
     display_privacy_notice()
@@ -42568,31 +42858,114 @@ def check_rf_hardware_dependencies():
 
 
 if __name__ == "__main__":
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description='Defensive Signals Intelligence Threat Detection System',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python3 WelcomeToSignalsTest.py                    # Run full monitor
+  python3 WelcomeToSignalsTest.py --no-audio         # Disable audio monitoring
+  python3 WelcomeToSignalsTest.py --no-wifi          # Disable WiFi monitoring
+  python3 WelcomeToSignalsTest.py --no-ble           # Disable BLE monitoring
+  python3 WelcomeToSignalsTest.py --diagnostics      # Show system diagnostics
+  python3 WelcomeToSignalsTest.py --demo             # Run demo mode with visualization
+  python3 WelcomeToSignalsTest.py --test-ble         # Test BLE only
+        """
+    )
+    
+    parser.add_argument('--no-audio', action='store_true',
+                        help='Disable audio monitoring')
+    parser.add_argument('--no-wifi', action='store_true',
+                        help='Disable WiFi monitoring')
+    parser.add_argument('--no-ble', action='store_true',
+                        help='Disable BLE monitoring')
+    parser.add_argument('--diagnostics', action='store_true',
+                        help='Show system diagnostics and exit')
+    parser.add_argument('--demo', action='store_true',
+                        help='Run demo mode with visualization')
+    parser.add_argument('--test-ble', action='store_true',
+                        help='Test BLE only mode')
+    
+    args = parser.parse_args()
+    
+    # Show diagnostics if requested
+    if args.diagnostics:
+        try:
+            print("\n" + "=" * 80)
+            print("🔍 SYSTEM DIAGNOSTICS")
+            print("=" * 80)
+            system_diagnostics.print_diagnostics()
+            print("=" * 80)
+        except Exception as e:
+            print(f"⚠️  Diagnostics error: {e}")
+        sys.exit(0)
+    
     # Check RF hardware dependencies FIRST
     check_rf_hardware_dependencies()
     
-    # Check for command-line arguments
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--test-ble":
-            test_ble_only()
-            sys.exit(0)
-        elif sys.argv[1] == "--help":
-            print("Usage:")
-            print("  python3 SignalsThreatIntelligence.py          # Run full monitor")
-            print("  python3 SignalsThreatIntelligence.py --test-ble    # Test BLE only")
-            print("  python3 SignalsThreatIntelligence.py --help        # Show this help")
-            sys.exit(0)
-    
+    # Initialize all systems
     try:
-        main()
+        print("\n🚀 Initializing all systems...")
+        initialize_all_systems()
     except Exception as e:
-        error_reporter.report_error("Main", e, severity="CRITICAL")
+        print(f"⚠️  System initialization warning: {e}")
+        print("Continuing with partial initialization...")
+    
+    # Handle test mode
+    if args.test_ble:
+        try:
+            test_ble_only()
+        except Exception as e:
+            print(f"⚠️  BLE test error: {e}")
+        sys.exit(0)
+    
+    # Handle demo mode
+    if args.demo:
+        try:
+            print("\n" + "=" * 80)
+            print("🎭 DEMO MODE - Starting visualization")
+            print("=" * 80)
+            # Start demo producer with visualization
+            demo_producer()
+        except Exception as e:
+            print(f"⚠️  Demo mode error: {e}")
+        sys.exit(0)
+    
+    # Run main with monitor flags
+    try:
+        # Store monitor flags in environment for main() to access
+        import os
+        if args.no_audio:
+            os.environ['DISABLE_AUDIO_MONITOR'] = '1'
+            print("ℹ️  Audio monitoring disabled")
+        if args.no_wifi:
+            os.environ['DISABLE_WIFI_MONITOR'] = '1'
+            print("ℹ️  WiFi monitoring disabled")
+        if args.no_ble:
+            os.environ['DISABLE_BLE_MONITOR'] = '1'
+            print("ℹ️  BLE monitoring disabled")
+        
+        main()
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Interrupted by user")
+        sys.exit(0)
+    except Exception as e:
+        try:
+            error_reporter.report_error("Main", e, severity="CRITICAL")
+        except:
+            pass
         print(f"\n❌ Fatal error: {e}")
         logging.error(f"Fatal error: {e}", exc_info=True)
         
         # Print error summary and diagnostics on fatal error
-        print("\n⚠️  Generating diagnostic report...")
-        error_reporter.print_summary()
-        system_diagnostics.print_diagnostics()
+        try:
+            print("\n⚠️  Generating diagnostic report...")
+            error_reporter.print_summary()
+            system_diagnostics.print_diagnostics()
+        except:
+            pass
         
         sys.exit(1)
