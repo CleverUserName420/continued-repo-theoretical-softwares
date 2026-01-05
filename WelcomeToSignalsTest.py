@@ -10585,12 +10585,13 @@ class FrequencyDetection:
     recording_path: str = ""
 
 class FrequencyTracker:
-    def __init__(self, database, session_id, ml_detector=None):
+    def __init__(self, database, session_id, ml_detector=None, threat_engine=None):
         self.active_signals = {}
         self.lock = threading.Lock()
         self.database = database
         self.session_id = session_id
         self.ml_detector = ml_detector  # Optional ML anomaly detector
+        self.threat_engine = threat_engine  # Optional threat detection engine
         self.frequency_counter = Counter()  # Track detection frequency counts
         self.total_processing_time = 0.0  # Track cumulative processing time
         self.stats = {
@@ -10640,12 +10641,13 @@ class FrequencyTracker:
                 
                 # Run through threat detection engine
                 try:
-                    threat_matches = threat_engine.run(observation)
-                    if threat_matches:
-                        display_detection_results(threat_matches, source="Threat Engine")
-                        # Elevate threat score if engines detected threats
-                        engine_max_severity = max(m.ioc.severity for m in threat_matches)
-                        threat_score = max(threat_score, engine_max_severity)
+                    if self.threat_engine:
+                        threat_matches = self.threat_engine.run(observation)
+                        if threat_matches:
+                            display_detection_results(threat_matches, source="Threat Engine")
+                            # Elevate threat score if engines detected threats
+                            engine_max_severity = max(m.ioc.severity for m in threat_matches)
+                            threat_score = max(threat_score, engine_max_severity)
                 except Exception as e:
                     logging.debug(f"Threat engine error: {e}")
                 
@@ -20413,7 +20415,8 @@ class BLEMonitor(threading.Thread):
     def __init__(
         self,
         tracker,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        distance_estimator=None
     ):
         """
         Initialize BLE Monitor
@@ -20421,10 +20424,12 @@ class BLEMonitor(threading.Thread):
         Args:
             tracker: FrequencyTracker instance for detection reporting
             config: Optional configuration dictionary
+            distance_estimator: Optional distance estimation engine
         """
         super().__init__(daemon=True)
         self.tracker = tracker
         self.running = True
+        self.distance_estimator = distance_estimator  # Optional distance estimator
         
         # Configuration
         self.config = config or {}
@@ -20615,11 +20620,27 @@ class BLEMonitor(threading.Thread):
     
     def _estimate_distance(self, device: BLEDeviceInfo) -> Tuple[float, float]:
         """
-        Estimate distance to device using path loss model
+        Estimate distance to device using path loss model or optional distance estimator
         
         Returns:
             Tuple of (distance_estimate, uncertainty)
         """
+        # Use custom distance estimator if available
+        if self.distance_estimator:
+            try:
+                distance = self.distance_estimator.estimate_distance(
+                    rssi=device.rssi_filtered if device.rssi_filtered > -100 else device.rssi_current,
+                    tx_power=device.get_best_tx_power(),
+                    device_info=device
+                )
+                uncertainty = 0.5  # Default uncertainty for custom estimator
+                device.estimated_distance_m = distance
+                device.distance_uncertainty_m = uncertainty
+                return distance, uncertainty
+            except Exception as e:
+                logging.debug(f"Custom distance estimator error, falling back to path loss model: {e}")
+        
+        # Fall back to built-in path loss model
         tx_power = device.get_best_tx_power()
         rssi = device.rssi_filtered if device.rssi_filtered > -100 else device.rssi_current
         
