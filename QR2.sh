@@ -11077,7 +11077,8 @@ PYAZTEC_PYZBAR
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 25: PDF417 barcode decoder (ISO 15438)
@@ -11196,7 +11197,8 @@ PYPDF417_PYZBAR
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 26: MaxiCode decoder (ISO/IEC 16023)
@@ -11294,7 +11296,8 @@ PYMAXICODE_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 27: Codabar decoder (NW-7, USD-4, Code 2 of 7)
@@ -11388,7 +11391,8 @@ PYCODABAR_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 28: Code 128 linear barcode decoder (ISO/IEC 15417)
@@ -11498,7 +11502,8 @@ PYCODE128_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 29: Code 39 decoder (ISO/IEC 16388)
@@ -11592,7 +11597,8 @@ PYCODE39_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 30: EAN/UPC decoder (ISO/IEC 15420)
@@ -11715,7 +11721,8 @@ PYEAN_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 31: rMQR (Rectangular Micro QR) decoder (ISO/IEC 23941)
@@ -11801,7 +11808,8 @@ PYRMQR_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 32: Han Xin Code decoder (GB/T 21049 - Chinese national standard)
@@ -11894,7 +11902,8 @@ PYHANXIN_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 33: DotCode decoder (AIM DotCode, ISS DotCode)
@@ -11988,7 +11997,8 @@ PYDOTCODE_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 34: Grid Matrix decoder (GB/T 21049 - Chinese standard)
@@ -12073,7 +12083,8 @@ PYGRIDMATRIX_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 35: Composite barcode decoder (GS1 Composite - CC-A, CC-B, CC-C)
@@ -12139,7 +12150,8 @@ PYCOMPOSITE_PYZBAR
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 36: Interleaved 2 of 5 (ITF) decoder (ISO/IEC 16390)
@@ -12232,7 +12244,8 @@ PYITF_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 37: Code 93 decoder
@@ -12325,7 +12338,8 @@ PYCODE93_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 # Decoder 38: Universal decoder with all formats enabled
@@ -12444,7 +12458,8 @@ PYUNIVERSAL_SCRIPT
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    # Return 2 to indicate module not available (not an error/crash)
+    return 2
 }
 
 multi_decoder_analysis() {
@@ -13147,6 +13162,8 @@ EOF
                 ((success_count++))
                 all_decoded+=$(cat "$out_aztec" 2>/dev/null)$'\n'
                 decoder_results+=("aztec:$(head -1 "$out_aztec" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ aztec: decoder module not installed"
             else
                 log_info "  ✗ aztec: no Aztec code found"
             fi
@@ -13176,6 +13193,8 @@ EOF
                 all_decoded+=$(cat "$out_pdf417" 2>/dev/null)$'
 '
                 decoder_results+=("pdf417:$(head -1 "$out_pdf417" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ pdf417: decoder module not installed"
             else
                 log_info "  ✗ pdf417: no PDF417 found"
             fi
@@ -13205,6 +13224,8 @@ EOF
                 all_decoded+=$(cat "$out_maxicode" 2>/dev/null)$'
 '
                 decoder_results+=("maxicode:$(head -1 "$out_maxicode" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ maxicode: decoder module not installed"
             else
                 log_info "  ✗ maxicode: no MaxiCode found"
             fi
@@ -13234,6 +13255,8 @@ EOF
                 all_decoded+=$(cat "$out_codabar" 2>/dev/null)$'
 '
                 decoder_results+=("codabar:$(head -1 "$out_codabar" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ codabar: decoder module not installed"
             else
                 log_info "  ✗ codabar: no Codabar found"
             fi
@@ -13263,6 +13286,8 @@ EOF
                 all_decoded+=$(cat "$out_code128" 2>/dev/null)$'
 '
                 decoder_results+=("code128:$(head -1 "$out_code128" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ code128: decoder module not installed"
             else
                 log_info "  ✗ code128: no Code 128 found"
             fi
@@ -13292,6 +13317,8 @@ EOF
                 all_decoded+=$(cat "$out_code39" 2>/dev/null)$'
 '
                 decoder_results+=("code39:$(head -1 "$out_code39" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ code39: decoder module not installed"
             else
                 log_info "  ✗ code39: no Code 39 found"
             fi
@@ -13321,6 +13348,8 @@ EOF
                 all_decoded+=$(cat "$out_ean" 2>/dev/null)$'
 '
                 decoder_results+=("ean:$(head -1 "$out_ean" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ ean: decoder module not installed"
             else
                 log_info "  ✗ ean: no EAN/UPC found"
             fi
@@ -13350,6 +13379,8 @@ EOF
                 all_decoded+=$(cat "$out_rmqr" 2>/dev/null)$'
 '
                 decoder_results+=("rmqr:$(head -1 "$out_rmqr" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ rmqr: decoder module not installed"
             else
                 log_info "  ✗ rmqr: no rMQR found"
             fi
@@ -13379,6 +13410,8 @@ EOF
                 all_decoded+=$(cat "$out_hanxin" 2>/dev/null)$'
 '
                 decoder_results+=("hanxin:$(head -1 "$out_hanxin" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ hanxin: decoder module not installed"
             else
                 log_info "  ✗ hanxin: no Han Xin Code found"
             fi
@@ -13408,6 +13441,8 @@ EOF
                 all_decoded+=$(cat "$out_dotcode" 2>/dev/null)$'
 '
                 decoder_results+=("dotcode:$(head -1 "$out_dotcode" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ dotcode: decoder module not installed"
             else
                 log_info "  ✗ dotcode: no DotCode found"
             fi
@@ -13437,6 +13472,8 @@ EOF
                 all_decoded+=$(cat "$out_gridmatrix" 2>/dev/null)$'
 '
                 decoder_results+=("gridmatrix:$(head -1 "$out_gridmatrix" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ gridmatrix: decoder module not installed"
             else
                 log_info "  ✗ gridmatrix: no Grid Matrix found"
             fi
@@ -13466,6 +13503,8 @@ EOF
                 all_decoded+=$(cat "$out_composite" 2>/dev/null)$'
 '
                 decoder_results+=("composite:$(head -1 "$out_composite" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ composite: decoder module not installed"
             else
                 log_info "  ✗ composite: no Composite barcode found"
             fi
@@ -13495,6 +13534,8 @@ EOF
                 all_decoded+=$(cat "$out_itf" 2>/dev/null)$'
 '
                 decoder_results+=("itf:$(head -1 "$out_itf" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ itf: decoder module not installed"
             else
                 log_info "  ✗ itf: no ITF found"
             fi
@@ -13524,6 +13565,8 @@ EOF
                 all_decoded+=$(cat "$out_code93" 2>/dev/null)$'
 '
                 decoder_results+=("code93:$(head -1 "$out_code93" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ code93: decoder module not installed"
             else
                 log_info "  ✗ code93: no Code 93 found"
             fi
@@ -13553,6 +13596,8 @@ EOF
                 all_decoded+=$(cat "$out_universal" 2>/dev/null)$'
 '
                 decoder_results+=("universal:$(head -1 "$out_universal" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ universal: decoder module not installed"
             else
                 log_info "  ✗ universal: no Universal found"
             fi
