@@ -518,10 +518,13 @@ validate_decoder_output_path() {
     local safe_prefixes=(
         "/tmp/qr_analysis/"
         "${TEMP_DIR}/"
+        "${OUTPUT_DIR}/"
         "/var/tmp/qr_"
     )
     
     for prefix in "${safe_prefixes[@]}"; do
+        # Skip empty prefixes
+        [[ -z "$prefix" ]] && continue
         if [[ "$output_file" == "${prefix}"* ]]; then
             return 0  # Safe path
         fi
@@ -4032,8 +4035,8 @@ declare -A MALWARE_SIGNATURES=(
     ["ursnif_strings"]="ursnif,gozi,gnome,101"
     ["ursnif_patterns"]="powershell.*new-object.*net.webclient|excel\.application.createobject"
     ["ursnif_c2_pattern"]="https?:\/\/[a-z0-9\-]+\.[a-z]+\.[a-z]+\/[a-zA-Z0-9]+"
-    ["ursnif_c2_patternii"] = "https?:\\/\\/[A-Za-z0-9.-]+\\.[A-Za-z]{2,}(?:\\.[A-Za-z]{2,})?\\/[A-Za-z0-9._/-]*"
-    ["ursnif_c2_patterniii"] = "https?:\\/\\/[A-Za-z0-9.-]+\\.[A-Za-z]{2,}(?:\\.[A-Za-z]{2,})?\\/[A-Za-z0-9]+"
+    ["ursnif_c2_patternii"]="https?:\\/\\/[A-Za-z0-9.-]+\\.[A-Za-z]{2,}(?:\\.[A-Za-z]{2,})?\\/[A-Za-z0-9._/-]*"
+    ["ursnif_c2_patterniii"]="https?:\\/\\/[A-Za-z0-9.-]+\\.[A-Za-z]{2,}(?:\\.[A-Za-z]{2,})?\\/[A-Za-z0-9]+"
 
     # Nanocor RAT
     ["nanocor_strings"]="nanocor,nanorat"
@@ -13021,13 +13024,27 @@ EOF
     local out_aztec="${TEMP_DIR}_aztec.txt"
     log_info "  [24/38] Trying Aztec code decoder..."
     if [ -n "$python_cmd" ]; then
-        if decode_with_aztec "$image" "$out_aztec"; then
-            log_success "  ✓ aztec: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_aztec" 2>/dev/null)$'\n'
-            decoder_results+=("aztec:$(head -1 "$out_aztec" 2>/dev/null)")
+        # Run in isolated subshell to prevent segfaults from killing main process
+        (
+            set +e  # Don't exit on error
+            decode_with_aztec "$image" "$out_aztec"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        # Wait for decoder with timeout
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_aztec" ]; then
+                log_success "  ✓ aztec: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_aztec" 2>/dev/null)$'\n'
+                decoder_results+=("aztec:$(head -1 "$out_aztec" 2>/dev/null)")
+            else
+                log_info "  ✗ aztec: no Aztec code found"
+            fi
         else
-            log_info "  ✗ aztec: no Aztec code found"
+            log_info "  ✗ aztec: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ aztec: Python not available"
@@ -13036,14 +13053,27 @@ EOF
     # --- DECODER 25: PDF417 (IDs, driver's licenses, boarding passes) ---
     local out_pdf417="${TEMP_DIR}_pdf417.txt"
     log_info "  [25/38] Trying PDF417 decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_pdf417 "$image" "$out_pdf417"; then
-            log_success "  ✓ pdf417: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_pdf417" 2>/dev/null)$'\n'
-            decoder_results+=("pdf417:$(head -1 "$out_pdf417" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_pdf417 "$image" "$out_pdf417"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_pdf417" ]; then
+                log_success "  ✓ pdf417: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_pdf417" 2>/dev/null)$'
+'
+                decoder_results+=("pdf417:$(head -1 "$out_pdf417" 2>/dev/null)")
+            else
+                log_info "  ✗ pdf417: no PDF417 found"
+            fi
         else
-            log_info "  ✗ pdf417: no PDF417 code found"
+            log_info "  ✗ pdf417: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ pdf417: Python not available"
@@ -13052,14 +13082,27 @@ EOF
     # --- DECODER 26: MAXICODE (UPS shipping labels) ---
     local out_maxicode="${TEMP_DIR}_maxicode.txt"
     log_info "  [26/38] Trying MaxiCode decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_maxicode "$image" "$out_maxicode"; then
-            log_success "  ✓ maxicode: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_maxicode" 2>/dev/null)$'\n'
-            decoder_results+=("maxicode:$(head -1 "$out_maxicode" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_maxicode "$image" "$out_maxicode"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_maxicode" ]; then
+                log_success "  ✓ maxicode: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_maxicode" 2>/dev/null)$'
+'
+                decoder_results+=("maxicode:$(head -1 "$out_maxicode" 2>/dev/null)")
+            else
+                log_info "  ✗ maxicode: no MaxiCode found"
+            fi
         else
-            log_info "  ✗ maxicode: no MaxiCode found"
+            log_info "  ✗ maxicode: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ maxicode: Python not available"
@@ -13068,14 +13111,27 @@ EOF
     # --- DECODER 27: CODABAR (Libraries, blood banks, FedEx) ---
     local out_codabar="${TEMP_DIR}_codabar.txt"
     log_info "  [27/38] Trying Codabar decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_codabar "$image" "$out_codabar"; then
-            log_success "  ✓ codabar: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_codabar" 2>/dev/null)$'\n'
-            decoder_results+=("codabar:$(head -1 "$out_codabar" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_codabar "$image" "$out_codabar"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_codabar" ]; then
+                log_success "  ✓ codabar: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_codabar" 2>/dev/null)$'
+'
+                decoder_results+=("codabar:$(head -1 "$out_codabar" 2>/dev/null)")
+            else
+                log_info "  ✗ codabar: no Codabar found"
+            fi
         else
-            log_info "  ✗ codabar: no Codabar found"
+            log_info "  ✗ codabar: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ codabar: Python not available"
@@ -13084,14 +13140,27 @@ EOF
     # --- DECODER 28: CODE128 (High-density alphanumeric) ---
     local out_code128="${TEMP_DIR}_code128.txt"
     log_info "  [28/38] Trying Code 128 decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_code128 "$image" "$out_code128"; then
-            log_success "  ✓ code128: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_code128" 2>/dev/null)$'\n'
-            decoder_results+=("code128:$(head -1 "$out_code128" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_code128 "$image" "$out_code128"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_code128" ]; then
+                log_success "  ✓ code128: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_code128" 2>/dev/null)$'
+'
+                decoder_results+=("code128:$(head -1 "$out_code128" 2>/dev/null)")
+            else
+                log_info "  ✗ code128: no Code 128 found"
+            fi
         else
-            log_info "  ✗ code128: no Code 128 found"
+            log_info "  ✗ code128: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ code128: Python not available"
@@ -13100,14 +13169,27 @@ EOF
     # --- DECODER 29: CODE39 (Automotive VINs, defense LOGMARS) ---
     local out_code39="${TEMP_DIR}_code39.txt"
     log_info "  [29/38] Trying Code 39 decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_code39 "$image" "$out_code39"; then
-            log_success "  ✓ code39: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_code39" 2>/dev/null)$'\n'
-            decoder_results+=("code39:$(head -1 "$out_code39" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_code39 "$image" "$out_code39"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_code39" ]; then
+                log_success "  ✓ code39: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_code39" 2>/dev/null)$'
+'
+                decoder_results+=("code39:$(head -1 "$out_code39" 2>/dev/null)")
+            else
+                log_info "  ✗ code39: no Code 39 found"
+            fi
         else
-            log_info "  ✗ code39: no Code 39 found"
+            log_info "  ✗ code39: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ code39: Python not available"
@@ -13116,14 +13198,27 @@ EOF
     # --- DECODER 30: EAN/UPC (Retail barcodes) ---
     local out_ean="${TEMP_DIR}_ean.txt"
     log_info "  [30/38] Trying EAN/UPC decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_ean "$image" "$out_ean"; then
-            log_success "  ✓ ean: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_ean" 2>/dev/null)$'\n'
-            decoder_results+=("ean:$(head -1 "$out_ean" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_ean "$image" "$out_ean"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_ean" ]; then
+                log_success "  ✓ ean: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_ean" 2>/dev/null)$'
+'
+                decoder_results+=("ean:$(head -1 "$out_ean" 2>/dev/null)")
+            else
+                log_info "  ✗ ean: no EAN/UPC found"
+            fi
         else
-            log_info "  ✗ ean: no EAN/UPC found"
+            log_info "  ✗ ean: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ ean: Python not available"
@@ -13132,14 +13227,27 @@ EOF
     # --- DECODER 31: RMQR (Rectangular Micro QR - ISO/IEC 23941) ---
     local out_rmqr="${TEMP_DIR}_rmqr.txt"
     log_info "  [31/38] Trying rMQR decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_rmqr "$image" "$out_rmqr"; then
-            log_success "  ✓ rmqr: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_rmqr" 2>/dev/null)$'\n'
-            decoder_results+=("rmqr:$(head -1 "$out_rmqr" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_rmqr "$image" "$out_rmqr"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_rmqr" ]; then
+                log_success "  ✓ rmqr: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_rmqr" 2>/dev/null)$'
+'
+                decoder_results+=("rmqr:$(head -1 "$out_rmqr" 2>/dev/null)")
+            else
+                log_info "  ✗ rmqr: no rMQR found"
+            fi
         else
-            log_info "  ✗ rmqr: no rMQR found"
+            log_info "  ✗ rmqr: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ rmqr: Python not available"
@@ -13148,14 +13256,27 @@ EOF
     # --- DECODER 32: HANXIN (Chinese GB/T 21049 standard) ---
     local out_hanxin="${TEMP_DIR}_hanxin.txt"
     log_info "  [32/38] Trying Han Xin Code decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_hanxin "$image" "$out_hanxin"; then
-            log_success "  ✓ hanxin: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_hanxin" 2>/dev/null)$'\n'
-            decoder_results+=("hanxin:$(head -1 "$out_hanxin" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_hanxin "$image" "$out_hanxin"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_hanxin" ]; then
+                log_success "  ✓ hanxin: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_hanxin" 2>/dev/null)$'
+'
+                decoder_results+=("hanxin:$(head -1 "$out_hanxin" 2>/dev/null)")
+            else
+                log_info "  ✗ hanxin: no Han Xin Code found"
+            fi
         else
-            log_info "  ✗ hanxin: no Han Xin Code found"
+            log_info "  ✗ hanxin: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ hanxin: Python not available"
@@ -13164,14 +13285,27 @@ EOF
     # --- DECODER 33: DOTCODE (High-speed industrial printing) ---
     local out_dotcode="${TEMP_DIR}_dotcode.txt"
     log_info "  [33/38] Trying DotCode decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_dotcode "$image" "$out_dotcode"; then
-            log_success "  ✓ dotcode: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_dotcode" 2>/dev/null)$'\n'
-            decoder_results+=("dotcode:$(head -1 "$out_dotcode" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_dotcode "$image" "$out_dotcode"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_dotcode" ]; then
+                log_success "  ✓ dotcode: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_dotcode" 2>/dev/null)$'
+'
+                decoder_results+=("dotcode:$(head -1 "$out_dotcode" 2>/dev/null)")
+            else
+                log_info "  ✗ dotcode: no DotCode found"
+            fi
         else
-            log_info "  ✗ dotcode: no DotCode found"
+            log_info "  ✗ dotcode: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ dotcode: Python not available"
@@ -13180,14 +13314,27 @@ EOF
     # --- DECODER 34: GRIDMATRIX (Chinese standard) ---
     local out_gridmatrix="${TEMP_DIR}_gridmatrix.txt"
     log_info "  [34/38] Trying Grid Matrix decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_gridmatrix "$image" "$out_gridmatrix"; then
-            log_success "  ✓ gridmatrix: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_gridmatrix" 2>/dev/null)$'\n'
-            decoder_results+=("gridmatrix:$(head -1 "$out_gridmatrix" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_gridmatrix "$image" "$out_gridmatrix"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_gridmatrix" ]; then
+                log_success "  ✓ gridmatrix: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_gridmatrix" 2>/dev/null)$'
+'
+                decoder_results+=("gridmatrix:$(head -1 "$out_gridmatrix" 2>/dev/null)")
+            else
+                log_info "  ✗ gridmatrix: no Grid Matrix found"
+            fi
         else
-            log_info "  ✗ gridmatrix: no Grid Matrix found"
+            log_info "  ✗ gridmatrix: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ gridmatrix: Python not available"
@@ -13196,14 +13343,27 @@ EOF
     # --- DECODER 35: COMPOSITE (GS1 Composite barcodes) ---
     local out_composite="${TEMP_DIR}_composite.txt"
     log_info "  [35/38] Trying Composite barcode decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_composite "$image" "$out_composite"; then
-            log_success "  ✓ composite: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_composite" 2>/dev/null)$'\n'
-            decoder_results+=("composite:$(head -1 "$out_composite" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_composite "$image" "$out_composite"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_composite" ]; then
+                log_success "  ✓ composite: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_composite" 2>/dev/null)$'
+'
+                decoder_results+=("composite:$(head -1 "$out_composite" 2>/dev/null)")
+            else
+                log_info "  ✗ composite: no Composite barcode found"
+            fi
         else
-            log_info "  ✗ composite: no Composite barcode found"
+            log_info "  ✗ composite: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ composite: Python not available"
@@ -13212,14 +13372,27 @@ EOF
     # --- DECODER 36: ITF (Interleaved 2 of 5) ---
     local out_itf="${TEMP_DIR}_itf.txt"
     log_info "  [36/38] Trying ITF decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_itf "$image" "$out_itf"; then
-            log_success "  ✓ itf: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_itf" 2>/dev/null)$'\n'
-            decoder_results+=("itf:$(head -1 "$out_itf" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_itf "$image" "$out_itf"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_itf" ]; then
+                log_success "  ✓ itf: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_itf" 2>/dev/null)$'
+'
+                decoder_results+=("itf:$(head -1 "$out_itf" 2>/dev/null)")
+            else
+                log_info "  ✗ itf: no ITF found"
+            fi
         else
-            log_info "  ✗ itf: no ITF found"
+            log_info "  ✗ itf: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ itf: Python not available"
@@ -13228,14 +13401,27 @@ EOF
     # --- DECODER 37: CODE93 (Higher density Code 39 variant) ---
     local out_code93="${TEMP_DIR}_code93.txt"
     log_info "  [37/38] Trying Code 93 decoder..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_code93 "$image" "$out_code93"; then
-            log_success "  ✓ code93: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_code93" 2>/dev/null)$'\n'
-            decoder_results+=("code93:$(head -1 "$out_code93" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_code93 "$image" "$out_code93"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_code93" ]; then
+                log_success "  ✓ code93: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_code93" 2>/dev/null)$'
+'
+                decoder_results+=("code93:$(head -1 "$out_code93" 2>/dev/null)")
+            else
+                log_info "  ✗ code93: no Code 93 found"
+            fi
         else
-            log_info "  ✗ code93: no Code 93 found"
+            log_info "  ✗ code93: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ code93: Python not available"
@@ -13244,14 +13430,27 @@ EOF
     # --- DECODER 38: UNIVERSAL (All formats with preprocessing) ---
     local out_universal="${TEMP_DIR}_universal.txt"
     log_info "  [38/38] Trying Universal decoder (all formats)..."
-    if [ -n "$python_cmd" ]; then
-        if decode_with_universal "$image" "$out_universal"; then
-            log_success "  ✓ universal: decoded successfully"
-            ((success_count++))
-            all_decoded+=$(cat "$out_universal" 2>/dev/null)$'\n'
-            decoder_results+=("universal:$(head -1 "$out_universal" 2>/dev/null)")
+    if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
+        (
+            set +e
+            decode_with_universal "$image" "$out_universal"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_universal" ]; then
+                log_success "  ✓ universal: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_universal" 2>/dev/null)$'
+'
+                decoder_results+=("universal:$(head -1 "$out_universal" 2>/dev/null)")
+            else
+                log_info "  ✗ universal: no Universal found"
+            fi
         else
-            log_info "  ✗ universal: no additional codes found"
+            log_info "  ✗ universal: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ universal: Python not available"
@@ -22944,6 +23143,8 @@ detect_qrljacking() {
     if [ ${#qrlj_findings[@]} -gt 0 ]; then
         log_threat $((qrlj_score / 2)) "QRLJacking attack indicators detected: ${qrlj_findings[*]}"
         analysis_success_found "QRLJacking" "${#qrlj_findings[@]}" "Score: $qrlj_score" "${qrlj_findings[*]}"
+    else
+        analysis_success_none "QRLJacking"
     fi
 }
 
@@ -23013,6 +23214,8 @@ detect_quishing_kits() {
     if [ ${#quish_findings[@]} -gt 0 ]; then
         log_threat $((quish_score / 2)) "Quishing kit signatures detected: ${quish_findings[*]}"
         analysis_success_found "Quishing Kits" "${#quish_findings[@]}" "Score: $quish_score" "${quish_findings[*]}"
+    else
+        analysis_success_none "Quishing Kits"
     fi
 }
 
@@ -23069,6 +23272,8 @@ detect_qr_overlay_malware() {
     if [ ${#overlay_findings[@]} -gt 0 ]; then
         log_threat $((overlay_score / 2)) "QR overlay malware indicators: ${overlay_findings[*]}"
         analysis_success_found "QR Overlay Malware" "${#overlay_findings[@]}" "Score: $overlay_score" "${overlay_findings[*]}"
+    else
+        analysis_success_none "QR Overlay"
     fi
 }
 
@@ -23136,6 +23341,8 @@ detect_qr_replacement() {
     if [ ${#replacement_findings[@]} -gt 0 ]; then
         log_threat $((replacement_score / 2)) "QR replacement attack indicators: ${replacement_findings[*]}"
         analysis_success_found "QR Replacement" "${#replacement_findings[@]}" "Score: $replacement_score" "${replacement_findings[*]}"
+    else
+        analysis_success_none "QR Replacement"
     fi
 }
 
@@ -23190,6 +23397,8 @@ detect_invisible_qr() {
     if [ ${#invisible_findings[@]} -gt 0 ]; then
         log_threat $((invisible_score / 2)) "Invisible QR indicators: ${invisible_findings[*]}"
         analysis_success_found "Invisible QR" "${#invisible_findings[@]}" "Score: $invisible_score" "${invisible_findings[*]}"
+    else
+        analysis_success_none "Invisible QR"
     fi
 }
 
@@ -23244,6 +23453,8 @@ detect_animated_qr() {
     if [ ${#animated_findings[@]} -gt 0 ]; then
         log_threat $((animated_score / 2)) "Animated QR abuse indicators: ${animated_findings[*]}"
         analysis_success_found "Animated QR" "${#animated_findings[@]}" "Score: $animated_score" "${animated_findings[*]}"
+    else
+        analysis_success_none "Animated QR"
     fi
 }
 
@@ -23298,6 +23509,8 @@ detect_multi_qr_chaining() {
     if [ ${#chain_findings[@]} -gt 0 ]; then
         log_threat $((chain_score / 2)) "Multi-QR chaining detected: ${chain_findings[*]}"
         analysis_success_found "Multi-QR Chaining" "${#chain_findings[@]}" "Score: $chain_score" "${chain_findings[*]}"
+    else
+        analysis_success_none "Multi-QR Chaining"
     fi
 }
 
@@ -23365,6 +23578,8 @@ detect_conditional_content() {
     if [ ${#cond_findings[@]} -gt 0 ]; then
         log_threat $((cond_score / 2)) "Conditional content patterns: ${cond_findings[*]}"
         analysis_success_found "Conditional Content" "${#cond_findings[@]}" "Score: $cond_score" "${cond_findings[*]}"
+    else
+        analysis_success_none "Conditional Content"
     fi
 }
 
@@ -23791,6 +24006,8 @@ detect_lolbas_scripts() {
     if [ ${#script_lolbin_findings[@]} -gt 0 ]; then
         log_threat $((script_lolbin_score / 2)) "LOLBas script abuse: ${script_lolbin_findings[*]}"
         analysis_success_found "LOLBas Scripts" "${#script_lolbin_findings[@]}" "Score: $script_lolbin_score" "${script_lolbin_findings[*]}"
+    else
+        analysis_success_none "LOLBas Scripts"
     fi
 }
 
@@ -23871,6 +24088,8 @@ detect_living_off_cloud() {
     if [ ${#cloud_lol_findings[@]} -gt 0 ]; then
         log_threat $((cloud_lol_score / 2)) "Living-off-Cloud techniques: ${cloud_lol_findings[*]}"
         analysis_success_found "Living-off-Cloud" "${#cloud_lol_findings[@]}" "Score: $cloud_lol_score" "${cloud_lol_findings[*]}"
+    else
+        analysis_success_none "Living-off-Cloud"
     fi
 }
 
@@ -26795,15 +27014,11 @@ analyze_subresource_integrity() {
     local sri_findings=()
     local sri_score=0
     
-    # SRI bypass patterns
+    # SRI bypass patterns - POSIX-compatible (removed PCRE negative lookahead)
     local -a SRI_BYPASS_PATTERNS=(
-        # Missing integrity attribute
-        "<script.*src=.*cdn.*(?!integrity)"
-        "<link.*href=.*cdn.*(?!integrity)"
         # SRI bypass techniques
         "integrity.*bypass"
         "sri.*disable"
-        "crossorigin.*anonymous.*(?!integrity)"
         # Dynamic script injection (bypasses SRI)
         "document\.createElement\(['\"]script"
         "appendChild.*script"
@@ -26819,12 +27034,33 @@ analyze_subresource_integrity() {
     )
     
     for pattern in "${SRI_BYPASS_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | grep -qiE -e "$pattern"; then
+            local matched=$(echo "$content" | grep -oiE -e "$pattern" 2>/dev/null | head -1)
             sri_findings+=("sri_bypass:$matched")
             ((sri_score += 25))
         fi
     done
+    
+    # Check for CDN scripts without integrity (two-step check replaces PCRE negative lookahead)
+    if echo "$content" | grep -qiE "<script.*src=.*cdn" && \
+       ! echo "$content" | grep -qiE "<script.*src=.*cdn.*integrity"; then
+        sri_findings+=("missing_integrity:cdn_script")
+        ((sri_score += 30))
+    fi
+    
+    # Check for CDN links without integrity
+    if echo "$content" | grep -qiE "<link.*href=.*cdn" && \
+       ! echo "$content" | grep -qiE "<link.*href=.*cdn.*integrity"; then
+        sri_findings+=("missing_integrity:cdn_link")
+        ((sri_score += 25))
+    fi
+    
+    # Check for crossorigin without integrity
+    if echo "$content" | grep -qiE "crossorigin.*anonymous" && \
+       ! echo "$content" | grep -qiE "crossorigin.*anonymous.*integrity"; then
+        sri_findings+=("missing_integrity:crossorigin")
+        ((sri_score += 20))
+    fi
     
     # Check for script tags without integrity
     local script_count=$(echo "$content" | grep -ciE "<script.*src=.*(cdn|unpkg|jsdelivr|cloudflare)")
@@ -26932,8 +27168,8 @@ analyze_package_manifest_abuse() {
     done
     
     for pattern in "${REQUIREMENTS_TXT_ABUSE[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | grep -qiE -e "$pattern"; then
+            local matched=$(echo "$content" | grep -oiE -e "$pattern" 2>/dev/null | head -1)
             manifest_findings+=("requirements_abuse:${matched:0:80}")
             ((manifest_score += 35))
         fi
@@ -33216,24 +33452,40 @@ analyze_dga_domains() {
     echo "Domain: $domain" >> "$dga_report"
     echo "" >> "$dga_report"
     
+    # Check Python dependencies first
+    if ! python3 -c "import json, math, re; from collections import Counter" 2>/dev/null; then
+        log_warning "DGA analysis requires Python modules: json, math, re, collections"
+        analysis_error "DGA-ANALYSIS" "Missing Python dependencies"
+        return
+    fi
+    
     # Python-based DGA analysis - pass domain via stdin for safety
     local dga_analysis
     dga_analysis=$(printf '%s' "$domain" | python3 << 'EOF' 2>&1
-import json
-import math
-import re
-import sys
-from collections import Counter
+try:
+    import json
+    import math
+    import re
+    import sys
+    from collections import Counter
+except ImportError as e:
+    print(json.dumps({"error": f"Import failed: {str(e)}"}), file=sys.stderr)
+    sys.exit(1)
 
-domain = sys.stdin.read().strip()
+try:
+    domain = sys.stdin.read().strip()
+except Exception as e:
+    print(json.dumps({"error": f"Failed to read domain: {str(e)}"}), file=sys.stderr)
+    sys.exit(1)
 
 if not domain:
     print(json.dumps({"error": "No domain provided"}))
     sys.exit(0)
 
-# Remove TLD for analysis
-parts = domain.split('.')
-tld_list = ['com','net','org','io','xyz','tk','ml','ga','cf','gq','top','info','biz','co','us','uk','de','fr','ru','cn','br','au','in','jp','pl','nl','se','no','fi','dk','es','it','pt','ch','at','be','nz','za','mx','ar','cl','kr','tw','hk','sg','my','th','vn','id','ph']
+try:
+    # Remove TLD for analysis
+    parts = domain.split('.')
+    tld_list = ['com','net','org','io','xyz','tk','ml','ga','cf','gq','top','info','biz','co','us','uk','de','fr','ru','cn','br','au','in','jp','pl','nl','se','no','fi','dk','es','it','pt','ch','at','be','nz','za','mx','ar','cl','kr','tw','hk','sg','my','th','vn','id','ph']
 
 if len(parts) > 1:
     if parts[-1].lower() in tld_list:
@@ -33376,9 +33628,15 @@ elif dga_score >= 20:
 else:
     results['verdict'] = 'LIKELY_LEGITIMATE'
 
-print(json.dumps(results, indent=2))
+    print(json.dumps(results, indent=2))
+except Exception as e:
+    print(json.dumps({"error": f"Analysis failed: {str(e)}"}), file=sys.stderr)
+    sys.exit(1)
 EOF
 )
+    
+    # Capture Python exit code
+    local python_exit_code=$?
     
     # Check if we got valid JSON output
     if [ -n "$dga_analysis" ] && printf '%s' "$dga_analysis" | grep -q '"domain"'; then
@@ -33430,11 +33688,24 @@ EOF
             analysis_success_none "DGA-ANALYSIS"
         fi
     else
-        # Log the actual error for debugging
-        if [ -n "$dga_analysis" ]; then
-            log_debug "DGA Python output: $dga_analysis"
+        # Enhanced error reporting for debugging
+        if [ $python_exit_code -ne 0 ]; then
+            log_error "Python DGA analysis exited with code: $python_exit_code"
         fi
-        analysis_error "DGA-ANALYSIS" "Python analysis failed"
+        
+        if [ -n "$dga_analysis" ]; then
+            # Check if it's a JSON error message
+            if printf '%s' "$dga_analysis" | grep -q '"error"'; then
+                local error_msg=$(json_extract_string "$dga_analysis" "error" 2>/dev/null || echo "$dga_analysis")
+                log_error "DGA analysis error: $error_msg"
+                analysis_error "DGA-ANALYSIS" "Python error: ${error_msg:0:100}"
+            else
+                log_debug "DGA Python output: ${dga_analysis:0:200}"
+                analysis_error "DGA-ANALYSIS" "Python analysis failed (invalid output)"
+            fi
+        else
+            analysis_error "DGA-ANALYSIS" "Python analysis failed (no output, exit code: $python_exit_code)"
+        fi
     fi
 }
 

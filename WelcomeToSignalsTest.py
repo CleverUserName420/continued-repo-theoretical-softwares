@@ -498,6 +498,365 @@ handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s
 log.addHandler(handler)
 
 # ============================================================================
+# HELPER FUNCTIONS - Unified Utilities for Threat Detection
+# ============================================================================
+
+def normalize_frequency(freq_hz: float) -> float:
+    """Normalize frequency to Hz regardless of input format (MHz, GHz, Hz)"""
+    if freq_hz < 1000:  # Likely GHz
+        return freq_hz * 1e9
+    elif freq_hz < 1e6:  # Likely MHz
+        return freq_hz * 1e6
+    return freq_hz
+
+def calculate_threat_score(base_score: float, confidence: float, context_multipliers: Dict[str, float] = None) -> float:
+    """
+    Calculate unified threat score with confidence weighting and context multipliers.
+    
+    Args:
+        base_score: Base threat severity (0-100)
+        confidence: Detection confidence (0-1)
+        context_multipliers: Optional context factors that modify the score
+    
+    Returns:
+        Weighted threat score (0-100)
+    """
+    weighted = base_score * confidence
+    if context_multipliers:
+        for key, mult in context_multipliers.items():
+            weighted *= mult
+    return min(100.0, max(0.0, weighted))
+
+def extract_signal_features(audio_data: np.ndarray, sample_rate: int = 48000) -> Dict[str, Any]:
+    """
+    Extract comprehensive signal features for threat analysis.
+    
+    Args:
+        audio_data: Raw audio samples
+        sample_rate: Sample rate in Hz
+    
+    Returns:
+        Dictionary of extracted features
+    """
+    if audio_data is None or len(audio_data) == 0:
+        return {}
+    
+    features = {}
+    try:
+        # Basic statistics
+        features['rms'] = float(np.sqrt(np.mean(np.square(audio_data))))
+        features['peak'] = float(np.max(np.abs(audio_data)))
+        features['crest_factor'] = features['peak'] / features['rms'] if features['rms'] > 0 else 0
+        
+        # Spectral features via FFT
+        fft_data = np.fft.rfft(audio_data)
+        fft_mag = np.abs(fft_data)
+        freqs = np.fft.rfftfreq(len(audio_data), 1.0/sample_rate)
+        
+        # Spectral centroid
+        if np.sum(fft_mag) > 0:
+            features['spectral_centroid'] = float(np.sum(freqs * fft_mag) / np.sum(fft_mag))
+        else:
+            features['spectral_centroid'] = 0.0
+        
+        # Dominant frequency
+        peak_idx = np.argmax(fft_mag)
+        features['dominant_freq'] = float(freqs[peak_idx])
+        features['dominant_magnitude'] = float(fft_mag[peak_idx])
+        
+        # Energy distribution
+        features['total_energy'] = float(np.sum(np.square(fft_mag)))
+        
+        # Ultrasonic content (above 18kHz)
+        ultrasonic_mask = freqs > 18000
+        if np.any(ultrasonic_mask):
+            features['ultrasonic_energy'] = float(np.sum(np.square(fft_mag[ultrasonic_mask])))
+            features['ultrasonic_ratio'] = features['ultrasonic_energy'] / features['total_energy'] if features['total_energy'] > 0 else 0
+        else:
+            features['ultrasonic_energy'] = 0.0
+            features['ultrasonic_ratio'] = 0.0
+        
+        # Sub-bass content (below 60Hz)
+        subbass_mask = freqs < 60
+        if np.any(subbass_mask):
+            features['subbass_energy'] = float(np.sum(np.square(fft_mag[subbass_mask])))
+        else:
+            features['subbass_energy'] = 0.0
+            
+    except Exception as e:
+        logging.debug(f"Feature extraction error: {e}")
+    
+    return features
+
+def correlate_detections(detections: List[Dict], time_window_sec: float = 5.0) -> List[Dict]:
+    """
+    Correlate detections within a time window to identify related threat patterns.
+    
+    Args:
+        detections: List of detection dictionaries with timestamps
+        time_window_sec: Time window for correlation
+    
+    Returns:
+        List of correlated detection groups
+    """
+    if not detections:
+        return []
+    
+    # Sort by timestamp
+    sorted_dets = sorted(detections, key=lambda x: x.get('timestamp', 0))
+    
+    groups = []
+    current_group = [sorted_dets[0]]
+    
+    for det in sorted_dets[1:]:
+        if det.get('timestamp', 0) - current_group[-1].get('timestamp', 0) <= time_window_sec:
+            current_group.append(det)
+        else:
+            if len(current_group) > 1:
+                groups.append({
+                    'detections': current_group,
+                    'count': len(current_group),
+                    'time_span': current_group[-1].get('timestamp', 0) - current_group[0].get('timestamp', 0),
+                    'max_severity': max(d.get('severity', 0) for d in current_group),
+                    'categories': list(set(d.get('category', 'unknown') for d in current_group))
+                })
+            current_group = [det]
+    
+    # Don't forget the last group
+    if len(current_group) > 1:
+        groups.append({
+            'detections': current_group,
+            'count': len(current_group),
+            'time_span': current_group[-1].get('timestamp', 0) - current_group[0].get('timestamp', 0),
+            'max_severity': max(d.get('severity', 0) for d in current_group),
+            'categories': list(set(d.get('category', 'unknown') for d in current_group))
+        })
+    
+    return groups
+
+def format_threat_report(detection: Dict) -> str:
+    """
+    Format a detection into a human-readable threat report string.
+    
+    Args:
+        detection: Detection dictionary
+    
+    Returns:
+        Formatted report string
+    """
+    severity = detection.get('severity', 0)
+    if severity >= 90:
+        level = "🔴 CRITICAL"
+    elif severity >= 75:
+        level = "🟠 HIGH"
+    elif severity >= 50:
+        level = "🟡 MEDIUM"
+    else:
+        level = "🟢 LOW"
+    
+    lines = [
+        f"{level} THREAT DETECTION",
+        f"  Type: {detection.get('type', 'Unknown')}",
+        f"  Category: {detection.get('category', 'Unknown')}",
+        f"  Severity: {severity}/100",
+        f"  Confidence: {detection.get('confidence', 0):.1%}",
+        f"  Description: {detection.get('description', 'No description')}",
+    ]
+    
+    if 'indicator' in detection:
+        lines.append(f"  Indicator: {detection['indicator']}")
+    if 'mitre_technique' in detection:
+        lines.append(f"  MITRE ATT&CK: {detection['mitre_technique']}")
+    if 'recommendations' in detection:
+        lines.append("  Recommendations:")
+        for rec in detection['recommendations'][:3]:
+            lines.append(f"    • {rec}")
+    
+    return "\n".join(lines)
+
+def calculate_entropy(data: bytes) -> float:
+    """
+    Calculate Shannon entropy of data (useful for detecting encoded/encrypted content).
+    
+    Args:
+        data: Bytes to analyze
+    
+    Returns:
+        Entropy value (0-8 for bytes)
+    """
+    if not data:
+        return 0.0
+    
+    from collections import Counter
+    byte_counts = Counter(data)
+    total = len(data)
+    
+    entropy = 0.0
+    for count in byte_counts.values():
+        if count > 0:
+            prob = count / total
+            entropy -= prob * np.log2(prob)
+    
+    return entropy
+
+def is_suspicious_timing_pattern(timestamps: List[float], threshold_ratio: float = 0.1) -> Tuple[bool, str]:
+    """
+    Detect suspicious timing patterns that may indicate automated/malicious activity.
+    
+    Args:
+        timestamps: List of event timestamps
+        threshold_ratio: Variance threshold ratio
+    
+    Returns:
+        Tuple of (is_suspicious, reason)
+    """
+    if len(timestamps) < 3:
+        return False, "Insufficient data"
+    
+    intervals = np.diff(sorted(timestamps))
+    
+    if len(intervals) == 0:
+        return False, "No intervals"
+    
+    mean_interval = np.mean(intervals)
+    std_interval = np.std(intervals)
+    
+    # Very regular intervals suggest automation
+    if mean_interval > 0 and std_interval / mean_interval < threshold_ratio:
+        return True, f"Highly regular intervals (CV={std_interval/mean_interval:.3f})"
+    
+    # Burst patterns
+    short_intervals = np.sum(intervals < 0.1)
+    if short_intervals > len(intervals) * 0.8:
+        return True, f"Burst pattern detected ({short_intervals}/{len(intervals)} rapid events)"
+    
+    return False, "Normal pattern"
+
+def detect_covert_channel_indicators(signal_features: Dict) -> List[Dict]:
+    """
+    Detect indicators of covert channel communication in signal features.
+    
+    Args:
+        signal_features: Dictionary of extracted signal features
+    
+    Returns:
+        List of covert channel indicators found
+    """
+    indicators = []
+    
+    # Check ultrasonic ratio
+    if signal_features.get('ultrasonic_ratio', 0) > 0.15:
+        indicators.append({
+            'type': 'ultrasonic_channel',
+            'severity': 85,
+            'description': 'High ultrasonic energy ratio - possible ultrasonic data channel',
+            'value': signal_features.get('ultrasonic_ratio')
+        })
+    
+    # Check for specific frequencies used in known covert channels
+    dom_freq = signal_features.get('dominant_freq', 0)
+    
+    # Near-ultrasonic data transmission (18-22 kHz)
+    if 18000 <= dom_freq <= 22000:
+        indicators.append({
+            'type': 'near_ultrasonic_data',
+            'severity': 80,
+            'description': f'Dominant frequency {dom_freq:.0f} Hz in near-ultrasonic range',
+            'value': dom_freq
+        })
+    
+    # Power line frequencies with modulation
+    if 45 <= dom_freq <= 65:
+        indicators.append({
+            'type': 'powerline_modulation',
+            'severity': 70,
+            'description': f'Powerline frequency modulation detected ({dom_freq:.1f} Hz)',
+            'value': dom_freq
+        })
+    
+    return indicators
+
+def hash_device_fingerprint(device_info: Dict) -> str:
+    """
+    Create a consistent hash fingerprint for device identification.
+    
+    Args:
+        device_info: Dictionary of device information
+    
+    Returns:
+        Hex fingerprint string
+    """
+    import hashlib
+    
+    # Create deterministic string from device info
+    key_fields = ['address', 'name', 'manufacturer_id', 'service_uuids']
+    fingerprint_data = ""
+    
+    for field in key_fields:
+        if field in device_info:
+            val = device_info[field]
+            if isinstance(val, list):
+                val = ",".join(sorted(str(v) for v in val))
+            fingerprint_data += f"{field}:{val};"
+    
+    return hashlib.sha256(fingerprint_data.encode()).hexdigest()[:16]
+
+def merge_threat_contexts(contexts: List[Dict]) -> Dict:
+    """
+    Merge multiple threat contexts into a unified context.
+    
+    Args:
+        contexts: List of context dictionaries
+    
+    Returns:
+        Merged context dictionary
+    """
+    merged = {
+        'sources': [],
+        'max_severity': 0,
+        'all_indicators': [],
+        'all_categories': set(),
+        'all_mitre_techniques': set(),
+        'timestamp_range': (float('inf'), 0),
+        'recommendations': []
+    }
+    
+    for ctx in contexts:
+        if 'source' in ctx:
+            merged['sources'].append(ctx['source'])
+        
+        severity = ctx.get('severity', 0)
+        if severity > merged['max_severity']:
+            merged['max_severity'] = severity
+        
+        if 'indicator' in ctx:
+            merged['all_indicators'].append(ctx['indicator'])
+        
+        if 'category' in ctx:
+            merged['all_categories'].add(ctx['category'])
+        
+        if 'mitre_technique' in ctx:
+            merged['all_mitre_techniques'].add(ctx['mitre_technique'])
+        
+        ts = ctx.get('timestamp', 0)
+        merged['timestamp_range'] = (
+            min(merged['timestamp_range'][0], ts),
+            max(merged['timestamp_range'][1], ts)
+        )
+        
+        if 'recommendations' in ctx:
+            merged['recommendations'].extend(ctx['recommendations'])
+    
+    # Convert sets to lists for JSON serialization
+    merged['all_categories'] = list(merged['all_categories'])
+    merged['all_mitre_techniques'] = list(merged['all_mitre_techniques'])
+    merged['recommendations'] = list(dict.fromkeys(merged['recommendations']))[:10]  # Dedupe, limit
+    
+    return merged
+
+print("[HELPERS] ✓ Loaded threat detection helper functions")
+
+# ============================================================================
 # ACTUAL IEEE OUI DATABASE PARSER - NO PLACEHOLDERS
 # ============================================================================
 
@@ -1840,8 +2199,12 @@ VLF_LF_FREQUENCIES = {
         (30e3, "VLF/ELF Boundary - Submarine Comms"),
     ],
     "rfid_lf": [
-        (125e3, "RFID LF 125 kHz - Access Cards/Animal Tags"),
-        (134.2e3, "RFID LF 134.2 kHz - FDX-B Animal Tags"),
+        (125e3, "RFID LF 125 kHz - FDX-A, EM4100/4102, Trovan animal tags, some access cards"),
+        (129e3, "RFID LF 129 kHz - Legacy FDX-A animal ID (rare)"),
+        (134.2e3, "RFID LF 134.2 kHz - ISO 11784/11785 FDX-B and HDX animal tags"),
+        (13.56e6, "RFID HF 13.56 MHz - NFC, rarely used for animal ID, sometimes for livestock or advanced systems"),
+        (860e6, "RFID UHF 860-960 MHz - Livestock (ISO 18000-6C / EPC Gen2); not for pets"),
+        (2.4e9, "Bluetooth/BLE 2.4 GHz - Collar tags (not implantable, for pet tracking only)"),
     ],
     "wireless_power": [
         (110e3, "Qi Wireless Charging 110 kHz - Low Power"),
@@ -3464,6 +3827,3910 @@ BLUETOOTH_CHANNEL_FREQUENCIES: Dict[int, float] = {
     # BLE data channels (0-36)
     **{i: 2404e6 + (i * 2e6) for i in range(37) if i not in [37, 38, 39]},
 }
+
+
+# ============================================================
+# EXTENDED IOC DATABASE - COMPREHENSIVE THREAT INTELLIGENCE
+# ============================================================
+# This section contains extensive threat indicators derived from
+# open-source intelligence, security research, and forensic analysis.
+# For defensive security research and forensic investigation ONLY.
+# ============================================================
+
+# ============================================================
+# APT THREAT ACTOR IOC DATABASE
+# ============================================================
+# Known APT groups and their operational signatures
+# Based on public threat intelligence reports
+
+APT_THREAT_ACTOR_IOCS: Dict[str, Dict] = {
+    # APT41 (Double Dragon / Winnti / Barium)
+    "APT41": {
+        "aliases": ["Double Dragon", "Winnti", "Barium", "Wicked Panda", "Bronze Atlas"],
+        "attribution": "China",
+        "threat_level": "critical",
+        "ttps": [
+            "Supply chain compromise",
+            "Rootkit deployment",
+            "Gaming industry targeting",
+            "Certificate theft",
+            "Bootkit persistence",
+            "Hardware implants",
+            "CoreAudio manipulation",
+        ],
+        "known_malware": [
+            "POISONPLUG", "HIGHNOON", "CROSSWALK", "MESSAGETAP",
+            "SKIPPER", "PHOTO", "CHINACHOPPER", "DEADEYE",
+            "DUSTPAN", "DUSTTRAP", "SIGLOADER", "LOWKEY",
+        ],
+        "c2_patterns": [
+            r".*\.trycloudflare\.com$",
+            r".*\.workers\.dev$",
+            r".*\.pages\.dev$",
+            r".*cdn[0-9]+\.[a-z]+\.[a-z]{2,}$",
+            r".*update[0-9]*\.[a-z]+\.[a-z]{2,}$",
+            r".*sync[0-9]*\.[a-z]+\.[a-z]{2,}$",
+        ],
+        "port_patterns": [443, 8443, 8080, 4443, 8888, 9999],
+        "notes": "State-sponsored group conducting espionage and financial crime",
+    },
+    # APT29 (Cozy Bear)
+    "APT29": {
+        "aliases": ["Cozy Bear", "The Dukes", "CozyDuke", "Midnight Blizzard", "NOBELIUM"],
+        "attribution": "Russia/SVR",
+        "threat_level": "critical",
+        "ttps": [
+            "Spear phishing",
+            "Supply chain attacks",
+            "Cloud service abuse",
+            "Living off the land",
+            "Steganography",
+        ],
+        "known_malware": [
+            "SUNBURST", "TEARDROP", "RAINDROP", "SUNSPOT",
+            "WELLMESS", "WELLMAIL", "SOREFANG", "COZYDUKE",
+            "MINIDUKE", "HAMMERTOSS", "SEADADDY", "ENVYSCOUT",
+        ],
+        "c2_patterns": [
+            r".*avsvmcloud\.com$",
+            r".*digitalcollege\.org$",
+            r".*freescanonline\.com$",
+            r".*deftsecurity\.com$",
+        ],
+        "port_patterns": [443, 80, 53, 123],
+        "notes": "Russian intelligence service (SVR) operations",
+    },
+    # APT28 (Fancy Bear)
+    "APT28": {
+        "aliases": ["Fancy Bear", "Sofacy", "Pawn Storm", "Sednit", "Strontium", "Forest Blizzard"],
+        "attribution": "Russia/GRU",
+        "threat_level": "critical",
+        "ttps": [
+            "Credential harvesting",
+            "Zero-day exploitation",
+            "Spear phishing",
+            "Watering hole attacks",
+            "VPN exploitation",
+        ],
+        "known_malware": [
+            "CHOPSTICK", "EVILTOSS", "SEDUPLOADER", "SEDRECO",
+            "JHUHUGIT", "GAMEFISH", "OLDBAIT", "XTUNNEL",
+            "HIDEDRV", "DOWNDELPH", "ZEBROCY", "DROVORUB",
+        ],
+        "c2_patterns": [
+            r".*microsoft[0-9]*-update\.[a-z]+$",
+            r".*office365[0-9]*\.[a-z]+$",
+            r".*login-live[0-9]*\.[a-z]+$",
+        ],
+        "port_patterns": [443, 80, 995, 8080],
+        "notes": "Russian military intelligence (GRU Unit 26165)",
+    },
+    # Lazarus Group
+    "LAZARUS": {
+        "aliases": ["Lazarus Group", "Hidden Cobra", "Zinc", "Diamond Sleet", "Labyrinth Chollima"],
+        "attribution": "North Korea/RGB",
+        "threat_level": "critical",
+        "ttps": [
+            "Cryptocurrency theft",
+            "SWIFT attacks",
+            "Supply chain compromise",
+            "Destructive attacks",
+            "Ransomware",
+        ],
+        "known_malware": [
+            "HOPLIGHT", "ELECTRICFISH", "BADCALL", "HARDRAIN",
+            "BANKSHOT", "FALLCHILL", "VOLGMER", "BLINDINGCAN",
+            "COPPERHEDGE", "TAINTEDSCRIBE", "PEBBLEDASH", "APPLEJEUS",
+        ],
+        "c2_patterns": [
+            r".*blockchain[0-9]*\.[a-z]+$",
+            r".*crypto[0-9]*\.[a-z]+$",
+            r".*trading[0-9]*\.[a-z]+$",
+        ],
+        "port_patterns": [443, 8443, 9443, 1443],
+        "notes": "DPRK state-sponsored, financial and espionage operations",
+    },
+    # APT40 (Leviathan)
+    "APT40": {
+        "aliases": ["Leviathan", "TEMP.Periscope", "TEMP.Jumper", "Bronze Mohawk", "Kryptonite Panda"],
+        "attribution": "China/MSS",
+        "threat_level": "critical",
+        "ttps": [
+            "Maritime targeting",
+            "Defense contractors",
+            "Research institutions",
+            "Credential theft",
+            "Webshell deployment",
+        ],
+        "known_malware": [
+            "AIRBREAK", "PHOTO", "HOMEFRY", "LUNCHMONEY",
+            "MURKYTOP", "BADFLICK", "BLACKCOFFEE", "CHINA CHOPPER",
+        ],
+        "c2_patterns": [
+            r".*maritime[0-9]*\.[a-z]+$",
+            r".*naval[0-9]*\.[a-z]+$",
+            r".*research[0-9]*\.[a-z]+$",
+        ],
+        "port_patterns": [443, 80, 8080, 8443],
+        "notes": "Chinese state-sponsored, maritime and defense targeting",
+    },
+    # Equation Group
+    "EQUATION": {
+        "aliases": ["Equation Group", "Longhorn", "The Lamberts"],
+        "attribution": "USA/NSA TAO",
+        "threat_level": "critical",
+        "ttps": [
+            "Firmware implants",
+            "Hard drive firmware",
+            "Air-gap jumping",
+            "Zero-day exploitation",
+            "Advanced persistence",
+        ],
+        "known_malware": [
+            "EQUATIONDRUG", "DOUBLEFANTASY", "TRIPLEFANTASY", "GRAYFISH",
+            "FANNY", "EQUATIONLASER", "STUXNET", "FLAME",
+            "GAUSS", "DUQU", "REGIN", "DEITYBOUNCE",
+        ],
+        "c2_patterns": [
+            r".*shadow[0-9]*\.[a-z]+$",
+            r".*eternal[0-9]*\.[a-z]+$",
+        ],
+        "port_patterns": [443, 80, 53, 123, 995],
+        "notes": "Highly sophisticated nation-state operations",
+    },
+    # Turla
+    "TURLA": {
+        "aliases": ["Turla", "Snake", "Venomous Bear", "Waterbug", "Krypton", "Secret Blizzard"],
+        "attribution": "Russia/FSB",
+        "threat_level": "critical",
+        "ttps": [
+            "Satellite hijacking",
+            "Watering hole",
+            "Email server targeting",
+            "PowerShell abuse",
+            "In-memory execution",
+        ],
+        "known_malware": [
+            "SNAKE", "CARBON", "KAZUAR", "COMRAT",
+            "GAZER", "KOPILUWAK", "TOPINAMBOUR", "LIGHTNEURON",
+            "TUNNUS", "PENGUIN", "CRUTCH", "HUMMINGBEAR",
+        ],
+        "c2_patterns": [
+            r".*satellite[0-9]*\.[a-z]+$",
+            r".*orbital[0-9]*\.[a-z]+$",
+        ],
+        "port_patterns": [443, 80, 25, 587, 465],
+        "notes": "Russian FSB (Center 16), uses hijacked satellite infrastructure",
+    },
+    # OceanLotus / APT32
+    "APT32": {
+        "aliases": ["OceanLotus", "APT32", "SeaLotus", "APT-C-00", "Canvas Cyclone"],
+        "attribution": "Vietnam/MPS",
+        "threat_level": "high",
+        "ttps": [
+            "Strategic web compromise",
+            "Social engineering",
+            "Custom backdoors",
+            "macOS targeting",
+            "Mobile malware",
+        ],
+        "known_malware": [
+            "METALJACK", "DENIS", "SOUNDBITE", "WINDSHIELD",
+            "KOMPROGO", "PHOREAL", "BEACON", "COBALT STRIKE",
+        ],
+        "c2_patterns": [
+            r".*lotus[0-9]*\.[a-z]+$",
+            r".*ocean[0-9]*\.[a-z]+$",
+        ],
+        "port_patterns": [443, 80, 8080],
+        "notes": "Vietnamese state-sponsored, targets dissidents and businesses",
+    },
+}
+
+# ============================================================
+# C2 INFRASTRUCTURE PATTERNS DATABASE
+# ============================================================
+# Known command and control infrastructure indicators
+
+C2_INFRASTRUCTURE_IOCS: Dict[str, Dict] = {
+    # Cloudflare Tunnel Abuse
+    "trycloudflare_tunnel": {
+        "pattern": r".*\.trycloudflare\.com$",
+        "threat_level": "high",
+        "category": "TUNNEL",
+        "notes": "Free Cloudflare tunnel - commonly abused for C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1090.004",
+    },
+    "cloudflare_workers": {
+        "pattern": r".*\.workers\.dev$",
+        "threat_level": "medium",
+        "category": "SERVERLESS",
+        "notes": "Cloudflare Workers - used for C2 proxying",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    "cloudflare_pages": {
+        "pattern": r".*\.pages\.dev$",
+        "threat_level": "medium",
+        "category": "HOSTING",
+        "notes": "Cloudflare Pages - static C2 hosting",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Ngrok Tunnels
+    "ngrok_tunnel": {
+        "pattern": r".*\.ngrok\.io$|.*\.ngrok-free\.app$|.*\.ngrok\.app$",
+        "threat_level": "high",
+        "category": "TUNNEL",
+        "notes": "Ngrok tunneling service - common C2 delivery",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1090.004",
+    },
+    # Localtunnel
+    "localtunnel": {
+        "pattern": r".*\.loca\.lt$|.*\.localtunnel\.me$",
+        "threat_level": "high",
+        "category": "TUNNEL",
+        "notes": "Localtunnel service - C2 tunneling",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1090.004",
+    },
+    # Serveo
+    "serveo_tunnel": {
+        "pattern": r".*\.serveo\.net$",
+        "threat_level": "high",
+        "category": "TUNNEL",
+        "notes": "Serveo SSH tunneling - C2 delivery",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1090.004",
+    },
+    # PageKite
+    "pagekite_tunnel": {
+        "pattern": r".*\.pagekite\.me$",
+        "threat_level": "high",
+        "category": "TUNNEL",
+        "notes": "PageKite tunneling service",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1090.004",
+    },
+    # Bore.pub
+    "bore_tunnel": {
+        "pattern": r".*\.bore\.pub$",
+        "threat_level": "high",
+        "category": "TUNNEL",
+        "notes": "Bore tunneling service",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1090.004",
+    },
+    # Telebit
+    "telebit_tunnel": {
+        "pattern": r".*\.telebit\.cloud$|.*\.telebit\.io$",
+        "threat_level": "high",
+        "category": "TUNNEL",
+        "notes": "Telebit tunneling service",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1090.004",
+    },
+    # Vercel/Now.sh
+    "vercel_hosting": {
+        "pattern": r".*\.vercel\.app$|.*\.now\.sh$",
+        "threat_level": "medium",
+        "category": "SERVERLESS",
+        "notes": "Vercel serverless - phishing and C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Netlify
+    "netlify_hosting": {
+        "pattern": r".*\.netlify\.app$|.*\.netlify\.com$",
+        "threat_level": "medium",
+        "category": "HOSTING",
+        "notes": "Netlify hosting - static C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # GitHub Pages abuse
+    "github_pages": {
+        "pattern": r".*\.github\.io$",
+        "threat_level": "low",
+        "category": "HOSTING",
+        "notes": "GitHub Pages - C2 config hosting",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # GitLab Pages
+    "gitlab_pages": {
+        "pattern": r".*\.gitlab\.io$",
+        "threat_level": "low",
+        "category": "HOSTING",
+        "notes": "GitLab Pages - C2 config hosting",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Firebase hosting
+    "firebase_hosting": {
+        "pattern": r".*\.firebaseapp\.com$|.*\.web\.app$",
+        "threat_level": "medium",
+        "category": "HOSTING",
+        "notes": "Firebase hosting - phishing and C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # AWS abuse indicators
+    "aws_s3_bucket": {
+        "pattern": r".*\.s3\.amazonaws\.com$|.*\.s3-[a-z0-9-]+\.amazonaws\.com$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "AWS S3 - malware hosting",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1583.006",
+    },
+    "aws_api_gateway": {
+        "pattern": r".*\.execute-api\.[a-z0-9-]+\.amazonaws\.com$",
+        "threat_level": "medium",
+        "category": "SERVERLESS",
+        "notes": "AWS API Gateway - C2 proxying",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    "aws_lambda_urls": {
+        "pattern": r".*\.lambda-url\.[a-z0-9-]+\.on\.aws$",
+        "threat_level": "medium",
+        "category": "SERVERLESS",
+        "notes": "AWS Lambda URLs - serverless C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Azure abuse
+    "azure_websites": {
+        "pattern": r".*\.azurewebsites\.net$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "Azure Web Apps - C2 hosting",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1583.006",
+    },
+    "azure_blob": {
+        "pattern": r".*\.blob\.core\.windows\.net$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "Azure Blob Storage - malware hosting",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1583.006",
+    },
+    "azure_functions": {
+        "pattern": r".*\.azurestaticapps\.net$",
+        "threat_level": "medium",
+        "category": "SERVERLESS",
+        "notes": "Azure Static Web Apps - C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Google Cloud abuse
+    "gcp_storage": {
+        "pattern": r".*\.storage\.googleapis\.com$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "GCP Storage - malware hosting",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1583.006",
+    },
+    "gcp_appspot": {
+        "pattern": r".*\.appspot\.com$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "Google App Engine - C2 hosting",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    "gcp_cloudfunctions": {
+        "pattern": r".*\.cloudfunctions\.net$",
+        "threat_level": "medium",
+        "category": "SERVERLESS",
+        "notes": "Google Cloud Functions - serverless C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Heroku
+    "heroku_apps": {
+        "pattern": r".*\.herokuapp\.com$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "Heroku apps - C2 hosting",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # DigitalOcean
+    "digitalocean_apps": {
+        "pattern": r".*\.ondigitalocean\.app$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "DigitalOcean App Platform - C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Render
+    "render_hosting": {
+        "pattern": r".*\.onrender\.com$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "Render hosting - C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Railway
+    "railway_hosting": {
+        "pattern": r".*\.railway\.app$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "Railway hosting - C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Deno Deploy
+    "deno_deploy": {
+        "pattern": r".*\.deno\.dev$",
+        "threat_level": "medium",
+        "category": "SERVERLESS",
+        "notes": "Deno Deploy - serverless C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Fly.io
+    "fly_io": {
+        "pattern": r".*\.fly\.dev$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "Fly.io hosting - C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Replit
+    "replit_hosting": {
+        "pattern": r".*\.repl\.co$|.*\.replit\.dev$|.*\.replit\.app$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "Replit hosting - C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Glitch
+    "glitch_hosting": {
+        "pattern": r".*\.glitch\.me$",
+        "threat_level": "medium",
+        "category": "CLOUD",
+        "notes": "Glitch hosting - C2",
+        "detection_method": "DNS monitoring",
+        "mitre_technique": "T1102",
+    },
+    # Discord webhooks
+    "discord_webhooks": {
+        "pattern": r"discord\.com/api/webhooks/",
+        "threat_level": "high",
+        "category": "WEBHOOK",
+        "notes": "Discord webhooks - data exfiltration",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1567.002",
+    },
+    # Telegram bots
+    "telegram_bot_api": {
+        "pattern": r"api\.telegram\.org/bot",
+        "threat_level": "high",
+        "category": "BOT_API",
+        "notes": "Telegram Bot API - C2 channel",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1102.002",
+    },
+    # Slack webhooks
+    "slack_webhooks": {
+        "pattern": r"hooks\.slack\.com/services/",
+        "threat_level": "high",
+        "category": "WEBHOOK",
+        "notes": "Slack webhooks - data exfiltration",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1567.002",
+    },
+    # Pastebin
+    "pastebin_raw": {
+        "pattern": r"pastebin\.com/raw/",
+        "threat_level": "high",
+        "category": "PASTE",
+        "notes": "Pastebin - C2 config hosting",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1102.001",
+    },
+    # Hastebin
+    "hastebin_raw": {
+        "pattern": r"hastebin\.com/raw/|hasteb\.in/raw/",
+        "threat_level": "high",
+        "category": "PASTE",
+        "notes": "Hastebin - C2 config hosting",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1102.001",
+    },
+    # Transfer.sh
+    "transfer_sh": {
+        "pattern": r"transfer\.sh/",
+        "threat_level": "high",
+        "category": "FILE_SHARE",
+        "notes": "Transfer.sh - malware hosting",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1105",
+    },
+    # AnonFiles
+    "anonfiles": {
+        "pattern": r"anonfiles\.com/|anonymfile\.com/",
+        "threat_level": "high",
+        "category": "FILE_SHARE",
+        "notes": "AnonFiles - malware hosting",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1105",
+    },
+    # Catbox
+    "catbox_moe": {
+        "pattern": r"files\.catbox\.moe/",
+        "threat_level": "high",
+        "category": "FILE_SHARE",
+        "notes": "Catbox - malware hosting",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1105",
+    },
+    # Pixeldrain
+    "pixeldrain": {
+        "pattern": r"pixeldrain\.com/",
+        "threat_level": "high",
+        "category": "FILE_SHARE",
+        "notes": "Pixeldrain - malware hosting",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1105",
+    },
+    # Temp.sh
+    "temp_sh": {
+        "pattern": r"temp\.sh/",
+        "threat_level": "high",
+        "category": "FILE_SHARE",
+        "notes": "Temp.sh - malware hosting",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1105",
+    },
+    # 0x0.st
+    "0x0_st": {
+        "pattern": r"0x0\.st/",
+        "threat_level": "high",
+        "category": "FILE_SHARE",
+        "notes": "0x0.st - malware hosting",
+        "detection_method": "URL monitoring",
+        "mitre_technique": "T1105",
+    },
+}
+
+# ============================================================
+# MALWARE BEACON PATTERNS DATABASE
+# ============================================================
+# Network beacon timing and behavior signatures
+
+MALWARE_BEACON_PATTERNS: Dict[str, Dict] = {
+    # Cobalt Strike
+    "cobalt_strike_default": {
+        "interval_ms": 60000,
+        "jitter_percent": 0,
+        "pattern": "fixed_interval",
+        "threat_level": "critical",
+        "notes": "Default Cobalt Strike beacon - 60 second check-in",
+        "indicators": [
+            "User-Agent contains 'Mozilla/5.0'",
+            "JA3 fingerprint matches known CS",
+            "HTTP response contains encoded shellcode",
+        ],
+    },
+    "cobalt_strike_malleable": {
+        "interval_ms": (1000, 300000),
+        "jitter_percent": (0, 50),
+        "pattern": "variable_interval",
+        "threat_level": "critical",
+        "notes": "Malleable Cobalt Strike profile",
+        "indicators": [
+            "Malleable C2 profile detected",
+            "Custom HTTP headers",
+            "Data in cookies or URI",
+        ],
+    },
+    "cobalt_strike_dns": {
+        "interval_ms": 60000,
+        "pattern": "dns_beacon",
+        "threat_level": "critical",
+        "notes": "Cobalt Strike DNS beacon",
+        "indicators": [
+            "TXT record queries",
+            "Encoded data in subdomain",
+            "High DNS query rate",
+        ],
+    },
+    # Metasploit
+    "metasploit_http_reverse": {
+        "interval_ms": 5000,
+        "pattern": "fixed_interval",
+        "threat_level": "critical",
+        "notes": "Metasploit HTTP reverse shell",
+        "indicators": [
+            "Stage downloads",
+            "Meterpreter traffic patterns",
+            "TLV encoded data",
+        ],
+    },
+    "metasploit_meterpreter": {
+        "interval_ms": 1000,
+        "pattern": "continuous",
+        "threat_level": "critical",
+        "notes": "Active Meterpreter session",
+        "indicators": [
+            "Encrypted TLV packets",
+            "Command/response pattern",
+            "File transfer signatures",
+        ],
+    },
+    # Empire
+    "empire_powershell": {
+        "interval_ms": 5000,
+        "jitter_percent": 10,
+        "pattern": "fixed_interval_jitter",
+        "threat_level": "critical",
+        "notes": "PowerShell Empire beacon",
+        "indicators": [
+            "Base64 encoded PowerShell",
+            "Staging traffic",
+            "Task retrieval pattern",
+        ],
+    },
+    "empire_python": {
+        "interval_ms": 5000,
+        "jitter_percent": 10,
+        "pattern": "fixed_interval_jitter",
+        "threat_level": "critical",
+        "notes": "Python Empire agent",
+        "indicators": [
+            "Python user agent",
+            "JSON C2 protocol",
+        ],
+    },
+    # Sliver
+    "sliver_default": {
+        "interval_ms": 60000,
+        "jitter_percent": 30,
+        "pattern": "fixed_interval_jitter",
+        "threat_level": "critical",
+        "notes": "Sliver C2 implant",
+        "indicators": [
+            "mTLS traffic",
+            "Protobuf encoded data",
+            "Session polling",
+        ],
+    },
+    "sliver_wireguard": {
+        "pattern": "wireguard_vpn",
+        "threat_level": "critical",
+        "notes": "Sliver WireGuard pivot",
+        "indicators": [
+            "WireGuard UDP traffic",
+            "Unusual port usage",
+            "VPN tunnel behavior",
+        ],
+    },
+    # Brute Ratel
+    "bruteratel_default": {
+        "interval_ms": 60000,
+        "jitter_percent": 20,
+        "pattern": "fixed_interval_jitter",
+        "threat_level": "critical",
+        "notes": "Brute Ratel C4 beacon",
+        "indicators": [
+            "SMB C2 protocol",
+            "DOH exfiltration",
+            "Indirect syscalls",
+        ],
+    },
+    # Havoc
+    "havoc_demon": {
+        "interval_ms": 2000,
+        "jitter_percent": 50,
+        "pattern": "fixed_interval_jitter",
+        "threat_level": "critical",
+        "notes": "Havoc Demon agent",
+        "indicators": [
+            "Custom HTTP protocol",
+            "Encrypted payloads",
+            "Teamserver communication",
+        ],
+    },
+    # Mythic
+    "mythic_agent": {
+        "interval_ms": 10000,
+        "jitter_percent": 23,
+        "pattern": "fixed_interval_jitter",
+        "threat_level": "critical",
+        "notes": "Mythic C2 agent",
+        "indicators": [
+            "Task-based protocol",
+            "AES encrypted",
+            "Profile-based traffic",
+        ],
+    },
+    # Covenant
+    "covenant_grunt": {
+        "interval_ms": 5000,
+        "jitter_percent": 10,
+        "pattern": "fixed_interval_jitter",
+        "threat_level": "critical",
+        "notes": "Covenant Grunt beacon",
+        "indicators": [
+            ".NET traffic patterns",
+            "GUID-based sessions",
+            "Task queue polling",
+        ],
+    },
+    # Posh-C2
+    "poshc2_implant": {
+        "interval_ms": 5000,
+        "jitter_percent": 20,
+        "pattern": "fixed_interval_jitter",
+        "threat_level": "critical",
+        "notes": "PoshC2 implant",
+        "indicators": [
+            "PowerShell beaconing",
+            "Python dropper",
+            "HTTP/HTTPS C2",
+        ],
+    },
+    # Villain
+    "villain_agent": {
+        "interval_ms": 3000,
+        "jitter_percent": 0,
+        "pattern": "fixed_interval",
+        "threat_level": "high",
+        "notes": "Villain backdoor",
+        "indicators": [
+            "Reverse shell traffic",
+            "File exfiltration",
+            "Screenshot patterns",
+        ],
+    },
+    # Generic RAT patterns
+    "generic_rat_fast": {
+        "interval_ms": (100, 1000),
+        "pattern": "continuous",
+        "threat_level": "high",
+        "notes": "Fast polling RAT",
+        "indicators": [
+            "High frequency callbacks",
+            "Small packets",
+            "Persistent connection",
+        ],
+    },
+    "generic_rat_slow": {
+        "interval_ms": (60000, 3600000),
+        "pattern": "slow_beacon",
+        "threat_level": "high",
+        "notes": "Slow beaconing RAT",
+        "indicators": [
+            "Infrequent callbacks",
+            "Long sleep periods",
+            "Evasion technique",
+        ],
+    },
+    # DNS-based beacons
+    "dns_beacon_generic": {
+        "interval_ms": 30000,
+        "pattern": "dns_beacon",
+        "threat_level": "high",
+        "notes": "DNS-based C2 beacon",
+        "indicators": [
+            "Unusual DNS query patterns",
+            "TXT record abuse",
+            "Subdomain encoding",
+        ],
+    },
+    # DoH beacons
+    "doh_beacon": {
+        "pattern": "dns_over_https",
+        "threat_level": "high",
+        "notes": "DNS-over-HTTPS C2 tunnel",
+        "indicators": [
+            "DoH to suspicious resolvers",
+            "Encoded queries",
+            "High query rate",
+        ],
+    },
+    # ICMP beacons
+    "icmp_tunnel": {
+        "pattern": "icmp_beacon",
+        "threat_level": "high",
+        "notes": "ICMP tunnel C2",
+        "indicators": [
+            "Large ICMP payloads",
+            "Encoded ping data",
+            "Unusual ICMP types",
+        ],
+    },
+}
+
+# ============================================================
+# NETWORK PROTOCOL ANOMALY SIGNATURES
+# ============================================================
+# Protocol-level indicators of compromise
+
+NETWORK_PROTOCOL_IOCS: Dict[str, Dict] = {
+    # DNS Anomalies
+    "dns_tunneling": {
+        "indicators": [
+            "High entropy in subdomain",
+            "Excessive TXT queries",
+            "Long domain names",
+            "Base64/hex encoding patterns",
+        ],
+        "threat_level": "high",
+        "mitre_technique": "T1071.004",
+        "notes": "DNS tunneling for C2 or exfiltration",
+    },
+    "dns_fast_flux": {
+        "indicators": [
+            "Rapidly changing A records",
+            "Short TTL values",
+            "Multiple IPs per query",
+            "Geographically distributed",
+        ],
+        "threat_level": "high",
+        "mitre_technique": "T1568.001",
+        "notes": "Fast flux DNS for C2 resilience",
+    },
+    "dns_domain_generation": {
+        "indicators": [
+            "Algorithmically generated names",
+            "High NXDOMAIN rate",
+            "Pattern-based domains",
+            "Time-seeded generation",
+        ],
+        "threat_level": "critical",
+        "mitre_technique": "T1568.002",
+        "notes": "Domain Generation Algorithm (DGA)",
+    },
+    "dns_rebinding": {
+        "indicators": [
+            "TTL of 0 or very low",
+            "Alternating internal/external IPs",
+            "JavaScript-triggered queries",
+        ],
+        "threat_level": "high",
+        "mitre_technique": "T1557",
+        "notes": "DNS rebinding attack",
+    },
+    # HTTP/HTTPS Anomalies
+    "http_beaconing": {
+        "indicators": [
+            "Regular interval requests",
+            "Same URL pattern",
+            "Small response sizes",
+            "Encoded payload in headers/cookies",
+        ],
+        "threat_level": "high",
+        "mitre_technique": "T1071.001",
+        "notes": "HTTP-based C2 beaconing",
+    },
+    "http_long_url": {
+        "indicators": [
+            "URL length > 2000 chars",
+            "Base64 in URL",
+            "Encoded commands",
+        ],
+        "threat_level": "medium",
+        "mitre_technique": "T1132",
+        "notes": "Data encoding in URLs",
+    },
+    "http_header_abuse": {
+        "indicators": [
+            "Custom X-headers with encoded data",
+            "Unusual cookie values",
+            "Oversized headers",
+        ],
+        "threat_level": "medium",
+        "mitre_technique": "T1132.001",
+        "notes": "HTTP header-based C2",
+    },
+    "http_post_exfil": {
+        "indicators": [
+            "Large POST body",
+            "Encoded file data",
+            "Multipart uploads to unusual endpoints",
+        ],
+        "threat_level": "high",
+        "mitre_technique": "T1048.001",
+        "notes": "Data exfiltration via HTTP POST",
+    },
+    "https_cert_anomaly": {
+        "indicators": [
+            "Self-signed certificate",
+            "Mismatched CN",
+            "Expired certificate",
+            "Let's Encrypt with suspicious domain",
+        ],
+        "threat_level": "medium",
+        "mitre_technique": "T1573.002",
+        "notes": "Suspicious TLS certificate",
+    },
+    "tls_fingerprint_mismatch": {
+        "indicators": [
+            "JA3 fingerprint anomaly",
+            "Unusual cipher suites",
+            "TLS version mismatch",
+        ],
+        "threat_level": "medium",
+        "mitre_technique": "T1071.001",
+        "notes": "TLS client fingerprint mismatch",
+    },
+    # ICMP Anomalies
+    "icmp_exfiltration": {
+        "indicators": [
+            "Large ICMP echo payload",
+            "Non-standard ICMP types",
+            "High ICMP rate",
+        ],
+        "threat_level": "high",
+        "mitre_technique": "T1095",
+        "notes": "ICMP-based data exfiltration",
+    },
+    # SMB Anomalies
+    "smb_lateral_movement": {
+        "indicators": [
+            "SMB to multiple hosts",
+            "PsExec patterns",
+            "Admin share access (C$, ADMIN$)",
+            "Service creation via RPC",
+        ],
+        "threat_level": "critical",
+        "mitre_technique": "T1021.002",
+        "notes": "SMB-based lateral movement",
+    },
+    "smb_ransomware": {
+        "indicators": [
+            "Mass file enumeration",
+            "Rapid file modifications",
+            "Extension changes",
+            "Ransom note creation",
+        ],
+        "threat_level": "critical",
+        "mitre_technique": "T1486",
+        "notes": "SMB-based ransomware activity",
+    },
+    # SSH Anomalies
+    "ssh_tunneling": {
+        "indicators": [
+            "Port forwarding",
+            "Reverse tunnel",
+            "Unusual port usage",
+            "Long-lived sessions",
+        ],
+        "threat_level": "medium",
+        "mitre_technique": "T1572",
+        "notes": "SSH tunneling for pivoting",
+    },
+    "ssh_brute_force": {
+        "indicators": [
+            "Multiple failed auth",
+            "Rapid connection attempts",
+            "Common username patterns",
+        ],
+        "threat_level": "high",
+        "mitre_technique": "T1110.001",
+        "notes": "SSH brute force attack",
+    },
+    # RDP Anomalies
+    "rdp_tunneling": {
+        "indicators": [
+            "RDP over non-standard port",
+            "RDP wrapped in SSH",
+            "Unusual display resolution",
+        ],
+        "threat_level": "high",
+        "mitre_technique": "T1021.001",
+        "notes": "RDP tunneling",
+    },
+    "rdp_credential_theft": {
+        "indicators": [
+            "NLA bypass attempts",
+            "Credential prompts",
+            "Multiple login failures",
+        ],
+        "threat_level": "high",
+        "mitre_technique": "T1021.001",
+        "notes": "RDP credential attacks",
+    },
+}
+
+# ============================================================
+# COVERT CHANNEL SIGNATURES
+# ============================================================
+# Detection of hidden communication channels
+
+COVERT_CHANNEL_SIGNATURES: Dict[str, Dict] = {
+    # Audio covert channels
+    "ultrasonic_data": {
+        "freq_range": (17000, 24000),
+        "modulation": ["FSK", "OFDM", "spread_spectrum"],
+        "threat_level": "critical",
+        "notes": "Ultrasonic data transmission - air-gap bypass",
+        "detection_method": "Audio spectral analysis",
+    },
+    "audio_steganography": {
+        "indicators": [
+            "LSB modification patterns",
+            "Phase coding anomalies",
+            "Echo hiding",
+            "Spread spectrum patterns",
+        ],
+        "threat_level": "high",
+        "notes": "Data hidden in audio",
+        "detection_method": "Statistical audio analysis",
+    },
+    "speaker_to_mic": {
+        "freq_range": (18000, 22000),
+        "pattern": "near_ultrasonic",
+        "threat_level": "critical",
+        "notes": "Near-ultrasonic speaker-to-microphone exfiltration",
+        "detection_method": "Audio monitoring",
+    },
+    # RF covert channels
+    "rf_emanation": {
+        "freq_range": (100e6, 6e9),
+        "pattern": "unintentional_emission",
+        "threat_level": "critical",
+        "notes": "Data exfiltration via RF emanations (TEMPEST)",
+        "detection_method": "RF spectrum analysis",
+    },
+    "usb_rf_exfil": {
+        "freq_range": (300e6, 600e6),
+        "pattern": "usb_modulated_rf",
+        "threat_level": "critical",
+        "notes": "USB-based RF exfiltration (USBee)",
+        "detection_method": "Near-field RF monitoring",
+    },
+    "gpu_rf_exfil": {
+        "freq_range": (100e6, 500e6),
+        "pattern": "gpu_modulated_rf",
+        "threat_level": "critical",
+        "notes": "GPU-based RF exfiltration (AirHopper)",
+        "detection_method": "RF spectrum analysis",
+    },
+    "fansmitter": {
+        "freq_range": (140, 170),  # Hz (acoustic)
+        "pattern": "fan_speed_modulation",
+        "threat_level": "high",
+        "notes": "Data exfiltration via fan noise (Fansmitter)",
+        "detection_method": "Acoustic analysis",
+    },
+    "diskfiltration": {
+        "freq_range": (1000, 8000),  # Hz (acoustic)
+        "pattern": "hdd_seek_noise",
+        "threat_level": "high",
+        "notes": "Data exfiltration via HDD noise (DiskFiltration)",
+        "detection_method": "Acoustic analysis",
+    },
+    # Optical covert channels
+    "led_exfiltration": {
+        "freq_range": (0.5, 6000),  # Blink rate Hz
+        "pattern": "led_modulation",
+        "threat_level": "high",
+        "notes": "Data exfiltration via LED blinking",
+        "detection_method": "Optical monitoring",
+    },
+    "screen_exfiltration": {
+        "pattern": "qr_in_display",
+        "threat_level": "high",
+        "notes": "Data exfiltration via screen (QR codes, brightness)",
+        "detection_method": "Screen capture analysis",
+    },
+    # Magnetic covert channels
+    "magnetometer_exfil": {
+        "freq_range": (0, 40),  # Hz
+        "pattern": "magnetic_field_modulation",
+        "threat_level": "critical",
+        "notes": "Data exfiltration via magnetic field (MAGNETO)",
+        "detection_method": "Magnetometer monitoring",
+    },
+    # Thermal covert channels
+    "thermal_bridge": {
+        "pattern": "temperature_modulation",
+        "threat_level": "high",
+        "notes": "Thermal covert channel (BitWhisper)",
+        "detection_method": "Thermal monitoring",
+    },
+    # Power line covert channels
+    "powerline_signaling": {
+        "freq_range": (10e3, 500e3),
+        "pattern": "power_line_modulation",
+        "threat_level": "high",
+        "notes": "Data exfiltration via power line (PowerHammer)",
+        "detection_method": "Power line analysis",
+    },
+    # Network covert channels
+    "tcp_timestamp": {
+        "pattern": "tcp_timestamp_encoding",
+        "threat_level": "medium",
+        "notes": "Data in TCP timestamps",
+        "detection_method": "Packet analysis",
+    },
+    "ip_id_field": {
+        "pattern": "ip_id_encoding",
+        "threat_level": "medium",
+        "notes": "Data in IP ID field",
+        "detection_method": "Packet analysis",
+    },
+    "ttl_encoding": {
+        "pattern": "ttl_modulation",
+        "threat_level": "medium",
+        "notes": "Data in TTL field",
+        "detection_method": "Packet analysis",
+    },
+    "dns_response_time": {
+        "pattern": "timing_channel",
+        "threat_level": "medium",
+        "notes": "Timing-based DNS covert channel",
+        "detection_method": "DNS timing analysis",
+    },
+}
+
+# ============================================================
+# EXPANDED BLUETOOTH IOC DATABASE
+# ============================================================
+# Additional BLE/Classic Bluetooth threat indicators
+
+BLUETOOTH_EXTENDED_IOCS: Dict[str, Dict] = {
+    # Attack Tool Device Names
+    "attack_tool_names": {
+        "patterns": [
+            r"(?i).*hack.*",
+            r"(?i).*pwn.*",
+            r"(?i).*evil.*",
+            r"(?i).*attack.*",
+            r"(?i).*inject.*",
+            r"(?i).*sniff.*",
+            r"(?i).*spoof.*",
+            r"(?i).*exploit.*",
+            r"(?i)^Flipper.*",
+            r"(?i).*flipper.*zero.*",
+            r"(?i)^HackRF.*",
+            r"(?i)^Ubertooth.*",
+            r"(?i)^BTLEJuice.*",
+            r"(?i)^GATTacker.*",
+            r"(?i)^BlueFruit.*",
+            r"(?i).*BLE.*Scanner.*",
+            r"(?i)^NRF.*Connect.*",
+            r"(?i)^CC2540.*",
+            r"(?i)^CC2541.*",
+            r"(?i)^BadUSB.*",
+            r"(?i).*rubber.*ducky.*",
+            r"(?i)^O\.MG.*",
+            r"(?i).*malduino.*",
+            r"(?i)^ble.*crack.*",
+            r"(?i)^btle.*jack.*",
+            r"(?i)^mirage.*",
+            r"(?i)^sniffle.*",
+            r"(?i)^crackle.*",
+        ],
+        "threat_level": "critical",
+        "notes": "Known attack tool or suspicious device name",
+    },
+    # Surveillance Device Patterns
+    "surveillance_patterns": {
+        "patterns": [
+            r"(?i).*spy.*",
+            r"(?i).*hidden.*cam.*",
+            r"(?i).*covert.*",
+            r"(?i).*bug.*",
+            r"(?i).*listen.*",
+            r"(?i).*record.*",
+            r"(?i).*monitor.*",
+            r"(?i).*track.*",
+            r"(?i).*gps.*",
+            r"(?i).*locate.*",
+            r"(?i).*finder.*tag.*",
+            r"(?i).*pet.*finder.*",
+            r"(?i).*child.*track.*",
+            r"(?i).*vehicle.*track.*",
+            r"(?i).*asset.*track.*",
+        ],
+        "threat_level": "high",
+        "notes": "Potential surveillance or tracking device",
+    },
+    # Development Board Patterns
+    "dev_board_patterns": {
+        "patterns": [
+            r"(?i)^ESP.*",
+            r"(?i).*ESP32.*",
+            r"(?i).*ESP8266.*",
+            r"(?i)^Arduino.*",
+            r"(?i).*Feather.*",
+            r"(?i)^Adafruit.*",
+            r"(?i)^SparkFun.*",
+            r"(?i)^Seeed.*",
+            r"(?i)^Teensy.*",
+            r"(?i)^STM32.*",
+            r"(?i)^nRF.*DK.*",
+            r"(?i)^Nordic.*",
+            r"(?i)^BlueNRG.*",
+            r"(?i)^DA14.*",
+            r"(?i)^Dialog.*",
+            r"(?i)^Silicon.*Labs.*",
+            r"(?i)^EFR32.*",
+            r"(?i)^BGM.*",
+            r"(?i)^Cypress.*",
+            r"(?i)^PSoC.*",
+            r"(?i)^M5Stack.*",
+            r"(?i)^TTGO.*",
+            r"(?i)^Heltec.*",
+            r"(?i)^LilyGo.*",
+            r"(?i)^WeMos.*",
+            r"(?i)^NodeMCU.*",
+        ],
+        "threat_level": "medium",
+        "notes": "Development board - unusual in consumer environment",
+    },
+    # Generic IoT with Default Names
+    "default_iot_names": {
+        "patterns": [
+            r"^BLE.*Device.*",
+            r"^Bluetooth.*Device.*",
+            r"^Unknown.*",
+            r"^Device.*",
+            r"^Module.*",
+            r"^BT.*Module.*",
+            r"^HM-10.*",
+            r"^HM-11.*",
+            r"^HC-05.*",
+            r"^HC-06.*",
+            r"^AT-09.*",
+            r"^JDY-08.*",
+            r"^JDY-10.*",
+            r"^JDY-16.*",
+            r"^CC2541.*",
+            r"^MLT-BT05.*",
+            r"^BT05.*",
+            r"^DSD.*TECH.*",
+            r"^SimpleBLE.*",
+            r"^BLE_.*",
+        ],
+        "threat_level": "medium",
+        "notes": "Device with default/generic name - potential attack device",
+    },
+}
+
+# Additional Bluetooth Service UUIDs for threat detection
+BLUETOOTH_SERVICE_EXTENDED_IOCS: Dict[str, Dict] = {
+    # Debug/Development Services
+    "00001101-0000-1000-8000-00805F9B34FB": {
+        "name": "Serial Port Profile (SPP)",
+        "threat_level": "high",
+        "notes": "Serial communication - potential backdoor",
+    },
+    "00001102-0000-1000-8000-00805F9B34FB": {
+        "name": "LAN Access Using PPP",
+        "threat_level": "high",
+        "notes": "Network bridging capability",
+    },
+    "00001103-0000-1000-8000-00805F9B34FB": {
+        "name": "Dialup Networking",
+        "threat_level": "medium",
+        "notes": "Modem access capability",
+    },
+    "00001104-0000-1000-8000-00805F9B34FB": {
+        "name": "IrMC Sync",
+        "threat_level": "medium",
+        "notes": "Data synchronization",
+    },
+    "00001105-0000-1000-8000-00805F9B34FB": {
+        "name": "OBEX Object Push",
+        "threat_level": "high",
+        "notes": "File transfer capability - malware delivery vector",
+    },
+    "00001106-0000-1000-8000-00805F9B34FB": {
+        "name": "OBEX File Transfer",
+        "threat_level": "high",
+        "notes": "File system access - data exfiltration risk",
+    },
+    "0000111F-0000-1000-8000-00805F9B34FB": {
+        "name": "Handsfree Audio Gateway",
+        "threat_level": "medium",
+        "notes": "Audio gateway - call interception possible",
+    },
+    "0000112D-0000-1000-8000-00805F9B34FB": {
+        "name": "SIM Access",
+        "threat_level": "critical",
+        "notes": "SIM card access - extremely sensitive",
+    },
+    "0000112E-0000-1000-8000-00805F9B34FB": {
+        "name": "Phonebook Access - PCE",
+        "threat_level": "high",
+        "notes": "Phonebook access - privacy risk",
+    },
+    "0000112F-0000-1000-8000-00805F9B34FB": {
+        "name": "Phonebook Access - PSE",
+        "threat_level": "high",
+        "notes": "Phonebook server - data exposure",
+    },
+    "00001132-0000-1000-8000-00805F9B34FB": {
+        "name": "Message Access Server",
+        "threat_level": "critical",
+        "notes": "SMS/MMS access - message interception",
+    },
+    "00001133-0000-1000-8000-00805F9B34FB": {
+        "name": "Message Notification Server",
+        "threat_level": "high",
+        "notes": "Message notifications - surveillance capability",
+    },
+    "00001134-0000-1000-8000-00805F9B34FB": {
+        "name": "Message Access Profile",
+        "threat_level": "critical",
+        "notes": "Full message access - high privacy risk",
+    },
+    # Vendor-specific attack-related UUIDs
+    "49535343-FE7D-4AE5-8FA9-9FAFD205E455": {
+        "name": "ISSC Transparent UART",
+        "threat_level": "high",
+        "notes": "Transparent serial - common in hacking tools",
+    },
+    "0000FFF0-0000-1000-8000-00805F9B34FB": {
+        "name": "Custom Serial Service",
+        "threat_level": "high",
+        "notes": "Generic serial - inspect traffic",
+    },
+    "0000FFE0-0000-1000-8000-00805F9B34FB": {
+        "name": "HM-10 BLE Serial",
+        "threat_level": "high",
+        "notes": "HM-10 module - common attack platform",
+    },
+    "0000FFE1-0000-1000-8000-00805F9B34FB": {
+        "name": "HM-10 Serial TX/RX",
+        "threat_level": "high",
+        "notes": "HM-10 data characteristic",
+    },
+    "6E400001-B5A3-F393-E0A9-E50E24DCCA9E": {
+        "name": "Nordic UART Service",
+        "threat_level": "high",
+        "notes": "Nordic serial - common in dev/attack tools",
+    },
+    "8E400001-F315-4F60-9FB8-838830DAEA50": {
+        "name": "Alternative UART Service",
+        "threat_level": "high",
+        "notes": "Alternative serial implementation",
+    },
+    # Apple-specific for tracking detection
+    "FD6F": {
+        "name": "Apple FindMy",
+        "threat_level": "medium",
+        "notes": "Apple FindMy - potential tracking",
+    },
+    "FD5A": {
+        "name": "Apple AirTag",
+        "threat_level": "medium",
+        "notes": "Apple AirTag - verify ownership",
+    },
+    # Proprietary tracking services
+    "FEED": {
+        "name": "Tile Tracker Service",
+        "threat_level": "medium",
+        "notes": "Tile tracking service",
+    },
+    "FDA2": {
+        "name": "Samsung SmartThings",
+        "threat_level": "low",
+        "notes": "Samsung SmartThings device",
+    },
+}
+
+# ============================================================
+# RF IMPLANT FREQUENCY DATABASE
+# ============================================================
+# Known frequencies used by surveillance implants
+
+RF_IMPLANT_FREQUENCIES: Dict[str, Dict] = {
+    # Classic Surveillance Frequencies
+    "vhf_bug_low": {
+        "freq_range": (30e6, 50e6),
+        "threat_level": "critical",
+        "notes": "Low VHF band - classic audio bugs",
+        "indicators": ["FM modulation", "Narrow bandwidth", "Continuous carrier"],
+    },
+    "vhf_bug_high": {
+        "freq_range": (140e6, 175e6),
+        "threat_level": "critical",
+        "notes": "High VHF band - professional bugs",
+        "indicators": ["FM/digital modulation", "Burst transmission"],
+    },
+    "uhf_bug_low": {
+        "freq_range": (400e6, 470e6),
+        "threat_level": "critical",
+        "notes": "UHF band - common surveillance range",
+        "indicators": ["Digital modulation", "Encrypted", "Hopping"],
+    },
+    "uhf_bug_high": {
+        "freq_range": (850e6, 960e6),
+        "threat_level": "critical",
+        "notes": "Upper UHF - GSM bug range",
+        "indicators": ["GSM modulation", "Cellular patterns"],
+    },
+    # Video Transmitter Frequencies
+    "video_900mhz": {
+        "freq_range": (900e6, 930e6),
+        "threat_level": "critical",
+        "notes": "900 MHz video transmitter band",
+        "indicators": ["Wide bandwidth", "Video modulation", "Constant power"],
+    },
+    "video_1200mhz": {
+        "freq_range": (1100e6, 1300e6),
+        "threat_level": "critical",
+        "notes": "1.2 GHz video transmitter band",
+        "indicators": ["Analog video", "FM modulation", "6+ MHz bandwidth"],
+    },
+    "video_2400mhz": {
+        "freq_range": (2400e6, 2483e6),
+        "threat_level": "high",
+        "notes": "2.4 GHz video - may blend with WiFi",
+        "indicators": ["Video bandwidth", "Non-standard modulation"],
+    },
+    "video_5800mhz": {
+        "freq_range": (5650e6, 5925e6),
+        "threat_level": "critical",
+        "notes": "5.8 GHz video - FPV/surveillance common",
+        "indicators": ["Wide FM video", "High power", "Directional"],
+    },
+    # GPS Tracker Frequencies
+    "gps_tracker_gsm": {
+        "freq_range": (850e6, 1900e6),
+        "threat_level": "high",
+        "notes": "GSM-based GPS trackers",
+        "indicators": ["GSM bursts", "Periodic transmission", "Location data"],
+    },
+    "gps_tracker_lte": {
+        "freq_range": (700e6, 2600e6),
+        "threat_level": "high",
+        "notes": "LTE-based GPS trackers",
+        "indicators": ["LTE modulation", "Scheduled uploads"],
+    },
+    # Specialized Surveillance
+    "law_enforcement_vhf": {
+        "freq_range": (138e6, 174e6),
+        "threat_level": "intel",
+        "notes": "Law enforcement VHF range",
+        "indicators": ["P25 digital", "Encrypted", "Trunked"],
+    },
+    "law_enforcement_uhf": {
+        "freq_range": (406e6, 512e6),
+        "threat_level": "intel",
+        "notes": "Law enforcement UHF range",
+        "indicators": ["P25 digital", "DMR", "Trunked"],
+    },
+    "law_enforcement_700": {
+        "freq_range": (764e6, 776e6),
+        "threat_level": "intel",
+        "notes": "700 MHz public safety band",
+        "indicators": ["LTE", "P25 Phase II", "FirstNet"],
+    },
+    "law_enforcement_800": {
+        "freq_range": (806e6, 869e6),
+        "threat_level": "intel",
+        "notes": "800 MHz public safety band",
+        "indicators": ["Trunked systems", "Rebanding"],
+    },
+    # TSCM Focus Frequencies
+    "infinity_transmitter": {
+        "freq_range": (30e6, 300e6),
+        "threat_level": "critical",
+        "notes": "Infinity transmitter (phone line bug)",
+        "indicators": ["Triggered by phone", "Room audio", "Line powered"],
+    },
+    "carrier_current": {
+        "freq_range": (100e3, 500e3),
+        "threat_level": "critical",
+        "notes": "Carrier current device (power line bug)",
+        "indicators": ["Power line transmission", "Building-wide"],
+    },
+    "microwave_link": {
+        "freq_range": (10e9, 40e9),
+        "threat_level": "critical",
+        "notes": "Microwave surveillance links",
+        "indicators": ["Directional", "High gain antenna", "Digital"],
+    },
+}
+
+# ============================================================
+# IOT BOTNET SIGNATURES
+# ============================================================
+# Known IoT malware and botnet indicators
+
+IOT_BOTNET_SIGNATURES: Dict[str, Dict] = {
+    # Mirai and variants
+    "mirai": {
+        "indicators": [
+            "Default credential scanning",
+            "Telnet brute force",
+            "SYN flood capability",
+            "UDP flood capability",
+            "GRE flood capability",
+            "/bin/busybox infection",
+        ],
+        "ports": [23, 2323, 7547, 5555, 80, 8080],
+        "threat_level": "critical",
+        "notes": "Mirai botnet or variant",
+    },
+    "mirai_okiru": {
+        "indicators": [
+            "ARC processor targeting",
+            "MIPS/ARM variants",
+            "Enhanced obfuscation",
+        ],
+        "threat_level": "critical",
+        "notes": "Mirai Okiru variant",
+    },
+    "mirai_satori": {
+        "indicators": [
+            "Huawei router exploitation",
+            "CVE-2017-17215",
+            "Zero-day usage",
+        ],
+        "threat_level": "critical",
+        "notes": "Satori/Okiru botnet",
+    },
+    # Bashlite/Gafgyt
+    "bashlite": {
+        "indicators": [
+            "ShellShock exploitation",
+            "Busybox wget/curl",
+            "HTTP C2",
+            "DDoS modules",
+        ],
+        "ports": [23, 8080, 80],
+        "threat_level": "high",
+        "notes": "Bashlite/Gafgyt/Lizkebab botnet",
+    },
+    # Hajime
+    "hajime": {
+        "indicators": [
+            "P2P botnet structure",
+            "BitTorrent DHT",
+            "No DDoS capability (defensive)",
+            "Competes with Mirai",
+        ],
+        "ports": [23, 5358, 4471],
+        "threat_level": "medium",
+        "notes": "Hajime botnet - vigilante IoT worm",
+    },
+    # BrickerBot
+    "brickerbot": {
+        "indicators": [
+            "Permanent denial of service",
+            "Flash memory corruption",
+            "Busybox rm -rf",
+        ],
+        "threat_level": "critical",
+        "notes": "BrickerBot - destructive IoT malware",
+    },
+    # Reaper/IoTroop
+    "reaper": {
+        "indicators": [
+            "Lua-based exploitation",
+            "Multiple CVE exploitation",
+            "Modular architecture",
+            "Automatic vulnerability scanning",
+        ],
+        "threat_level": "critical",
+        "notes": "Reaper/IoTroop botnet",
+    },
+    # VPNFilter
+    "vpnfilter": {
+        "indicators": [
+            "Router/NAS targeting",
+            "Modular stages",
+            "Persistence across reboot",
+            "MitM capability",
+            "Tor C2",
+        ],
+        "threat_level": "critical",
+        "notes": "VPNFilter - advanced router malware (APT28)",
+    },
+    # Mozi
+    "mozi": {
+        "indicators": [
+            "DHT P2P protocol",
+            "Bittorent-like structure",
+            "Router exploitation",
+            "DDoS and mining",
+        ],
+        "ports": [23, 80, 8291, 8443],
+        "threat_level": "critical",
+        "notes": "Mozi botnet",
+    },
+    # Pink
+    "pink": {
+        "indicators": [
+            "Fiber router targeting",
+            "Firmware modification",
+            "DNS hijacking",
+            "Ad injection",
+        ],
+        "threat_level": "critical",
+        "notes": "Pink botnet - large-scale fiber router compromise",
+    },
+    # HEH
+    "heh": {
+        "indicators": [
+            "Go language",
+            "P2P structure",
+            "SSH/Telnet exploitation",
+            "Wiper capability",
+        ],
+        "threat_level": "high",
+        "notes": "HEH botnet",
+    },
+    # Enemybot
+    "enemybot": {
+        "indicators": [
+            "Mirai + Gafgyt hybrid",
+            "Multiple architecture support",
+            "Rapid CVE adoption",
+            "Scanner module",
+        ],
+        "threat_level": "critical",
+        "notes": "Enemybot - Keksec botnet",
+    },
+}
+
+# ============================================================
+# MACOS/IOS SPECIFIC THREAT SIGNATURES
+# ============================================================
+# Apple platform specific indicators
+
+APPLE_PLATFORM_IOCS: Dict[str, Dict] = {
+    # macOS Malware Indicators
+    "macos_persistence_locations": {
+        "paths": [
+            "/Library/LaunchAgents/",
+            "/Library/LaunchDaemons/",
+            "~/Library/LaunchAgents/",
+            "/System/Library/LaunchDaemons/",
+            "/Library/StartupItems/",
+            "~/Library/Application Support/",
+            "/Library/Application Support/",
+            "/private/var/db/receipts/",
+            "~/Library/Preferences/",
+        ],
+        "threat_level": "high",
+        "notes": "Common macOS persistence locations",
+    },
+    "macos_suspicious_frameworks": {
+        "paths": [
+            "/Library/Frameworks/",
+            "/System/Library/Frameworks/",
+            "/System/Library/PrivateFrameworks/",
+        ],
+        "patterns": [
+            r".*[Mm]alware.*",
+            r".*[Bb]ackdoor.*",
+            r".*[Rr]ootkit.*",
+            r".*[Kk]eylog.*",
+            r".*[Ss]py.*",
+        ],
+        "threat_level": "critical",
+        "notes": "Suspicious framework modifications",
+    },
+    "macos_kext_locations": {
+        "paths": [
+            "/Library/Extensions/",
+            "/System/Library/Extensions/",
+        ],
+        "threat_level": "high",
+        "notes": "Kernel extension locations - rootkit vectors",
+    },
+    # CoreAudio manipulation (relevant to catwatchful)
+    "coreaudio_manipulation": {
+        "indicators": [
+            "Unexpected AudioDeviceID",
+            "Virtual audio devices",
+            "HAL plugin modifications",
+            "Audio hijacking patterns",
+        ],
+        "paths": [
+            "/Library/Audio/Plug-Ins/HAL/",
+            "~/Library/Audio/Plug-Ins/",
+        ],
+        "threat_level": "critical",
+        "notes": "CoreAudio manipulation - audio surveillance indicator",
+    },
+    # Known macOS malware families
+    "macos_malware_families": {
+        "families": [
+            "OSX.Shlayer",
+            "OSX.Bundlore",
+            "OSX.CloudMensis",
+            "OSX.DazzleSpy",
+            "OSX.XCSSET",
+            "OSX.Silver Sparrow",
+            "OSX.UpdateAgent",
+            "OSX.MacMa",
+            "OSX.Gimmick",
+            "OSX.Alchimist",
+            "OSX.JokerSpy",
+            "OSX.RustBucket",
+            "OSX.SysJoker",
+            "OSX.Geacon",
+        ],
+        "threat_level": "critical",
+        "notes": "Known macOS malware families",
+    },
+    # iOS-specific indicators
+    "ios_jailbreak_indicators": {
+        "paths": [
+            "/Applications/Cydia.app",
+            "/Library/MobileSubstrate/",
+            "/bin/bash",
+            "/usr/sbin/sshd",
+            "/etc/apt/",
+            "/var/cache/apt/",
+            "/var/lib/apt/",
+            "/var/lib/cydia/",
+            "/var/log/syslog",
+            "/private/var/stash",
+        ],
+        "threat_level": "high",
+        "notes": "iOS jailbreak indicators - expanded attack surface",
+    },
+    "ios_spyware_indicators": {
+        "indicators": [
+            "Background location access",
+            "Microphone access without UI",
+            "Camera access without UI",
+            "Contact access patterns",
+            "Message access patterns",
+            "Call log access patterns",
+        ],
+        "families": [
+            "Pegasus",
+            "Predator",
+            "Reign",
+            "KingsPawn",
+            "DevilsTongue",
+            "Hermit",
+            "QuaDream",
+        ],
+        "threat_level": "critical",
+        "notes": "Commercial/government iOS spyware indicators",
+    },
+}
+
+# ============================================================
+# TIMESTAMP ANOMALY SIGNATURES
+# ============================================================
+# File/system timestamp manipulation indicators
+
+TIMESTAMP_ANOMALY_SIGNATURES: Dict[str, Dict] = {
+    # Mass timestamp patterns (relevant to catwatchful investigation)
+    "mass_identical_timestamps": {
+        "threshold": 100,  # files
+        "indicators": [
+            "Same modification time",
+            "Same creation time",
+            "Same access time",
+            "Nanosecond precision identical",
+        ],
+        "threat_level": "critical",
+        "notes": "Mass files with identical timestamps - rootkit/malware indicator",
+    },
+    "timestomping": {
+        "indicators": [
+            "Future timestamps",
+            "Pre-OS-install timestamps",
+            "Impossible date combinations",
+            "Modified < Created",
+            "Year 1970/1601 timestamps",
+        ],
+        "threat_level": "critical",
+        "notes": "Timestamp manipulation detected",
+    },
+    "metadata_inconsistency": {
+        "indicators": [
+            "MFT timestamp != file system timestamp",
+            "Extended attribute mismatch",
+            "EXIF/metadata date mismatch",
+            "Version info date mismatch",
+        ],
+        "threat_level": "high",
+        "notes": "Metadata timestamp inconsistency",
+    },
+    "suspicious_time_patterns": {
+        "indicators": [
+            "Round timestamps (00:00:00)",
+            "Sequential timestamps",
+            "UTC midnight clustering",
+            "Epoch time values",
+        ],
+        "threat_level": "medium",
+        "notes": "Suspicious timestamp patterns",
+    },
+}
+
+# ============================================================
+# NETWORK INFRASTRUCTURE IOC PATTERNS
+# ============================================================
+
+NETWORK_INFRASTRUCTURE_IOCS: Dict[str, Dict] = {
+    # Bulletproof hosting indicators
+    "bulletproof_asn_indicators": {
+        "patterns": [
+            "AS-CHOOPA",
+            "CLOUVIDER",
+            "COMBAHTON",
+            "WORLDSTREAM",
+            "LEASEWEB",
+            "M247",
+            "QUADRANET",
+            "PSYCHZ",
+        ],
+        "threat_level": "medium",
+        "notes": "ASNs sometimes associated with malicious infrastructure",
+    },
+    # Proxy/VPN indicators
+    "tor_exit_node": {
+        "indicators": [
+            "Known Tor exit IP",
+            "Onion routing patterns",
+            ".onion domain resolution",
+        ],
+        "threat_level": "medium",
+        "notes": "Tor network usage",
+    },
+    "commercial_vpn": {
+        "indicators": [
+            "NordVPN IP ranges",
+            "ExpressVPN IP ranges",
+            "PIA IP ranges",
+            "Mullvad IP ranges",
+        ],
+        "threat_level": "low",
+        "notes": "Commercial VPN usage",
+    },
+    "residential_proxy": {
+        "indicators": [
+            "Luminati/Bright Data",
+            "Oxylabs",
+            "Smartproxy",
+            "GeoSurf",
+        ],
+        "threat_level": "high",
+        "notes": "Residential proxy network - often used for fraud",
+    },
+}
+
+
+# ============================================================
+# FIRMWARE IMPLANT SIGNATURES DATABASE
+# ============================================================
+# Hardware/firmware level threat indicators
+# For defensive security research and forensic investigation ONLY
+
+FIRMWARE_IMPLANT_IOCS: Dict[str, Dict] = {
+    # UEFI/BIOS Rootkits
+    "uefi_rootkit_lojax": {
+        "name": "LoJax",
+        "threat_level": "critical",
+        "attribution": "APT28/Fancy Bear",
+        "indicators": [
+            "Modified rpcnetp.exe in UEFI",
+            "SecDxe DXE driver modification",
+            "SPI flash write operations",
+            "Unsigned UEFI modules",
+        ],
+        "persistence": "UEFI firmware",
+        "notes": "First in-the-wild UEFI rootkit, survives OS reinstall",
+        "mitre_technique": "T1542.001",
+    },
+    "uefi_rootkit_mosaic_regressor": {
+        "name": "MosaicRegressor",
+        "threat_level": "critical",
+        "attribution": "Chinese APT",
+        "indicators": [
+            "Modified SmmInterfaceBase",
+            "SMM backdoor",
+            "UEFI variable manipulation",
+            "Capsule update abuse",
+        ],
+        "persistence": "UEFI firmware",
+        "notes": "Multi-stage UEFI implant discovered 2020",
+        "mitre_technique": "T1542.001",
+    },
+    "uefi_rootkit_cosmic_strand": {
+        "name": "CosmicStrand",
+        "threat_level": "critical",
+        "attribution": "Chinese APT",
+        "indicators": [
+            "Infected firmware image",
+            "Modified csmcore DXE",
+            "Kernel driver injection",
+            "Gigabyte/ASUS motherboard targeting",
+        ],
+        "persistence": "UEFI firmware",
+        "notes": "UEFI firmware rootkit discovered 2022",
+        "mitre_technique": "T1542.001",
+    },
+    "uefi_rootkit_especter": {
+        "name": "ESPecter",
+        "threat_level": "critical",
+        "attribution": "Unknown",
+        "indicators": [
+            "ESP bootloader modification",
+            "Windows Boot Manager patching",
+            "EFI System Partition tampering",
+            "Unsigned boot drivers",
+        ],
+        "persistence": "EFI System Partition",
+        "notes": "Bootloader-level persistence mechanism",
+        "mitre_technique": "T1542.003",
+    },
+    "uefi_rootkit_moonbounce": {
+        "name": "MoonBounce",
+        "threat_level": "critical",
+        "attribution": "APT41/Winnti",
+        "indicators": [
+            "SPI flash modification",
+            "CORE_DXE component patching",
+            "In-memory only payload",
+            "No files on disk",
+        ],
+        "persistence": "SPI flash firmware",
+        "notes": "Most advanced UEFI implant, entirely in firmware",
+        "mitre_technique": "T1542.001",
+    },
+    # Hardware implants
+    "hardware_implant_cottonmouth": {
+        "name": "COTTONMOUTH",
+        "threat_level": "critical",
+        "attribution": "NSA TAO",
+        "indicators": [
+            "USB connector modification",
+            "RF bridge capability",
+            "Air-gap bridging",
+            "Modified USB hub",
+        ],
+        "persistence": "Hardware",
+        "notes": "USB hardware implant with RF capabilities",
+        "mitre_technique": "T1200",
+    },
+    "hardware_implant_iratemonk": {
+        "name": "IRATEMONK",
+        "threat_level": "critical",
+        "attribution": "NSA TAO",
+        "indicators": [
+            "Hard drive firmware modification",
+            "MBR/VBR persistence",
+            "Seagate/Western Digital/Samsung targeting",
+            "Hidden disk partition",
+        ],
+        "persistence": "Hard drive firmware",
+        "notes": "Hard drive firmware implant",
+        "mitre_technique": "T1542.002",
+    },
+    "hardware_implant_schoolmontana": {
+        "name": "SCHOOLMONTANA",
+        "threat_level": "critical",
+        "attribution": "NSA TAO",
+        "indicators": [
+            "BIOS modification",
+            "HP Proliant targeting",
+            "Dell PowerEdge targeting",
+            "Server BIOS implant",
+        ],
+        "persistence": "Server BIOS",
+        "notes": "Server BIOS-level implant",
+        "mitre_technique": "T1542.001",
+    },
+    "hardware_implant_deitybounce": {
+        "name": "DEITYBOUNCE",
+        "threat_level": "critical",
+        "attribution": "NSA TAO",
+        "indicators": [
+            "Dell server BIOS modification",
+            "System Management Mode abuse",
+            "Pre-boot execution",
+            "BIOS flasher utility",
+        ],
+        "persistence": "Dell server BIOS",
+        "notes": "Dell PowerEdge BIOS implant",
+        "mitre_technique": "T1542.001",
+    },
+    # Baseband/Mobile implants
+    "baseband_implant_simjacker": {
+        "name": "SIMJACKER",
+        "threat_level": "critical",
+        "attribution": "Multiple",
+        "indicators": [
+            "S@T Browser exploitation",
+            "OTA SMS commands",
+            "SIM toolkit abuse",
+            "Silent SMS",
+        ],
+        "persistence": "SIM card",
+        "notes": "SIM card-level exploitation via SMS",
+        "mitre_technique": "T1430",
+    },
+    "baseband_implant_wifidem": {
+        "name": "WiFiDem",
+        "threat_level": "critical",
+        "attribution": "Unknown",
+        "indicators": [
+            "WiFi chipset firmware modification",
+            "Broadcom BCM4339 targeting",
+            "Over-the-air exploitation",
+            "Kernel memory access",
+        ],
+        "persistence": "WiFi chipset",
+        "notes": "WiFi baseband firmware implant",
+        "mitre_technique": "T1542",
+    },
+    # Thunderbolt/DMA implants
+    "thunderbolt_implant_thunderstrike": {
+        "name": "Thunderstrike",
+        "threat_level": "critical",
+        "attribution": "Security Research",
+        "indicators": [
+            "Option ROM modification",
+            "Thunderbolt device abuse",
+            "EFI bootkit installation",
+            "Apple Mac targeting",
+        ],
+        "persistence": "Boot ROM",
+        "notes": "Thunderbolt-based EFI bootkit for Mac",
+        "mitre_technique": "T1542.001",
+    },
+    "dma_attack_thunderclap": {
+        "name": "Thunderclap",
+        "threat_level": "high",
+        "attribution": "Security Research",
+        "indicators": [
+            "Malicious Thunderbolt device",
+            "DMA attack",
+            "IOMMU bypass",
+            "Memory access from peripheral",
+        ],
+        "persistence": "None (volatile)",
+        "notes": "DMA attack via Thunderbolt vulnerabilities",
+        "mitre_technique": "T1200",
+    },
+}
+
+
+# ============================================================
+# SUPPLY CHAIN ATTACK INDICATORS DATABASE
+# ============================================================
+# Software supply chain compromise indicators
+
+SUPPLY_CHAIN_IOCS: Dict[str, Dict] = {
+    # Major supply chain attacks
+    "solarwinds_sunburst": {
+        "name": "SUNBURST/Solorigate",
+        "threat_level": "critical",
+        "attribution": "APT29/Cozy Bear",
+        "indicators": [
+            "SolarWinds.Orion.Core.BusinessLayer.dll",
+            "OrionImprovement.dll",
+            "avsvmcloud.com C2",
+            "TEARDROP second stage",
+            "RAINDROP loader",
+        ],
+        "affected_software": "SolarWinds Orion",
+        "attack_vector": "Build system compromise",
+        "notes": "Massive supply chain attack affecting 18,000+ organizations",
+        "mitre_technique": "T1195.002",
+    },
+    "kaseya_revil": {
+        "name": "Kaseya VSA Attack",
+        "threat_level": "critical",
+        "attribution": "REvil/Sodinokibi",
+        "indicators": [
+            "agent.exe ransomware",
+            "mpsvc.dll sideloading",
+            "CVE-2021-30116",
+            "Procedure AgentUpdate",
+        ],
+        "affected_software": "Kaseya VSA",
+        "attack_vector": "Zero-day exploitation",
+        "notes": "Supply chain ransomware affecting 1,500+ businesses",
+        "mitre_technique": "T1195.002",
+    },
+    "codecov_breach": {
+        "name": "Codecov Bash Uploader Breach",
+        "threat_level": "critical",
+        "attribution": "Unknown",
+        "indicators": [
+            "Modified codecov bash uploader",
+            "Environment variable exfiltration",
+            "CI/CD credential theft",
+            "Token harvesting",
+        ],
+        "affected_software": "Codecov",
+        "attack_vector": "Build script modification",
+        "notes": "CI/CD pipeline compromise affecting many organizations",
+        "mitre_technique": "T1195.002",
+    },
+    "npm_ua_parser": {
+        "name": "ua-parser-js Compromise",
+        "threat_level": "high",
+        "attribution": "Unknown",
+        "indicators": [
+            "Cryptominer payload",
+            "Password stealer",
+            "Malicious postinstall script",
+            "npm package compromise",
+        ],
+        "affected_software": "ua-parser-js npm package",
+        "attack_vector": "npm account compromise",
+        "notes": "Popular npm package (7M weekly downloads) compromised",
+        "mitre_technique": "T1195.002",
+    },
+    "xz_utils_backdoor": {
+        "name": "XZ Utils Backdoor (CVE-2024-3094)",
+        "threat_level": "critical",
+        "attribution": "Unknown (suspected nation-state)",
+        "indicators": [
+            "liblzma.so backdoor",
+            "SSH authentication bypass",
+            "Obfuscated test files",
+            "Modified build scripts",
+        ],
+        "affected_software": "XZ Utils 5.6.0/5.6.1",
+        "attack_vector": "Long-term maintainer social engineering",
+        "notes": "Sophisticated backdoor discovered in compression library",
+        "mitre_technique": "T1195.002",
+    },
+    "solarmarker_npm": {
+        "name": "SolarMarker NPM Attack",
+        "threat_level": "high",
+        "attribution": "Criminal",
+        "indicators": [
+            "Typosquatted package names",
+            "Malicious npm install scripts",
+            "Browser credential theft",
+            "SEO poisoning",
+        ],
+        "affected_software": "Various npm packages",
+        "attack_vector": "Typosquatting",
+        "notes": "Large-scale npm typosquatting campaign",
+        "mitre_technique": "T1195.002",
+    },
+    "event_stream": {
+        "name": "event-stream Compromise",
+        "threat_level": "high",
+        "attribution": "Unknown",
+        "indicators": [
+            "flatmap-stream dependency",
+            "Bitcoin wallet targeting",
+            "Copay wallet theft",
+            "Malicious contributor",
+        ],
+        "affected_software": "event-stream npm package",
+        "attack_vector": "Maintainer social engineering",
+        "notes": "Targeted attack on Bitcoin wallet application",
+        "mitre_technique": "T1195.002",
+    },
+    "python_ctx": {
+        "name": "ctx Package Hijack",
+        "threat_level": "high",
+        "attribution": "Unknown",
+        "indicators": [
+            "AWS credential theft",
+            "Environment variable exfiltration",
+            "PyPI package hijack",
+            "Stale package takeover",
+        ],
+        "affected_software": "ctx PyPI package",
+        "attack_vector": "Abandoned package takeover",
+        "notes": "Credential harvesting via abandoned package",
+        "mitre_technique": "T1195.002",
+    },
+    "3cx_supply_chain": {
+        "name": "3CX Supply Chain Attack",
+        "threat_level": "critical",
+        "attribution": "LAZARUS/North Korea",
+        "indicators": [
+            "ffmpeg.dll backdoor",
+            "d3dcompiler_47.dll modification",
+            "GitHub icon payload",
+            "ICONIC stealer",
+        ],
+        "affected_software": "3CX Desktop App",
+        "attack_vector": "Build system compromise",
+        "notes": "VoIP software supply chain compromise",
+        "mitre_technique": "T1195.002",
+    },
+    "asus_shadowhammer": {
+        "name": "Operation ShadowHammer",
+        "threat_level": "critical",
+        "attribution": "APT41",
+        "indicators": [
+            "ASUS Live Update backdoor",
+            "Targeted MAC address filtering",
+            "Signed malicious update",
+            "Shellcode injection",
+        ],
+        "affected_software": "ASUS Live Update",
+        "attack_vector": "Update server compromise",
+        "notes": "Highly targeted supply chain attack via ASUS updates",
+        "mitre_technique": "T1195.002",
+    },
+}
+
+
+# ============================================================
+# CRYPTOCURRENCY THREAT INDICATORS DATABASE
+# ============================================================
+# Cryptojacking, wallet theft, and blockchain threats
+
+CRYPTO_THREAT_IOCS: Dict[str, Dict] = {
+    # Cryptominers
+    "xmrig_miner": {
+        "name": "XMRig",
+        "threat_level": "medium",
+        "indicators": [
+            "xmrig.exe/xmrig process",
+            "Mining pool connections",
+            "Stratum protocol",
+            "High CPU usage",
+            "Port 3333/3334/45560",
+        ],
+        "pool_patterns": [
+            r".*pool\.minexmr\.com.*",
+            r".*xmr\.nanopool\.org.*",
+            r".*supportxmr\.com.*",
+            r".*hashvault\.pro.*",
+        ],
+        "notes": "Most common Monero miner, often deployed by malware",
+        "mitre_technique": "T1496",
+    },
+    "coinhive_legacy": {
+        "name": "Coinhive (Legacy)",
+        "threat_level": "medium",
+        "indicators": [
+            "coinhive.min.js",
+            "CoinHive.Anonymous",
+            "coin-hive.com",
+            "Browser-based mining",
+        ],
+        "notes": "Browser-based miner (service ended 2019, clones still active)",
+        "mitre_technique": "T1496",
+    },
+    "cryptonight_variants": {
+        "name": "CryptoNight Variants",
+        "threat_level": "medium",
+        "indicators": [
+            "CryptoNight-R algorithm",
+            "RandomX algorithm",
+            "Monero mining",
+            "CPU-intensive mining",
+        ],
+        "notes": "Various CryptoNight-based mining operations",
+        "mitre_technique": "T1496",
+    },
+    # Wallet stealers
+    "redline_stealer": {
+        "name": "RedLine Stealer",
+        "threat_level": "high",
+        "indicators": [
+            "Browser wallet extension targeting",
+            "MetaMask theft",
+            "Exodus wallet targeting",
+            "Credential harvesting",
+            "Telegram C2",
+        ],
+        "targeted_wallets": [
+            "MetaMask", "Exodus", "Coinbase", "Binance",
+            "Phantom", "TronLink", "Ronin",
+        ],
+        "notes": "Popular MaaS stealer targeting crypto wallets",
+        "mitre_technique": "T1005",
+    },
+    "mars_stealer": {
+        "name": "Mars Stealer",
+        "threat_level": "high",
+        "indicators": [
+            "Browser data theft",
+            "Crypto wallet targeting",
+            "2FA token theft",
+            "Anti-VM checks",
+        ],
+        "targeted_wallets": [
+            "MetaMask", "Coinbase", "Binance", "Crypto.com",
+        ],
+        "notes": "MaaS stealer with crypto focus",
+        "mitre_technique": "T1005",
+    },
+    "clipper_malware": {
+        "name": "Clipboard Hijacker",
+        "threat_level": "high",
+        "indicators": [
+            "Clipboard monitoring",
+            "Cryptocurrency address replacement",
+            "Bitcoin address regex matching",
+            "Ethereum address swapping",
+        ],
+        "address_patterns": [
+            r"^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$",  # Bitcoin
+            r"^0x[a-fA-F0-9]{40}$",  # Ethereum
+            r"^[LM3][a-km-zA-HJ-NP-Z1-9]{26,33}$",  # Litecoin
+        ],
+        "notes": "Swaps wallet addresses in clipboard",
+        "mitre_technique": "T1115",
+    },
+    # Exchange attacks
+    "lazarus_crypto": {
+        "name": "Lazarus Crypto Operations",
+        "threat_level": "critical",
+        "attribution": "LAZARUS/North Korea",
+        "indicators": [
+            "AppleJeus malware",
+            "CryptoCore variants",
+            "Fake trading software",
+            "Social engineering via LinkedIn",
+        ],
+        "targeted_exchanges": [
+            "Binance", "Coinbase", "Kraken", "Huobi", "KuCoin",
+        ],
+        "notes": "State-sponsored cryptocurrency theft operations",
+        "mitre_technique": "T1566",
+    },
+    # DeFi attack indicators
+    "defi_attack_patterns": {
+        "name": "DeFi Attack Patterns",
+        "threat_level": "high",
+        "indicators": [
+            "Flash loan usage",
+            "Price oracle manipulation",
+            "Reentrancy patterns",
+            "Front-running bots",
+            "Sandwich attacks",
+        ],
+        "notes": "Common DeFi attack vectors",
+        "mitre_technique": "T1565",
+    },
+    # Crypto phishing
+    "crypto_phishing": {
+        "name": "Cryptocurrency Phishing",
+        "threat_level": "high",
+        "indicators": [
+            "Fake wallet connect",
+            "Approval phishing",
+            "Seed phrase harvesting",
+            "Fake airdrops",
+            "NFT scams",
+        ],
+        "domain_patterns": [
+            r".*metamask.*\.[a-z]{2,}$",
+            r".*uniswap.*\.[a-z]{2,}$",
+            r".*opensea.*\.[a-z]{2,}$",
+            r".*pancakeswap.*\.[a-z]{2,}$",
+        ],
+        "notes": "Cryptocurrency-related phishing operations",
+        "mitre_technique": "T1566.002",
+    },
+}
+
+
+# ============================================================
+# RANSOMWARE FAMILY SIGNATURES DATABASE
+# ============================================================
+# Known ransomware families and their indicators
+
+RANSOMWARE_IOCS: Dict[str, Dict] = {
+    # Major ransomware families
+    "lockbit": {
+        "name": "LockBit",
+        "threat_level": "critical",
+        "indicators": [
+            ".lockbit extension",
+            "Restore-My-Files.txt ransom note",
+            "StealBit data exfiltration",
+            "VMware ESXi targeting",
+            "Group Policy deployment",
+        ],
+        "encryption": "AES + RSA-2048",
+        "data_exfiltration": True,
+        "notes": "Most prolific ransomware group 2022-2024",
+        "mitre_technique": "T1486",
+    },
+    "blackcat_alphv": {
+        "name": "BlackCat/ALPHV",
+        "threat_level": "critical",
+        "indicators": [
+            "Rust-based ransomware",
+            "Cross-platform (Windows/Linux/VMware)",
+            ".blackcat extension",
+            "Searchable leak site",
+            "Triple extortion",
+        ],
+        "encryption": "ChaCha20 + RSA",
+        "data_exfiltration": True,
+        "notes": "First Rust-based ransomware, highly sophisticated",
+        "mitre_technique": "T1486",
+    },
+    "clop": {
+        "name": "Cl0p",
+        "threat_level": "critical",
+        "indicators": [
+            ".clop extension",
+            "MOVEit exploitation",
+            "GoAnywhere MFT exploitation",
+            "Accellion FTA exploitation",
+            "Data-only extortion",
+        ],
+        "encryption": "RC4 + RSA-1024",
+        "data_exfiltration": True,
+        "notes": "Known for mass exploitation of file transfer software",
+        "mitre_technique": "T1486",
+    },
+    "royal": {
+        "name": "Royal",
+        "threat_level": "critical",
+        "indicators": [
+            ".royal extension",
+            "README.TXT ransom note",
+            "Callback phishing",
+            "BatLoader delivery",
+            "Conti successor",
+        ],
+        "encryption": "AES-256 + RSA-2048",
+        "data_exfiltration": True,
+        "notes": "Sophisticated ransomware, possible Conti offshoot",
+        "mitre_technique": "T1486",
+    },
+    "black_basta": {
+        "name": "Black Basta",
+        "threat_level": "critical",
+        "indicators": [
+            ".basta extension",
+            "readme.txt ransom note",
+            "QBot/Qakbot delivery",
+            "PrintNightmare exploitation",
+            "SystemBC tunneling",
+        ],
+        "encryption": "ChaCha20 + RSA-4096",
+        "data_exfiltration": True,
+        "notes": "Conti-linked group, highly active",
+        "mitre_technique": "T1486",
+    },
+    "hive": {
+        "name": "Hive",
+        "threat_level": "critical",
+        "indicators": [
+            ".hive extension",
+            "HOW_TO_DECRYPT.txt",
+            "Rust/Golang variants",
+            "Healthcare targeting",
+            "FBI disrupted 2023",
+        ],
+        "encryption": "XChaCha20-Poly1305 + RSA",
+        "data_exfiltration": True,
+        "notes": "Disrupted by FBI in 2023, decryptor released",
+        "mitre_technique": "T1486",
+    },
+    "play": {
+        "name": "Play",
+        "threat_level": "critical",
+        "indicators": [
+            ".play extension",
+            "ReadMe.txt ransom note",
+            "MS Exchange exploitation",
+            "Intermittent encryption",
+            "Latin America targeting",
+        ],
+        "encryption": "AES-RSA hybrid",
+        "data_exfiltration": True,
+        "notes": "Known for exploiting ProxyNotShell vulnerabilities",
+        "mitre_technique": "T1486",
+    },
+    "akira": {
+        "name": "Akira",
+        "threat_level": "critical",
+        "indicators": [
+            ".akira extension",
+            "Retro-styled leak site",
+            "Cisco VPN exploitation",
+            "VMware vCenter targeting",
+            "Double extortion",
+        ],
+        "encryption": "ChaCha20 + RSA-4096",
+        "data_exfiltration": True,
+        "notes": "Emerging threat with Conti-like TTPs",
+        "mitre_technique": "T1486",
+    },
+    "rhysida": {
+        "name": "Rhysida",
+        "threat_level": "critical",
+        "indicators": [
+            ".rhysida extension",
+            "CriticalBreachDetected.pdf",
+            "Healthcare/Education targeting",
+            "Citrix exploitation",
+            "PowerShell delivery",
+        ],
+        "encryption": "ChaCha20 + RSA-4096",
+        "data_exfiltration": True,
+        "notes": "Targets critical infrastructure sectors",
+        "mitre_technique": "T1486",
+    },
+    "bianlian": {
+        "name": "BianLian",
+        "threat_level": "critical",
+        "indicators": [
+            "Data-only extortion (2023+)",
+            "ProxyShell exploitation",
+            "TeamViewer abuse",
+            "PsExec deployment",
+            "No encryption (extortion only)",
+        ],
+        "encryption": "None (data theft only)",
+        "data_exfiltration": True,
+        "notes": "Shifted to data-only extortion in 2023",
+        "mitre_technique": "T1485",
+    },
+}
+
+
+# ============================================================
+# INDUSTRIAL CONTROL SYSTEM (ICS) THREAT DATABASE
+# ============================================================
+# OT/ICS specific threat indicators
+
+ICS_THREAT_IOCS: Dict[str, Dict] = {
+    # ICS-specific malware
+    "industroyer": {
+        "name": "Industroyer/CrashOverride",
+        "threat_level": "critical",
+        "attribution": "Sandworm/Russia",
+        "indicators": [
+            "IEC 60870-5-101 protocol abuse",
+            "IEC 60870-5-104 protocol abuse",
+            "IEC 61850 protocol abuse",
+            "OPC DA protocol abuse",
+            "Power grid targeting",
+        ],
+        "protocols": ["IEC 104", "IEC 101", "IEC 61850", "OPC DA"],
+        "notes": "Most sophisticated ICS malware, caused Ukraine blackout",
+        "mitre_technique": "T0831",
+    },
+    "triton_trisis": {
+        "name": "TRITON/TRISIS",
+        "threat_level": "critical",
+        "attribution": "Russian state-sponsored",
+        "indicators": [
+            "Triconex SIS targeting",
+            "Safety system manipulation",
+            "TriStation protocol abuse",
+            "Firmware modification",
+        ],
+        "targeted_systems": ["Schneider Electric Triconex"],
+        "notes": "First malware targeting safety instrumented systems",
+        "mitre_technique": "T0882",
+    },
+    "incontroller_pipedream": {
+        "name": "INCONTROLLER/PIPEDREAM",
+        "threat_level": "critical",
+        "attribution": "Unknown (nation-state)",
+        "indicators": [
+            "OPC UA exploitation",
+            "Schneider PLC targeting",
+            "Omron PLC targeting",
+            "CODESYS exploitation",
+            "Modbus manipulation",
+        ],
+        "targeted_vendors": ["Schneider", "Omron", "CODESYS"],
+        "notes": "Multi-vendor ICS attack toolkit, discovered before deployment",
+        "mitre_technique": "T0843",
+    },
+    "havex": {
+        "name": "Havex/Dragonfly",
+        "threat_level": "critical",
+        "attribution": "Russian state-sponsored",
+        "indicators": [
+            "OPC scanning",
+            "ICS vendor trojanization",
+            "Watering hole attacks",
+            "Phishing campaigns",
+        ],
+        "targeted_sectors": ["Energy", "Manufacturing", "Pharmaceuticals"],
+        "notes": "Long-running ICS espionage campaign",
+        "mitre_technique": "T0846",
+    },
+    "blackenergy": {
+        "name": "BlackEnergy",
+        "threat_level": "critical",
+        "attribution": "Sandworm/Russia",
+        "indicators": [
+            "HMI exploitation",
+            "KillDisk wiper",
+            "SCADA system targeting",
+            "Ukraine power grid attack",
+        ],
+        "notes": "Caused first known cyber-induced power outage",
+        "mitre_technique": "T0831",
+    },
+    "cosmicenergy": {
+        "name": "COSMICENERGY",
+        "threat_level": "high",
+        "attribution": "Unknown (possibly Russian)",
+        "indicators": [
+            "IEC 60870-5-104 exploitation",
+            "RTU targeting",
+            "PowerShell payload",
+            "Electric grid focus",
+        ],
+        "notes": "ICS malware discovered 2023, unclear if deployed",
+        "mitre_technique": "T0831",
+    },
+    # PLC-specific threats
+    "plc_rootkit": {
+        "name": "PLC Rootkit Techniques",
+        "threat_level": "critical",
+        "indicators": [
+            "Ladder logic modification",
+            "Block falsification",
+            "Pin control manipulation",
+            "Firmware backdoor",
+            "Memory manipulation",
+        ],
+        "affected_plcs": ["Siemens S7", "Allen-Bradley", "Schneider Modicon"],
+        "notes": "PLC rootkit methodologies and indicators",
+        "mitre_technique": "T0843",
+    },
+    # Protocol anomalies
+    "modbus_anomalies": {
+        "name": "Modbus Protocol Anomalies",
+        "threat_level": "high",
+        "indicators": [
+            "Unauthorized function codes",
+            "Coil write operations",
+            "Register manipulation",
+            "Broadcast messages",
+            "Exception responses",
+        ],
+        "suspicious_function_codes": [5, 6, 15, 16, 22, 23],  # Write functions
+        "notes": "Suspicious Modbus operations",
+        "mitre_technique": "T0831",
+    },
+    "dnp3_anomalies": {
+        "name": "DNP3 Protocol Anomalies",
+        "threat_level": "high",
+        "indicators": [
+            "Control relay output blocks",
+            "Direct operate commands",
+            "Cold restart commands",
+            "Authentication bypass",
+        ],
+        "notes": "Suspicious DNP3 operations in SCADA",
+        "mitre_technique": "T0831",
+    },
+}
+
+
+# ============================================================
+# MOBILE THREAT INDICATORS DATABASE
+# ============================================================
+# Android and iOS mobile malware indicators
+
+MOBILE_THREAT_IOCS: Dict[str, Dict] = {
+    # Commercial spyware
+    "pegasus": {
+        "name": "Pegasus (NSO Group)",
+        "threat_level": "critical",
+        "platform": ["iOS", "Android"],
+        "indicators": [
+            "Zero-click iMessage exploit",
+            "FORCEDENTRY exploitation",
+            "Process injection",
+            "Bridgehead implant",
+            "Microphone/Camera access",
+        ],
+        "c2_patterns": [
+            r".*\.cloudfront\.net$",
+            r".*\.amazona\w+\.com$",
+        ],
+        "notes": "Most sophisticated commercial spyware",
+        "mitre_technique": "T1404",
+    },
+    "predator": {
+        "name": "Predator (Cytrox/Intellexa)",
+        "threat_level": "critical",
+        "platform": ["iOS", "Android"],
+        "indicators": [
+            "Alien loader stage",
+            "ALIEN_FIXER",
+            "Chrome zero-day exploitation",
+            "Module-based architecture",
+        ],
+        "notes": "Sold to multiple governments",
+        "mitre_technique": "T1404",
+    },
+    "hermit": {
+        "name": "Hermit (RCS Lab)",
+        "threat_level": "critical",
+        "platform": ["iOS", "Android"],
+        "indicators": [
+            "Fake carrier app",
+            "Social engineering delivery",
+            "Modular payload system",
+            "iOS exploits",
+        ],
+        "notes": "Italian commercial spyware",
+        "mitre_technique": "T1404",
+    },
+    "quadream": {
+        "name": "QuaDream REIGN",
+        "threat_level": "critical",
+        "platform": ["iOS"],
+        "indicators": [
+            "Zero-click Calendar exploit",
+            "ENDOFDAYS exploitation",
+            "No user interaction required",
+            "iCloud calendar invite",
+        ],
+        "notes": "Israeli commercial spyware competitor to NSO",
+        "mitre_technique": "T1404",
+    },
+    # Android malware families
+    "flubot": {
+        "name": "FluBot",
+        "threat_level": "high",
+        "platform": ["Android"],
+        "indicators": [
+            "SMS phishing delivery",
+            "Overlay attacks",
+            "Contact list harvesting",
+            "Banking trojan functionality",
+            "Self-propagation via SMS",
+        ],
+        "notes": "Major Android banking trojan, disrupted 2022",
+        "mitre_technique": "T1417",
+    },
+    "sharkbot": {
+        "name": "SharkBot",
+        "threat_level": "high",
+        "platform": ["Android"],
+        "indicators": [
+            "Overlay injection",
+            "Keylogging",
+            "SMS interception",
+            "ATS (Automatic Transfer System)",
+            "Google Play distribution",
+        ],
+        "notes": "Banking trojan with ATS capabilities",
+        "mitre_technique": "T1417",
+    },
+    "xenomorph": {
+        "name": "Xenomorph",
+        "threat_level": "high",
+        "platform": ["Android"],
+        "indicators": [
+            "GymDrop dropper",
+            "Accessibility service abuse",
+            "Overlay attacks",
+            "Multi-bank targeting",
+            "Cookie theft",
+        ],
+        "notes": "Advanced Android banking trojan",
+        "mitre_technique": "T1417",
+    },
+    "joker": {
+        "name": "Joker/Bread",
+        "threat_level": "medium",
+        "platform": ["Android"],
+        "indicators": [
+            "Premium SMS fraud",
+            "WAP billing fraud",
+            "Contact harvesting",
+            "Obfuscated code",
+            "Google Play persistence",
+        ],
+        "notes": "Persistent billing fraud malware family",
+        "mitre_technique": "T1481",
+    },
+    "anatsa": {
+        "name": "Anatsa/TeaBot",
+        "threat_level": "high",
+        "platform": ["Android"],
+        "indicators": [
+            "Dropper apps on Play Store",
+            "PDF reader disguise",
+            "Screen recording",
+            "Overlay attacks",
+            "European bank targeting",
+        ],
+        "notes": "Major European banking trojan",
+        "mitre_technique": "T1417",
+    },
+    # iOS-specific threats
+    "golddigger": {
+        "name": "GoldDigger",
+        "threat_level": "high",
+        "platform": ["iOS", "Android"],
+        "indicators": [
+            "TestFlight distribution",
+            "MDM profile abuse",
+            "Fake banking apps",
+            "Biometric bypass",
+        ],
+        "notes": "Cross-platform banking trojan",
+        "mitre_technique": "T1417",
+    },
+    "trojan_sms_agent": {
+        "name": "SMS Agent Trojans",
+        "threat_level": "medium",
+        "platform": ["Android"],
+        "indicators": [
+            "Premium SMS sending",
+            "Background execution",
+            "SMS interception",
+            "SIM card information theft",
+        ],
+        "notes": "Generic SMS fraud trojans",
+        "mitre_technique": "T1582",
+    },
+}
+
+
+# ============================================================
+# CLOUD INFRASTRUCTURE THREAT INDICATORS
+# ============================================================
+# Cloud service abuse and attack patterns
+
+CLOUD_THREAT_IOCS: Dict[str, Dict] = {
+    # AWS-specific threats
+    "aws_credential_theft": {
+        "name": "AWS Credential Theft",
+        "threat_level": "critical",
+        "indicators": [
+            "IMDSv1 exploitation",
+            "169.254.169.254 access",
+            "Metadata service abuse",
+            "Lambda function credential theft",
+            "EC2 role assumption",
+        ],
+        "notes": "AWS credential harvesting techniques",
+        "mitre_technique": "T1552.005",
+    },
+    "aws_s3_ransomware": {
+        "name": "AWS S3 Ransomware",
+        "threat_level": "critical",
+        "indicators": [
+            "Bulk object deletion",
+            "Versioning disabled",
+            "Public access enabled",
+            "Bucket policy modification",
+            "KMS key deletion",
+        ],
+        "notes": "S3 bucket ransomware attacks",
+        "mitre_technique": "T1486",
+    },
+    "aws_cryptomining": {
+        "name": "AWS Cryptomining",
+        "threat_level": "high",
+        "indicators": [
+            "Unauthorized EC2 instances",
+            "GPU instance spawning",
+            "Mining pool connections",
+            "High compute usage",
+            "Spot instance abuse",
+        ],
+        "notes": "Cryptomining using stolen AWS credentials",
+        "mitre_technique": "T1496",
+    },
+    # Azure-specific threats
+    "azure_ad_compromise": {
+        "name": "Azure AD Compromise",
+        "threat_level": "critical",
+        "indicators": [
+            "Illicit consent grant",
+            "Service principal abuse",
+            "Token theft",
+            "Golden SAML attack",
+            "Federated trust abuse",
+        ],
+        "notes": "Azure Active Directory attack techniques",
+        "mitre_technique": "T1550.001",
+    },
+    "azure_storage_attack": {
+        "name": "Azure Storage Attack",
+        "threat_level": "high",
+        "indicators": [
+            "SAS token theft",
+            "Storage account key exposure",
+            "Anonymous blob access",
+            "Container enumeration",
+        ],
+        "notes": "Azure Storage exploitation",
+        "mitre_technique": "T1530",
+    },
+    # GCP-specific threats
+    "gcp_privilege_escalation": {
+        "name": "GCP Privilege Escalation",
+        "threat_level": "critical",
+        "indicators": [
+            "Service account impersonation",
+            "Cloud Function privilege abuse",
+            "IAM policy modification",
+            "Compute Engine metadata",
+        ],
+        "notes": "Google Cloud privilege escalation",
+        "mitre_technique": "T1548",
+    },
+    # Multi-cloud threats
+    "kubernetes_attack": {
+        "name": "Kubernetes Cluster Attack",
+        "threat_level": "critical",
+        "indicators": [
+            "etcd access",
+            "Service account token theft",
+            "Privileged container escape",
+            "API server exploitation",
+            "RBAC bypass",
+        ],
+        "attack_vectors": [
+            "Exposed API server",
+            "Kubelet exploitation",
+            "Container escape",
+            "Secrets theft",
+        ],
+        "notes": "Kubernetes-specific attack vectors",
+        "mitre_technique": "T1610",
+    },
+    "container_escape": {
+        "name": "Container Escape Techniques",
+        "threat_level": "critical",
+        "indicators": [
+            "Privileged container",
+            "Host PID namespace",
+            "Host network namespace",
+            "Docker socket mount",
+            "CAP_SYS_ADMIN capability",
+        ],
+        "notes": "Container breakout techniques",
+        "mitre_technique": "T1611",
+    },
+    "serverless_attack": {
+        "name": "Serverless Function Attack",
+        "threat_level": "high",
+        "indicators": [
+            "Event injection",
+            "Function privilege abuse",
+            "Dependency poisoning",
+            "Environment variable theft",
+            "Cold start timing attack",
+        ],
+        "notes": "Serverless/FaaS attack techniques",
+        "mitre_technique": "T1584.007",
+    },
+}
+
+
+# ============================================================
+# NETWORK ATTACK SIGNATURES DATABASE
+# ============================================================
+# Network-level attack and intrusion indicators
+
+NETWORK_ATTACK_IOCS: Dict[str, Dict] = {
+    # Lateral movement indicators
+    "psexec_activity": {
+        "name": "PsExec Lateral Movement",
+        "threat_level": "high",
+        "indicators": [
+            "PSEXESVC service creation",
+            "Admin$ share access",
+            "Named pipe communication",
+            "Remote service installation",
+        ],
+        "ports": [445, 139],
+        "notes": "PsExec-based lateral movement",
+        "mitre_technique": "T1569.002",
+    },
+    "wmi_lateral": {
+        "name": "WMI Lateral Movement",
+        "threat_level": "high",
+        "indicators": [
+            "WMI process creation",
+            "WMIC remote execution",
+            "WMI subscription persistence",
+            "DCOM traffic",
+        ],
+        "ports": [135, 445],
+        "notes": "WMI-based lateral movement",
+        "mitre_technique": "T1047",
+    },
+    "dcom_lateral": {
+        "name": "DCOM Lateral Movement",
+        "threat_level": "high",
+        "indicators": [
+            "MMC20.Application abuse",
+            "ShellWindows abuse",
+            "ShellBrowserWindow abuse",
+            "DCOM object instantiation",
+        ],
+        "ports": [135, 49152-65535],
+        "notes": "DCOM-based lateral movement",
+        "mitre_technique": "T1021.003",
+    },
+    "rdp_tunneling": {
+        "name": "RDP Tunneling",
+        "threat_level": "high",
+        "indicators": [
+            "SSH tunnel to port 3389",
+            "HTTP tunnel for RDP",
+            "Reverse RDP connections",
+            "RDP over DNS",
+        ],
+        "notes": "RDP connection tunneling",
+        "mitre_technique": "T1572",
+    },
+    # Kerberos attacks
+    "kerberoasting": {
+        "name": "Kerberoasting",
+        "threat_level": "critical",
+        "indicators": [
+            "TGS-REQ for service accounts",
+            "RC4 encryption downgrade",
+            "SPN enumeration",
+            "Offline password cracking",
+        ],
+        "notes": "Kerberos service ticket attack",
+        "mitre_technique": "T1558.003",
+    },
+    "asreproasting": {
+        "name": "AS-REP Roasting",
+        "threat_level": "critical",
+        "indicators": [
+            "Pre-auth disabled accounts",
+            "AS-REQ without pre-auth",
+            "RC4/DES ticket requests",
+            "Offline cracking of AS-REP",
+        ],
+        "notes": "Kerberos AS-REP attack",
+        "mitre_technique": "T1558.004",
+    },
+    "golden_ticket": {
+        "name": "Golden Ticket",
+        "threat_level": "critical",
+        "indicators": [
+            "Forged TGT",
+            "KRBTGT hash usage",
+            "10-year ticket lifetime",
+            "Domain-wide access",
+        ],
+        "notes": "Kerberos golden ticket attack",
+        "mitre_technique": "T1558.001",
+    },
+    "silver_ticket": {
+        "name": "Silver Ticket",
+        "threat_level": "high",
+        "indicators": [
+            "Forged TGS",
+            "Service account hash usage",
+            "No DC communication",
+            "Service impersonation",
+        ],
+        "notes": "Kerberos silver ticket attack",
+        "mitre_technique": "T1558.002",
+    },
+    # Active Directory attacks
+    "dcsync_attack": {
+        "name": "DCSync Attack",
+        "threat_level": "critical",
+        "indicators": [
+            "DRS replication requests",
+            "DS-Replication-Get-Changes",
+            "Non-DC replication traffic",
+            "NTLM hash extraction",
+        ],
+        "notes": "DCSync credential theft",
+        "mitre_technique": "T1003.006",
+    },
+    "dcshadow_attack": {
+        "name": "DCShadow Attack",
+        "threat_level": "critical",
+        "indicators": [
+            "Rogue DC registration",
+            "SPN modification",
+            "Replication injection",
+            "AD object modification",
+        ],
+        "notes": "DCShadow persistence technique",
+        "mitre_technique": "T1207",
+    },
+    "password_spraying": {
+        "name": "Password Spraying",
+        "threat_level": "high",
+        "indicators": [
+            "Multiple accounts, same password",
+            "Authentication failures",
+            "Slow attack pattern",
+            "Account lockout avoidance",
+        ],
+        "notes": "Distributed password guessing",
+        "mitre_technique": "T1110.003",
+    },
+    # Network reconnaissance
+    "port_scanning": {
+        "name": "Port Scanning Activity",
+        "threat_level": "medium",
+        "indicators": [
+            "SYN scan pattern",
+            "Sequential port access",
+            "Multiple hosts probed",
+            "Service fingerprinting",
+        ],
+        "common_tools": ["nmap", "masscan", "zmap"],
+        "notes": "Network reconnaissance activity",
+        "mitre_technique": "T1046",
+    },
+    "smb_enumeration": {
+        "name": "SMB Enumeration",
+        "threat_level": "medium",
+        "indicators": [
+            "Share enumeration",
+            "User enumeration",
+            "Session enumeration",
+            "Null session access",
+        ],
+        "ports": [445, 139],
+        "notes": "SMB-based reconnaissance",
+        "mitre_technique": "T1135",
+    },
+}
+
+
+# ============================================================
+# DATA EXFILTRATION SIGNATURES DATABASE
+# ============================================================
+# Data theft and exfiltration indicators
+
+DATA_EXFIL_IOCS: Dict[str, Dict] = {
+    # Exfiltration methods
+    "dns_exfiltration": {
+        "name": "DNS Exfiltration",
+        "threat_level": "critical",
+        "indicators": [
+            "Long DNS queries (>52 chars)",
+            "High query volume to single domain",
+            "TXT record data",
+            "Base64/Hex in subdomains",
+            "Unusual TLD patterns",
+        ],
+        "detection_patterns": [
+            r"[A-Za-z0-9+/]{20,}\.[a-z]+\.[a-z]{2,}$",
+            r"[0-9a-f]{32,}\.[a-z]+$",
+        ],
+        "notes": "Data exfiltration over DNS",
+        "mitre_technique": "T1048.003",
+    },
+    "https_exfiltration": {
+        "name": "HTTPS Exfiltration",
+        "threat_level": "high",
+        "indicators": [
+            "Large POST requests",
+            "Frequent connections",
+            "Cloud storage uploads",
+            "Encrypted channels to suspicious hosts",
+        ],
+        "notes": "Data exfiltration over encrypted HTTPS",
+        "mitre_technique": "T1048.002",
+    },
+    "icmp_tunnel": {
+        "name": "ICMP Tunneling",
+        "threat_level": "critical",
+        "indicators": [
+            "Large ICMP payloads",
+            "Non-standard ICMP types",
+            "High ICMP volume",
+            "Data in echo requests",
+        ],
+        "notes": "Data exfiltration via ICMP",
+        "mitre_technique": "T1095",
+    },
+    "steganography_exfil": {
+        "name": "Steganographic Exfiltration",
+        "threat_level": "high",
+        "indicators": [
+            "Image uploads with hidden data",
+            "Audio file manipulation",
+            "Document embedding",
+            "LSB encoding patterns",
+        ],
+        "notes": "Data hidden in media files",
+        "mitre_technique": "T1027.003",
+    },
+    "cloud_storage_exfil": {
+        "name": "Cloud Storage Exfiltration",
+        "threat_level": "high",
+        "indicators": [
+            "Large uploads to cloud services",
+            "Dropbox/OneDrive/GDrive abuse",
+            "Mega.nz uploads",
+            "Anonymous file sharing",
+        ],
+        "services": [
+            "dropbox.com", "drive.google.com", "onedrive.live.com",
+            "mega.nz", "box.com", "mediafire.com",
+        ],
+        "notes": "Exfiltration to cloud storage",
+        "mitre_technique": "T1567.002",
+    },
+    "physical_exfil": {
+        "name": "Physical Exfiltration",
+        "threat_level": "high",
+        "indicators": [
+            "USB device mass storage",
+            "Bluetooth file transfer",
+            "Print to file/PDF",
+            "Screen capture",
+            "Mobile device sync",
+        ],
+        "notes": "Physical media exfiltration",
+        "mitre_technique": "T1052",
+    },
+    "email_exfil": {
+        "name": "Email Exfiltration",
+        "threat_level": "medium",
+        "indicators": [
+            "Large attachments",
+            "Personal email from corporate",
+            "Auto-forward rules",
+            "Encoded attachments",
+        ],
+        "notes": "Data exfiltration via email",
+        "mitre_technique": "T1048.002",
+    },
+    "scheduled_transfer": {
+        "name": "Scheduled Exfiltration",
+        "threat_level": "high",
+        "indicators": [
+            "Regular timing pattern",
+            "After-hours transfers",
+            "Weekend activity",
+            "Low bandwidth slow exfil",
+        ],
+        "notes": "Time-based exfiltration pattern",
+        "mitre_technique": "T1029",
+    },
+}
+
+
+# ============================================================
+# BROWSER EXTENSION THREAT DATABASE
+# ============================================================
+# Malicious browser extension indicators
+
+BROWSER_EXTENSION_IOCS: Dict[str, Dict] = {
+    # Malicious extension patterns
+    "session_hijacking_extension": {
+        "name": "Session Hijacking Extensions",
+        "threat_level": "critical",
+        "indicators": [
+            "Cookie access permissions",
+            "All URLs access",
+            "WebRequest interception",
+            "Background persistent",
+        ],
+        "permissions": [
+            "cookies", "webRequest", "webRequestBlocking",
+            "<all_urls>", "tabs", "storage",
+        ],
+        "notes": "Extensions capable of session theft",
+        "mitre_technique": "T1539",
+    },
+    "credential_stealing_extension": {
+        "name": "Credential Stealing Extensions",
+        "threat_level": "critical",
+        "indicators": [
+            "Form data interception",
+            "Input field monitoring",
+            "Password manager targeting",
+            "Content script injection",
+        ],
+        "notes": "Extensions targeting credentials",
+        "mitre_technique": "T1056.003",
+    },
+    "crypto_mining_extension": {
+        "name": "Cryptomining Extensions",
+        "threat_level": "medium",
+        "indicators": [
+            "High CPU usage",
+            "WebAssembly usage",
+            "Mining pool connections",
+            "Background workers",
+        ],
+        "notes": "Browser-based cryptomining",
+        "mitre_technique": "T1496",
+    },
+    "adware_extension": {
+        "name": "Adware Extensions",
+        "threat_level": "low",
+        "indicators": [
+            "Ad injection",
+            "Search hijacking",
+            "Affiliate link replacement",
+            "Pop-up generation",
+        ],
+        "notes": "Advertising injection extensions",
+        "mitre_technique": "T1185",
+    },
+    "spyware_extension": {
+        "name": "Spyware Extensions",
+        "threat_level": "high",
+        "indicators": [
+            "Browsing history access",
+            "Tab monitoring",
+            "Screenshot capability",
+            "Keystroke logging",
+        ],
+        "notes": "Browser surveillance extensions",
+        "mitre_technique": "T1185",
+    },
+    "fake_update_extension": {
+        "name": "Fake Update Extensions",
+        "threat_level": "high",
+        "indicators": [
+            "Update notifications",
+            "Download prompts",
+            "Native messaging",
+            "Executable downloads",
+        ],
+        "notes": "Fake update delivery mechanism",
+        "mitre_technique": "T1036.005",
+    },
+}
+
+
+# ============================================================
+# WIFI ATTACK SIGNATURES DATABASE
+# ============================================================
+# Wireless network attack indicators
+
+WIFI_ATTACK_IOCS: Dict[str, Dict] = {
+    # Evil twin and rogue AP
+    "evil_twin_attack": {
+        "name": "Evil Twin Attack",
+        "threat_level": "critical",
+        "indicators": [
+            "Duplicate SSID",
+            "Stronger signal than legitimate AP",
+            "Different BSSID, same SSID",
+            "Deauth before appearance",
+            "Captive portal phishing",
+        ],
+        "notes": "Rogue AP impersonating legitimate network",
+        "mitre_technique": "T1557.003",
+    },
+    "karma_attack": {
+        "name": "KARMA Attack",
+        "threat_level": "high",
+        "indicators": [
+            "AP responding to all probe requests",
+            "Dynamic SSID creation",
+            "PNL harvesting",
+            "Auto-connect exploitation",
+        ],
+        "notes": "Rogue AP responding to any SSID request",
+        "mitre_technique": "T1557.003",
+    },
+    "deauth_attack": {
+        "name": "Deauthentication Attack",
+        "threat_level": "high",
+        "indicators": [
+            "Flood of deauth frames",
+            "Broadcast deauth",
+            "Client disconnections",
+            "Reason code 7 (leaving BSS)",
+        ],
+        "notes": "Deauthentication flood attack",
+        "mitre_technique": "T1498.001",
+    },
+    "pmkid_attack": {
+        "name": "PMKID Attack",
+        "threat_level": "high",
+        "indicators": [
+            "PMKID in first EAPOL frame",
+            "No client required",
+            "Single packet capture",
+            "RSN-capable AP targeting",
+        ],
+        "notes": "Clientless WPA2 attack",
+        "mitre_technique": "T1110.002",
+    },
+    "krack_attack": {
+        "name": "KRACK Attack",
+        "threat_level": "critical",
+        "indicators": [
+            "Key reinstallation",
+            "Nonce reuse",
+            "4-way handshake manipulation",
+            "Group key manipulation",
+        ],
+        "cves": ["CVE-2017-13077", "CVE-2017-13078", "CVE-2017-13079"],
+        "notes": "WPA2 key reinstallation attack",
+        "mitre_technique": "T1557.003",
+    },
+    "dragonblood_attack": {
+        "name": "Dragonblood Attack",
+        "threat_level": "high",
+        "indicators": [
+            "WPA3 SAE downgrade",
+            "Timing side-channel",
+            "Cache-based side-channel",
+            "DoS via repeated commits",
+        ],
+        "notes": "WPA3 vulnerability exploitation",
+        "mitre_technique": "T1557.003",
+    },
+    "fragmentation_attack": {
+        "name": "FragAttacks",
+        "threat_level": "high",
+        "indicators": [
+            "Frame aggregation abuse",
+            "Mixed plaintext/encrypted frames",
+            "Fragmented frame injection",
+            "A-MSDU frame manipulation",
+        ],
+        "cves": ["CVE-2020-24586", "CVE-2020-24587", "CVE-2020-24588"],
+        "notes": "WiFi fragmentation vulnerabilities",
+        "mitre_technique": "T1557.003",
+    },
+    "probe_request_tracking": {
+        "name": "Probe Request Tracking",
+        "threat_level": "medium",
+        "indicators": [
+            "MAC address collection",
+            "SSID history harvesting",
+            "Device fingerprinting",
+            "Location tracking",
+        ],
+        "notes": "Passive wireless surveillance",
+        "mitre_technique": "T1040",
+    },
+}
+
+
+# ============================================================
+# EMERGING THREAT PATTERNS DATABASE
+# ============================================================
+# New and emerging attack techniques
+
+EMERGING_THREAT_IOCS: Dict[str, Dict] = {
+    # AI-related threats
+    "ai_prompt_injection": {
+        "name": "AI Prompt Injection",
+        "threat_level": "high",
+        "indicators": [
+            "Instruction override attempts",
+            "Jailbreak patterns",
+            "Role-playing manipulation",
+            "Hidden instruction embedding",
+        ],
+        "patterns": [
+            r"ignore.*previous.*instructions",
+            r"you.*are.*now",
+            r"pretend.*you.*are",
+            r"disregard.*above",
+        ],
+        "notes": "LLM/AI system manipulation",
+        "mitre_technique": "T1204",
+    },
+    "ai_model_theft": {
+        "name": "AI Model Extraction",
+        "threat_level": "high",
+        "indicators": [
+            "Excessive API queries",
+            "Systematic prompt testing",
+            "Output collection",
+            "Model distillation attempts",
+        ],
+        "notes": "AI/ML model theft techniques",
+        "mitre_technique": "T1213",
+    },
+    "ai_data_poisoning": {
+        "name": "AI Training Data Poisoning",
+        "threat_level": "critical",
+        "indicators": [
+            "Adversarial samples",
+            "Backdoor triggers",
+            "Label manipulation",
+            "Training data injection",
+        ],
+        "notes": "Machine learning model poisoning",
+        "mitre_technique": "T1565.001",
+    },
+    # QR code attacks
+    "qr_code_phishing": {
+        "name": "QR Code Phishing (Quishing)",
+        "threat_level": "high",
+        "indicators": [
+            "QR codes in emails",
+            "Parking meter scams",
+            "Restaurant menu QR swap",
+            "Payment QR modification",
+        ],
+        "notes": "Phishing via QR codes",
+        "mitre_technique": "T1566.002",
+    },
+    # MFA bypass
+    "mfa_fatigue_attack": {
+        "name": "MFA Fatigue/Push Bombing",
+        "threat_level": "high",
+        "indicators": [
+            "Repeated MFA push notifications",
+            "After-hours MFA requests",
+            "High volume push attempts",
+            "Social engineering calls",
+        ],
+        "notes": "MFA bypass via notification fatigue",
+        "mitre_technique": "T1621",
+    },
+    "adversary_in_the_middle_mfa": {
+        "name": "AiTM MFA Bypass",
+        "threat_level": "critical",
+        "indicators": [
+            "Reverse proxy phishing",
+            "Session cookie theft",
+            "Real-time credential relay",
+            "Evilginx/Modlishka usage",
+        ],
+        "notes": "Real-time MFA interception",
+        "mitre_technique": "T1557.001",
+    },
+    # Business email compromise evolution
+    "bec_ai_voice": {
+        "name": "AI Voice Clone BEC",
+        "threat_level": "critical",
+        "indicators": [
+            "Deepfake voice calls",
+            "AI-generated audio",
+            "Executive impersonation",
+            "Wire transfer requests",
+        ],
+        "notes": "BEC using AI voice cloning",
+        "mitre_technique": "T1566.004",
+    },
+    "bec_thread_hijacking": {
+        "name": "Thread Hijacking BEC",
+        "threat_level": "high",
+        "indicators": [
+            "Existing thread replies",
+            "Conversation insertion",
+            "Payment detail changes",
+            "Look-alike domain replies",
+        ],
+        "notes": "BEC via email thread hijacking",
+        "mitre_technique": "T1534",
+    },
+}
+
+
+# ============================================================
+# HELPER FUNCTIONS FOR EXTENDED IOC MATCHING
+# ============================================================
+
+def check_apt_attribution(indicators: List[str]) -> List[Dict]:
+    """
+    Check indicators against APT threat actor database.
+    
+    Args:
+        indicators: List of IOCs to check (domains, IPs, malware names, etc.)
+    
+    Returns:
+        List of matching APT attributions with confidence scores
+    """
+    matches = []
+    for apt_name, apt_data in APT_THREAT_ACTOR_IOCS.items():
+        match_count = 0
+        matched_indicators = []
+        
+        # Check C2 patterns
+        for pattern in apt_data.get("c2_patterns", []):
+            import re
+            for indicator in indicators:
+                if re.match(pattern, indicator, re.IGNORECASE):
+                    match_count += 1
+                    matched_indicators.append(indicator)
+        
+        # Check known malware
+        for malware in apt_data.get("known_malware", []):
+            for indicator in indicators:
+                if malware.lower() in indicator.lower():
+                    match_count += 2  # Higher weight for malware match
+                    matched_indicators.append(indicator)
+        
+        if match_count > 0:
+            confidence = min(95, match_count * 20)
+            matches.append({
+                "apt_group": apt_name,
+                "aliases": apt_data.get("aliases", []),
+                "attribution": apt_data.get("attribution", "Unknown"),
+                "threat_level": apt_data.get("threat_level", "high"),
+                "confidence": confidence,
+                "matched_indicators": matched_indicators,
+                "ttps": apt_data.get("ttps", []),
+            })
+    
+    return sorted(matches, key=lambda x: x["confidence"], reverse=True)
+
+
+def check_c2_infrastructure(domain_or_url: str) -> Optional[Dict]:
+    """
+    Check if a domain or URL matches known C2 infrastructure patterns.
+    
+    Args:
+        domain_or_url: Domain name or URL to check
+    
+    Returns:
+        Dict with C2 infrastructure details or None
+    """
+    import re
+    
+    for infra_name, infra_data in C2_INFRASTRUCTURE_IOCS.items():
+        pattern = infra_data.get("pattern", "")
+        if re.search(pattern, domain_or_url, re.IGNORECASE):
+            return {
+                "name": infra_name,
+                "category": infra_data.get("category", "UNKNOWN"),
+                "threat_level": infra_data.get("threat_level", "medium"),
+                "mitre_technique": infra_data.get("mitre_technique", ""),
+                "notes": infra_data.get("notes", ""),
+                "detection_method": infra_data.get("detection_method", ""),
+            }
+    
+    return None
+
+
+def check_beacon_pattern(intervals_ms: List[float]) -> Optional[Dict]:
+    """
+    Analyze network timing intervals to detect beacon patterns.
+    
+    Args:
+        intervals_ms: List of intervals between network communications in milliseconds
+    
+    Returns:
+        Dict with beacon pattern analysis or None
+    """
+    if len(intervals_ms) < 5:
+        return None
+    
+    import numpy as np
+    
+    arr = np.array(intervals_ms)
+    mean_interval = np.mean(arr)
+    std_interval = np.std(arr)
+    jitter_percent = (std_interval / mean_interval * 100) if mean_interval > 0 else 100
+    
+    # Check against known patterns
+    for pattern_name, pattern_data in MALWARE_BEACON_PATTERNS.items():
+        expected_interval = pattern_data.get("interval_ms")
+        expected_jitter = pattern_data.get("jitter_percent", 0)
+        
+        if expected_interval is None:
+            continue
+        
+        # Handle range intervals
+        if isinstance(expected_interval, tuple):
+            interval_match = expected_interval[0] <= mean_interval <= expected_interval[1]
+        else:
+            # Allow 20% tolerance on interval matching
+            interval_match = abs(mean_interval - expected_interval) < expected_interval * 0.2
+        
+        # Handle jitter matching
+        if isinstance(expected_jitter, tuple):
+            jitter_match = expected_jitter[0] <= jitter_percent <= expected_jitter[1]
+        else:
+            jitter_match = abs(jitter_percent - expected_jitter) < 15  # 15% tolerance
+        
+        if interval_match and jitter_match:
+            return {
+                "pattern_name": pattern_name,
+                "threat_level": pattern_data.get("threat_level", "high"),
+                "notes": pattern_data.get("notes", ""),
+                "indicators": pattern_data.get("indicators", []),
+                "measured_interval_ms": mean_interval,
+                "measured_jitter_percent": jitter_percent,
+                "confidence": 80 if (interval_match and jitter_match) else 60,
+            }
+    
+    # Check for generic beaconing behavior
+    if jitter_percent < 30 and len(intervals_ms) >= 10:
+        return {
+            "pattern_name": "generic_beacon",
+            "threat_level": "medium",
+            "notes": "Regular beaconing behavior detected",
+            "measured_interval_ms": mean_interval,
+            "measured_jitter_percent": jitter_percent,
+            "confidence": 50,
+        }
+    
+    return None
+
+
+def check_ble_extended_threat(device_name: str, manufacturer_id: Optional[int] = None,
+                               service_uuids: Optional[List[str]] = None) -> List[Dict]:
+    """
+    Extended BLE threat analysis using comprehensive IOC database.
+    
+    Args:
+        device_name: BLE device name
+        manufacturer_id: Bluetooth manufacturer ID
+        service_uuids: List of service UUIDs
+    
+    Returns:
+        List of threat matches
+    """
+    import re
+    threats = []
+    
+    # Check device name patterns
+    for category, data in BLUETOOTH_EXTENDED_IOCS.items():
+        for pattern in data.get("patterns", []):
+            if re.search(pattern, device_name or "", re.IGNORECASE):
+                threats.append({
+                    "category": category,
+                    "threat_level": data.get("threat_level", "medium"),
+                    "notes": data.get("notes", ""),
+                    "matched_pattern": pattern,
+                    "match_type": "device_name",
+                })
+                break
+    
+    # Check service UUIDs
+    if service_uuids:
+        for uuid in service_uuids:
+            uuid_upper = uuid.upper().replace("-", "")
+            for known_uuid, uuid_data in BLUETOOTH_SERVICE_EXTENDED_IOCS.items():
+                known_upper = known_uuid.upper().replace("-", "")
+                if uuid_upper == known_upper or uuid_upper.endswith(known_upper):
+                    threats.append({
+                        "category": "service_uuid",
+                        "service_name": uuid_data.get("name", "Unknown"),
+                        "threat_level": uuid_data.get("threat_level", "medium"),
+                        "notes": uuid_data.get("notes", ""),
+                        "matched_uuid": uuid,
+                        "match_type": "service_uuid",
+                    })
+    
+    return threats
+
+
+def check_covert_channel(frequency_hz: Optional[float] = None,
+                         protocol: Optional[str] = None,
+                         indicators: Optional[List[str]] = None) -> List[Dict]:
+    """
+    Check for covert channel signatures.
+    
+    Args:
+        frequency_hz: Detected frequency in Hz
+        protocol: Network protocol name
+        indicators: List of observed indicators
+    
+    Returns:
+        List of matching covert channel signatures
+    """
+    matches = []
+    
+    for channel_name, channel_data in COVERT_CHANNEL_SIGNATURES.items():
+        match_score = 0
+        
+        # Check frequency range
+        freq_range = channel_data.get("freq_range")
+        if freq_range and frequency_hz:
+            if isinstance(freq_range, tuple) and len(freq_range) == 2:
+                if freq_range[0] <= frequency_hz <= freq_range[1]:
+                    match_score += 50
+        
+        # Check indicators
+        channel_indicators = channel_data.get("indicators", [])
+        if indicators and channel_indicators:
+            for ind in indicators:
+                if any(ci.lower() in ind.lower() for ci in channel_indicators):
+                    match_score += 20
+        
+        if match_score > 30:
+            matches.append({
+                "channel_type": channel_name,
+                "threat_level": channel_data.get("threat_level", "high"),
+                "notes": channel_data.get("notes", ""),
+                "detection_method": channel_data.get("detection_method", ""),
+                "confidence": min(95, match_score),
+            })
+    
+    return matches
+
+
+def get_ioc_statistics_extended() -> Dict[str, Any]:
+    """
+    Get comprehensive statistics about all loaded IOC databases.
+    
+    Returns:
+        Dict containing counts and metadata for all IOC databases
+    """
+    return {
+        "apt_threat_actors": len(APT_THREAT_ACTOR_IOCS),
+        "c2_infrastructure_patterns": len(C2_INFRASTRUCTURE_IOCS),
+        "malware_beacon_patterns": len(MALWARE_BEACON_PATTERNS),
+        "network_protocol_iocs": len(NETWORK_PROTOCOL_IOCS),
+        "covert_channel_signatures": len(COVERT_CHANNEL_SIGNATURES),
+        "bluetooth_extended_patterns": sum(len(v.get("patterns", [])) for v in BLUETOOTH_EXTENDED_IOCS.values()),
+        "bluetooth_service_extended": len(BLUETOOTH_SERVICE_EXTENDED_IOCS),
+        "rf_implant_frequencies": len(RF_IMPLANT_FREQUENCIES),
+        "iot_botnet_signatures": len(IOT_BOTNET_SIGNATURES),
+        "apple_platform_iocs": len(APPLE_PLATFORM_IOCS),
+        "timestamp_anomaly_signatures": len(TIMESTAMP_ANOMALY_SIGNATURES),
+        "network_infrastructure_iocs": len(NETWORK_INFRASTRUCTURE_IOCS),
+        # New extended IOC databases
+        "firmware_implant_iocs": len(FIRMWARE_IMPLANT_IOCS),
+        "supply_chain_iocs": len(SUPPLY_CHAIN_IOCS),
+        "crypto_threat_iocs": len(CRYPTO_THREAT_IOCS),
+        "ransomware_iocs": len(RANSOMWARE_IOCS),
+        "ics_threat_iocs": len(ICS_THREAT_IOCS),
+        "mobile_threat_iocs": len(MOBILE_THREAT_IOCS),
+        "cloud_threat_iocs": len(CLOUD_THREAT_IOCS),
+        "network_attack_iocs": len(NETWORK_ATTACK_IOCS),
+        "data_exfil_iocs": len(DATA_EXFIL_IOCS),
+        "browser_extension_iocs": len(BROWSER_EXTENSION_IOCS),
+        "wifi_attack_iocs": len(WIFI_ATTACK_IOCS),
+        "emerging_threat_iocs": len(EMERGING_THREAT_IOCS),
+        "total_extended_iocs": (
+            len(APT_THREAT_ACTOR_IOCS) +
+            len(C2_INFRASTRUCTURE_IOCS) +
+            len(MALWARE_BEACON_PATTERNS) +
+            len(NETWORK_PROTOCOL_IOCS) +
+            len(COVERT_CHANNEL_SIGNATURES) +
+            len(BLUETOOTH_EXTENDED_IOCS) +
+            len(BLUETOOTH_SERVICE_EXTENDED_IOCS) +
+            len(RF_IMPLANT_FREQUENCIES) +
+            len(IOT_BOTNET_SIGNATURES) +
+            len(APPLE_PLATFORM_IOCS) +
+            len(TIMESTAMP_ANOMALY_SIGNATURES) +
+            len(NETWORK_INFRASTRUCTURE_IOCS) +
+            len(FIRMWARE_IMPLANT_IOCS) +
+            len(SUPPLY_CHAIN_IOCS) +
+            len(CRYPTO_THREAT_IOCS) +
+            len(RANSOMWARE_IOCS) +
+            len(ICS_THREAT_IOCS) +
+            len(MOBILE_THREAT_IOCS) +
+            len(CLOUD_THREAT_IOCS) +
+            len(NETWORK_ATTACK_IOCS) +
+            len(DATA_EXFIL_IOCS) +
+            len(BROWSER_EXTENSION_IOCS) +
+            len(WIFI_ATTACK_IOCS) +
+            len(EMERGING_THREAT_IOCS)
+        ),
+    }
+
 
 # Comprehensive lookup function for Bluetooth IOCs
 def find_bluetooth_ioc(identifier: str, identifier_type: str = "auto") -> Optional[Dict]:
@@ -31170,6 +35437,788 @@ except Exception as e:
     print("=" * 80)
     print()
 
+# ============================================================================
+# NEW DETECTION ENGINES - Enhanced Threat Detection Capabilities
+# ============================================================================
+
+class EMFSurveillanceDetector:
+    """
+    Electromagnetic Field Surveillance Detection Engine
+    
+    Detects EMF-based surveillance techniques including:
+    - Van Eck phreaking (display emanations)
+    - Keyboard emanations
+    - CPU/power supply emanation analysis
+    - Tempest-style attacks
+    """
+    
+    def __init__(self, sensor_interface=None, ioc_registry=None):
+        self.sensor = sensor_interface
+        self.ioc_registry = ioc_registry
+        self.detection_history = []
+        self.alert_callback = None
+        self.running = False
+        self.lock = threading.Lock()
+        
+        # Detection thresholds
+        self.thresholds = {
+            'display_refresh_rate': [60, 75, 120, 144],  # Common refresh rates
+            'keyboard_emf_pattern': 0.7,
+            'power_supply_switching': 0.6,
+            'cpu_leakage': 0.5
+        }
+        
+        logging.info("✅ EMF Surveillance Detector initialized")
+    
+    def analyze_emf_sample(self, emf_data: np.ndarray, sample_rate: float) -> Dict[str, Any]:
+        """Analyze EMF sample for surveillance indicators"""
+        results = {
+            'timestamp': time.time(),
+            'detections': [],
+            'threat_level': 'LOW',
+            'max_severity': 0
+        }
+        
+        if emf_data is None or len(emf_data) == 0:
+            return results
+        
+        try:
+            # FFT analysis
+            fft_data = np.fft.rfft(emf_data)
+            fft_mag = np.abs(fft_data)
+            freqs = np.fft.rfftfreq(len(emf_data), 1.0/sample_rate)
+            
+            # Check for display refresh rate harmonics (Van Eck)
+            for refresh_rate in self.thresholds['display_refresh_rate']:
+                for harmonic in range(1, 6):
+                    target_freq = refresh_rate * harmonic
+                    freq_idx = np.argmin(np.abs(freqs - target_freq))
+                    if fft_mag[freq_idx] > np.mean(fft_mag) * 3:
+                        detection = {
+                            'type': 'van_eck_emanation',
+                            'severity': 85 + harmonic * 2,
+                            'frequency': float(freqs[freq_idx]),
+                            'magnitude': float(fft_mag[freq_idx]),
+                            'description': f'Display emanation detected at {refresh_rate}Hz harmonic {harmonic}',
+                            'mitre_technique': 'T1040'
+                        }
+                        results['detections'].append(detection)
+                        results['max_severity'] = max(results['max_severity'], detection['severity'])
+            
+            # Check for keyboard emanation patterns (1-20 MHz range)
+            kb_mask = (freqs > 1e6) & (freqs < 20e6)
+            if np.any(kb_mask):
+                kb_energy = np.sum(np.square(fft_mag[kb_mask]))
+                total_energy = np.sum(np.square(fft_mag))
+                kb_ratio = kb_energy / total_energy if total_energy > 0 else 0
+                
+                if kb_ratio > self.thresholds['keyboard_emf_pattern']:
+                    detection = {
+                        'type': 'keyboard_emanation',
+                        'severity': 80,
+                        'energy_ratio': float(kb_ratio),
+                        'description': 'Keyboard EMF emanation pattern detected',
+                        'mitre_technique': 'T1056.001'
+                    }
+                    results['detections'].append(detection)
+                    results['max_severity'] = max(results['max_severity'], 80)
+            
+            # Set threat level
+            if results['max_severity'] >= 85:
+                results['threat_level'] = 'CRITICAL'
+            elif results['max_severity'] >= 70:
+                results['threat_level'] = 'HIGH'
+            elif results['max_severity'] >= 50:
+                results['threat_level'] = 'MEDIUM'
+            
+            with self.lock:
+                self.detection_history.append(results)
+            
+            if results['detections'] and self.alert_callback:
+                self.alert_callback(results)
+                
+        except Exception as e:
+            logging.debug(f"EMF analysis error: {e}")
+        
+        return results
+    
+    def get_detection_history(self) -> List[Dict]:
+        with self.lock:
+            return list(self.detection_history)
+    
+    def run(self, observation: Dict) -> List[Dict]:
+        """Run detection on observation (for unified engine integration)"""
+        emf_data = observation.get('emf_data')
+        sample_rate = observation.get('sample_rate', 2e6)
+        
+        if emf_data is not None:
+            result = self.analyze_emf_sample(emf_data, sample_rate)
+            return result.get('detections', [])
+        return []
+
+
+class APTBehaviorDetector:
+    """
+    Advanced Persistent Threat Behavior Detection Engine
+    
+    Detects APT-style behaviors including:
+    - C2 beaconing patterns
+    - Low-and-slow data exfiltration
+    - Living-off-the-land techniques
+    - Persistence mechanism indicators
+    """
+    
+    def __init__(self, ioc_registry=None):
+        self.ioc_registry = ioc_registry
+        self.beacon_tracker = {}
+        self.exfil_tracker = {}
+        self.detection_history = []
+        self.alert_callback = None
+        self.lock = threading.Lock()
+        
+        # APT-specific IOCs from threat intelligence
+        self.apt_iocs = {
+            'beacon_intervals': [60, 300, 600, 900, 1800, 3600],  # Common C2 intervals
+            'jitter_threshold': 0.1,  # 10% jitter for C2 detection
+            'min_beacon_count': 3,
+            'exfil_size_threshold': 1024 * 1024,  # 1MB
+        }
+        
+        logging.info("✅ APT Behavior Detector initialized")
+    
+    def analyze_network_pattern(self, connection_events: List[Dict]) -> Dict[str, Any]:
+        """Analyze network patterns for APT-style behavior"""
+        results = {
+            'timestamp': time.time(),
+            'detections': [],
+            'threat_level': 'LOW',
+            'beacon_candidates': [],
+            'exfil_candidates': []
+        }
+        
+        if not connection_events or len(connection_events) < 3:
+            return results
+        
+        # Group by destination
+        by_dest = defaultdict(list)
+        for event in connection_events:
+            dest = event.get('destination', 'unknown')
+            by_dest[dest].append(event)
+        
+        # Analyze each destination for beaconing
+        for dest, events in by_dest.items():
+            if len(events) >= self.apt_iocs['min_beacon_count']:
+                timestamps = sorted([e.get('timestamp', 0) for e in events])
+                intervals = np.diff(timestamps)
+                
+                if len(intervals) > 0:
+                    mean_interval = np.mean(intervals)
+                    std_interval = np.std(intervals)
+                    cv = std_interval / mean_interval if mean_interval > 0 else 1
+                    
+                    # Check if matches known beacon intervals with jitter
+                    for known_interval in self.apt_iocs['beacon_intervals']:
+                        if abs(mean_interval - known_interval) < known_interval * 0.2:
+                            if cv < self.apt_iocs['jitter_threshold']:
+                                detection = {
+                                    'type': 'c2_beacon',
+                                    'severity': 90,
+                                    'destination': dest,
+                                    'interval': float(mean_interval),
+                                    'jitter': float(cv),
+                                    'event_count': len(events),
+                                    'description': f'C2 beaconing pattern detected to {dest}',
+                                    'mitre_technique': 'T1071'
+                                }
+                                results['detections'].append(detection)
+                                results['beacon_candidates'].append(dest)
+        
+        # Check for slow exfiltration patterns
+        for dest, events in by_dest.items():
+            total_bytes = sum(e.get('bytes_sent', 0) for e in events)
+            if total_bytes > self.apt_iocs['exfil_size_threshold']:
+                # Check if it's distributed over time (slow exfil)
+                if len(events) > 5:
+                    timestamps = sorted([e.get('timestamp', 0) for e in events])
+                    duration = timestamps[-1] - timestamps[0]
+                    if duration > 3600:  # Over 1 hour
+                        detection = {
+                            'type': 'slow_exfiltration',
+                            'severity': 85,
+                            'destination': dest,
+                            'total_bytes': total_bytes,
+                            'duration_sec': float(duration),
+                            'event_count': len(events),
+                            'description': f'Slow data exfiltration detected to {dest}',
+                            'mitre_technique': 'T1048'
+                        }
+                        results['detections'].append(detection)
+                        results['exfil_candidates'].append(dest)
+        
+        # Set threat level
+        max_severity = max([d['severity'] for d in results['detections']], default=0)
+        if max_severity >= 85:
+            results['threat_level'] = 'CRITICAL'
+        elif max_severity >= 70:
+            results['threat_level'] = 'HIGH'
+        elif max_severity >= 50:
+            results['threat_level'] = 'MEDIUM'
+        
+        with self.lock:
+            self.detection_history.append(results)
+        
+        if results['detections'] and self.alert_callback:
+            self.alert_callback(results)
+        
+        return results
+    
+    def check_persistence_indicator(self, indicator: Dict) -> Optional[Dict]:
+        """Check for APT persistence mechanism indicators"""
+        persistence_patterns = {
+            'scheduled_task': {'severity': 80, 'mitre': 'T1053'},
+            'registry_run_key': {'severity': 85, 'mitre': 'T1547.001'},
+            'service_creation': {'severity': 82, 'mitre': 'T1543.003'},
+            'dll_hijack': {'severity': 88, 'mitre': 'T1574.001'},
+            'bootkit': {'severity': 95, 'mitre': 'T1542'},
+        }
+        
+        indicator_type = indicator.get('type', '').lower()
+        for pattern, config in persistence_patterns.items():
+            if pattern in indicator_type:
+                return {
+                    'type': 'apt_persistence',
+                    'pattern': pattern,
+                    'severity': config['severity'],
+                    'mitre_technique': config['mitre'],
+                    'indicator': indicator,
+                    'description': f'APT persistence mechanism detected: {pattern}',
+                    'timestamp': time.time()
+                }
+        return None
+    
+    def run(self, observation: Dict) -> List[Dict]:
+        """Run detection on observation (for unified engine integration)"""
+        detections = []
+        
+        if 'connection_events' in observation:
+            result = self.analyze_network_pattern(observation['connection_events'])
+            detections.extend(result.get('detections', []))
+        
+        if 'persistence_indicator' in observation:
+            result = self.check_persistence_indicator(observation['persistence_indicator'])
+            if result:
+                detections.append(result)
+        
+        return detections
+
+
+class SupplyChainThreatDetector:
+    """
+    Supply Chain Threat Detection Engine
+    
+    Detects supply chain compromise indicators including:
+    - Firmware tampering signatures
+    - Hardware implant indicators
+    - Compromised update channels
+    - Counterfeit component signatures
+    """
+    
+    def __init__(self, ioc_registry=None):
+        self.ioc_registry = ioc_registry
+        self.detection_history = []
+        self.known_good_hashes = {}
+        self.alert_callback = None
+        self.lock = threading.Lock()
+        
+        # Supply chain threat IOCs
+        self.supply_chain_iocs = {
+            'firmware_tampering': {
+                'indicators': ['modified_timestamp', 'hash_mismatch', 'unexpected_size'],
+                'severity': 95
+            },
+            'hardware_implant': {
+                'indicators': ['extra_components', 'unknown_chip', 'modified_pcb'],
+                'severity': 98
+            },
+            'update_channel_compromise': {
+                'indicators': ['unsigned_update', 'unknown_server', 'http_downgrade'],
+                'severity': 90
+            },
+            'counterfeit_component': {
+                'indicators': ['spec_mismatch', 'timing_anomaly', 'power_deviation'],
+                'severity': 85
+            }
+        }
+        
+        logging.info("✅ Supply Chain Threat Detector initialized")
+    
+    def analyze_firmware(self, firmware_info: Dict) -> Dict[str, Any]:
+        """Analyze firmware for tampering indicators"""
+        results = {
+            'timestamp': time.time(),
+            'detections': [],
+            'threat_level': 'LOW',
+            'integrity_score': 100
+        }
+        
+        # Check hash integrity
+        if 'hash' in firmware_info and 'expected_hash' in firmware_info:
+            if firmware_info['hash'] != firmware_info['expected_hash']:
+                detection = {
+                    'type': 'firmware_tampering',
+                    'severity': 95,
+                    'actual_hash': firmware_info['hash'],
+                    'expected_hash': firmware_info['expected_hash'],
+                    'description': 'Firmware hash mismatch detected',
+                    'mitre_technique': 'T1542.001'
+                }
+                results['detections'].append(detection)
+                results['integrity_score'] -= 50
+        
+        # Check for known malicious patterns
+        if 'contents' in firmware_info:
+            malicious_patterns = [
+                (b'\x00' * 100, 'null_padding', 'Suspicious null padding'),
+                (b'backdoor', 'backdoor_string', 'Backdoor string detected'),
+                (b'rootkit', 'rootkit_string', 'Rootkit string detected'),
+            ]
+            for pattern, pattern_type, description in malicious_patterns:
+                if pattern in firmware_info['contents']:
+                    detection = {
+                        'type': 'firmware_tampering',
+                        'pattern': pattern_type,
+                        'severity': 92,
+                        'description': description,
+                        'mitre_technique': 'T1542'
+                    }
+                    results['detections'].append(detection)
+        
+        # Set threat level
+        if results['detections']:
+            max_severity = max(d['severity'] for d in results['detections'])
+            if max_severity >= 90:
+                results['threat_level'] = 'CRITICAL'
+            elif max_severity >= 75:
+                results['threat_level'] = 'HIGH'
+        
+        with self.lock:
+            self.detection_history.append(results)
+        
+        return results
+    
+    def check_update_channel(self, update_info: Dict) -> Dict[str, Any]:
+        """Check update channel for compromise indicators"""
+        results = {
+            'timestamp': time.time(),
+            'detections': [],
+            'channel_status': 'UNKNOWN'
+        }
+        
+        # Check for HTTPS downgrade
+        url = update_info.get('url', '')
+        if url.startswith('http://') and not url.startswith('http://localhost'):
+            detection = {
+                'type': 'update_channel_compromise',
+                'severity': 88,
+                'url': url,
+                'description': 'Insecure HTTP update channel detected',
+                'mitre_technique': 'T1195.002'
+            }
+            results['detections'].append(detection)
+        
+        # Check for unsigned updates
+        if not update_info.get('signature_valid', True):
+            detection = {
+                'type': 'unsigned_update',
+                'severity': 92,
+                'description': 'Unsigned update package detected',
+                'mitre_technique': 'T1195.002'
+            }
+            results['detections'].append(detection)
+        
+        results['channel_status'] = 'COMPROMISED' if results['detections'] else 'SECURE'
+        
+        with self.lock:
+            self.detection_history.append(results)
+        
+        return results
+    
+    def run(self, observation: Dict) -> List[Dict]:
+        """Run detection on observation (for unified engine integration)"""
+        detections = []
+        
+        if 'firmware_info' in observation:
+            result = self.analyze_firmware(observation['firmware_info'])
+            detections.extend(result.get('detections', []))
+        
+        if 'update_info' in observation:
+            result = self.check_update_channel(observation['update_info'])
+            detections.extend(result.get('detections', []))
+        
+        return detections
+
+
+# ============================================================================
+# UNIFIED THREAT INTELLIGENCE ENGINE
+# ============================================================================
+
+class UnifiedThreatIntelligenceEngine:
+    """
+    Unified Threat Intelligence Engine
+    
+    Aggregates, correlates, and analyzes detections from all specialized engines
+    to provide comprehensive threat intelligence and unified threat scoring.
+    
+    Features:
+    - Multi-engine correlation
+    - Temporal pattern analysis
+    - Cross-domain threat correlation
+    - Unified threat scoring
+    - Automated threat classification
+    - Real-time alerting
+    - Forensic evidence collection
+    """
+    
+    def __init__(self, config: Optional[Dict] = None):
+        self.config = config or {}
+        self.engines = {}
+        self.detection_queue = queue.Queue(maxsize=10000)
+        self.correlation_buffer = []
+        self.threat_timeline = []
+        self.active_threats = {}
+        self.alert_callbacks = []
+        self.running = False
+        self.lock = threading.RLock()
+        
+        # Correlation parameters
+        self.correlation_window_sec = self.config.get('correlation_window', 30.0)
+        self.min_correlation_score = self.config.get('min_correlation_score', 0.5)
+        
+        # Threat classification thresholds
+        self.threat_levels = {
+            'CRITICAL': 90,
+            'HIGH': 75,
+            'MEDIUM': 50,
+            'LOW': 25,
+            'INFO': 0
+        }
+        
+        # Statistics
+        self.stats = {
+            'total_observations': 0,
+            'total_detections': 0,
+            'detections_by_engine': Counter(),
+            'detections_by_category': Counter(),
+            'detections_by_severity': Counter(),
+            'correlated_incidents': 0,
+            'active_campaigns': 0,
+            'session_start': time.time()
+        }
+        
+        # Initialize worker thread
+        self.worker_thread = None
+        
+        logging.info("✅ Unified Threat Intelligence Engine initialized")
+    
+    def register_engine(self, name: str, engine: Any) -> None:
+        """Register a detection engine with the unified system"""
+        with self.lock:
+            self.engines[name] = engine
+            logging.info(f"[UNIFIED] Registered engine: {name}")
+    
+    def register_alert_callback(self, callback: Callable) -> None:
+        """Register a callback for threat alerts"""
+        self.alert_callbacks.append(callback)
+    
+    def start(self) -> None:
+        """Start the unified engine processing"""
+        if self.running:
+            return
+        
+        self.running = True
+        self.worker_thread = threading.Thread(target=self._process_loop, daemon=True)
+        self.worker_thread.start()
+        logging.info("[UNIFIED] Engine started")
+    
+    def stop(self) -> None:
+        """Stop the unified engine processing"""
+        self.running = False
+        if self.worker_thread:
+            self.worker_thread.join(timeout=5.0)
+        logging.info("[UNIFIED] Engine stopped")
+    
+    def submit_observation(self, observation: Dict, source: str = 'unknown') -> None:
+        """Submit an observation for processing by all engines"""
+        observation['_source'] = source
+        observation['_timestamp'] = time.time()
+        
+        try:
+            self.detection_queue.put_nowait(observation)
+            self.stats['total_observations'] += 1
+        except queue.Full:
+            logging.warning("[UNIFIED] Detection queue full, dropping observation")
+    
+    def _process_loop(self) -> None:
+        """Main processing loop"""
+        while self.running:
+            try:
+                observation = self.detection_queue.get(timeout=1.0)
+                self._process_observation(observation)
+            except queue.Empty:
+                # Periodic correlation check even without new observations
+                self._check_correlations()
+            except Exception as e:
+                logging.error(f"[UNIFIED] Processing error: {e}")
+    
+    def _process_observation(self, observation: Dict) -> None:
+        """Process a single observation through all engines"""
+        all_detections = []
+        source = observation.get('_source', 'unknown')
+        timestamp = observation.get('_timestamp', time.time())
+        
+        # Run through all registered engines
+        for engine_name, engine in self.engines.items():
+            try:
+                if hasattr(engine, 'run'):
+                    detections = engine.run(observation)
+                    for det in detections:
+                        det['_engine'] = engine_name
+                        det['_timestamp'] = timestamp
+                        all_detections.append(det)
+                        self.stats['detections_by_engine'][engine_name] += 1
+            except Exception as e:
+                logging.debug(f"[UNIFIED] Engine {engine_name} error: {e}")
+        
+        if all_detections:
+            self.stats['total_detections'] += len(all_detections)
+            
+            # Add to correlation buffer
+            with self.lock:
+                self.correlation_buffer.extend(all_detections)
+                
+                # Prune old entries
+                cutoff = time.time() - self.correlation_window_sec * 2
+                self.correlation_buffer = [
+                    d for d in self.correlation_buffer
+                    if d.get('_timestamp', 0) > cutoff
+                ]
+            
+            # Log and alert for all detections based on severity
+            for det in all_detections:
+                severity = det.get('severity', 0)
+                category = det.get('category', det.get('type', 'unknown'))
+                engine_name = det.get('_engine', 'unknown')
+                description = det.get('description', det.get('type', 'Detection'))
+                
+                self.stats['detections_by_category'][category] += 1
+                
+                # Log ALL detections (ensures nothing is silent)
+                if severity >= self.threat_levels['CRITICAL']:
+                    self.stats['detections_by_severity']['CRITICAL'] += 1
+                    logging.critical(f"[UNIFIED:{engine_name}] CRITICAL: {description}")
+                    self._trigger_alert(det, 'CRITICAL')
+                elif severity >= self.threat_levels['HIGH']:
+                    self.stats['detections_by_severity']['HIGH'] += 1
+                    logging.error(f"[UNIFIED:{engine_name}] HIGH: {description}")
+                    self._trigger_alert(det, 'HIGH')
+                elif severity >= self.threat_levels['MEDIUM']:
+                    self.stats['detections_by_severity']['MEDIUM'] += 1
+                    logging.warning(f"[UNIFIED:{engine_name}] MEDIUM: {description}")
+                elif severity >= self.threat_levels['LOW']:
+                    self.stats['detections_by_severity']['LOW'] += 1
+                    logging.info(f"[UNIFIED:{engine_name}] LOW: {description}")
+                else:
+                    self.stats['detections_by_severity']['INFO'] += 1
+                    logging.debug(f"[UNIFIED:{engine_name}] INFO: {description}")
+            
+            # Check for correlations
+            self._check_correlations()
+    
+    def _check_correlations(self) -> None:
+        """Check for correlated detections across engines"""
+        with self.lock:
+            if len(self.correlation_buffer) < 2:
+                return
+            
+            current_time = time.time()
+            window_start = current_time - self.correlation_window_sec
+            
+            # Get recent detections
+            recent = [d for d in self.correlation_buffer if d.get('_timestamp', 0) > window_start]
+            
+            if len(recent) < 2:
+                return
+            
+            # Group by time proximity
+            groups = correlate_detections(recent, self.correlation_window_sec)
+            
+            for group in groups:
+                if group['count'] >= 2:
+                    # Multi-engine correlation
+                    engines_involved = set(d.get('_engine', '') for d in group['detections'])
+                    categories_involved = set(d.get('category', d.get('type', '')) for d in group['detections'])
+                    
+                    if len(engines_involved) > 1:
+                        # Cross-engine correlation - higher confidence
+                        correlated_incident = {
+                            'type': 'correlated_incident',
+                            'timestamp': current_time,
+                            'engines': list(engines_involved),
+                            'categories': list(categories_involved),
+                            'detection_count': group['count'],
+                            'max_severity': group['max_severity'],
+                            'time_span': group['time_span'],
+                            'detections': group['detections'],
+                            'correlation_score': min(1.0, len(engines_involved) * 0.3 + group['count'] * 0.1)
+                        }
+                        
+                        # Boost severity for correlated multi-engine detections
+                        if correlated_incident['correlation_score'] >= self.min_correlation_score:
+                            self.stats['correlated_incidents'] += 1
+                            self._trigger_alert(correlated_incident, 'CORRELATED')
+                            
+                            # Add to threat timeline
+                            self.threat_timeline.append(correlated_incident)
+    
+    def _trigger_alert(self, detection: Dict, alert_type: str) -> None:
+        """Trigger alert callbacks"""
+        alert = {
+            'alert_type': alert_type,
+            'timestamp': time.time(),
+            'detection': detection,
+            'severity': detection.get('severity', detection.get('max_severity', 0))
+        }
+        
+        for callback in self.alert_callbacks:
+            try:
+                callback(alert)
+            except Exception as e:
+                logging.error(f"[UNIFIED] Alert callback error: {e}")
+    
+    def get_threat_summary(self) -> Dict[str, Any]:
+        """Get current threat summary"""
+        with self.lock:
+            # Calculate threat score
+            recent_detections = [
+                d for d in self.correlation_buffer
+                if d.get('_timestamp', 0) > time.time() - 300  # Last 5 minutes
+            ]
+            
+            if recent_detections:
+                avg_severity = np.mean([d.get('severity', 0) for d in recent_detections])
+                max_severity = max(d.get('severity', 0) for d in recent_detections)
+            else:
+                avg_severity = 0
+                max_severity = 0
+            
+            # Determine overall threat level
+            if max_severity >= 90:
+                threat_level = 'CRITICAL'
+            elif max_severity >= 75:
+                threat_level = 'HIGH'
+            elif max_severity >= 50:
+                threat_level = 'MEDIUM'
+            elif max_severity >= 25:
+                threat_level = 'LOW'
+            else:
+                threat_level = 'MINIMAL'
+            
+            return {
+                'threat_level': threat_level,
+                'threat_score': float(max_severity),
+                'avg_severity': float(avg_severity),
+                'recent_detections': len(recent_detections),
+                'active_engines': len(self.engines),
+                'engines': list(self.engines.keys()),
+                'stats': dict(self.stats),
+                'uptime_sec': time.time() - self.stats['session_start'],
+                'last_updated': time.time()
+            }
+    
+    def get_threat_report(self) -> str:
+        """Generate human-readable threat report"""
+        summary = self.get_threat_summary()
+        
+        lines = [
+            "=" * 80,
+            "UNIFIED THREAT INTELLIGENCE REPORT",
+            "=" * 80,
+            f"Generated: {datetime.now().isoformat()}",
+            f"Session Duration: {summary['uptime_sec']/60:.1f} minutes",
+            "",
+            f"THREAT LEVEL: {summary['threat_level']}",
+            f"Threat Score: {summary['threat_score']:.1f}/100",
+            f"Average Severity: {summary['avg_severity']:.1f}",
+            "",
+            "STATISTICS:",
+            f"  Total Observations: {summary['stats']['total_observations']:,}",
+            f"  Total Detections: {summary['stats']['total_detections']:,}",
+            f"  Correlated Incidents: {summary['stats']['correlated_incidents']}",
+            "",
+            "DETECTIONS BY ENGINE:",
+        ]
+        
+        for engine, count in summary['stats']['detections_by_engine'].items():
+            lines.append(f"  {engine}: {count}")
+        
+        lines.append("")
+        lines.append("DETECTIONS BY CATEGORY:")
+        for category, count in summary['stats']['detections_by_category'].most_common(10):
+            lines.append(f"  {category}: {count}")
+        
+        lines.append("")
+        lines.append("ACTIVE ENGINES:")
+        for engine in summary['engines']:
+            lines.append(f"  ✓ {engine}")
+        
+        lines.append("=" * 80)
+        
+        return "\n".join(lines)
+    
+    def export_forensic_data(self) -> Dict[str, Any]:
+        """Export forensic data for analysis"""
+        with self.lock:
+            return {
+                'export_timestamp': time.time(),
+                'session_start': self.stats['session_start'],
+                'threat_timeline': list(self.threat_timeline),
+                'correlation_buffer': list(self.correlation_buffer),
+                'statistics': dict(self.stats),
+                'engines': list(self.engines.keys())
+            }
+
+
+# Initialize global Unified Threat Intelligence Engine
+unified_threat_engine = UnifiedThreatIntelligenceEngine()
+
+# Initialize new detection engines
+emf_detector = EMFSurveillanceDetector()
+apt_detector = APTBehaviorDetector()
+supply_chain_detector = SupplyChainThreatDetector()
+
+# Register engines with unified engine
+unified_threat_engine.register_engine('emf_surveillance', emf_detector)
+unified_threat_engine.register_engine('apt_behavior', apt_detector)
+unified_threat_engine.register_engine('supply_chain', supply_chain_detector)
+
+# Register existing engines (if they exist)
+try:
+    unified_threat_engine.register_engine('hidden_camera', hidden_cam_engine)
+except NameError:
+    pass
+
+try:
+    unified_threat_engine.register_engine('threat_engine', threat_engine)
+except NameError:
+    pass
+
+print("[UNIFIED] ✓ Unified Threat Intelligence Engine initialized with new detection engines")
+print(f"[UNIFIED] ✓ Registered engines: {list(unified_threat_engine.engines.keys())}")
+
+# ============================================================================
+# END OF NEW DETECTION ENGINES AND UNIFIED THREAT INTELLIGENCE ENGINE
+# ============================================================================
+
 # Initialize additional specialized threat engines (placeholder interfaces)
 # These require actual hardware interfaces to function, so we create stub interfaces for testing
 
@@ -32852,6 +37901,3203 @@ def test_ble_only():
     print("=" * 80)
 
 
+# ============================================================
+# ADVANCED THREAT DETECTION ENGINES - EXTENDED MODULE
+# ============================================================
+# Additional detection engines for comprehensive threat coverage
+# ============================================================
+
+
+class APTAttributionEngine:
+    """
+    Advanced Persistent Threat Attribution Engine
+    
+    Correlates observed indicators with known APT groups
+    to provide threat attribution and contextual intelligence.
+    """
+    
+    def __init__(self, ioc_registry=None):
+        self.ioc_registry = ioc_registry
+        self.observed_indicators = []
+        self.attribution_history = []
+        self.confidence_threshold = 60
+        logging.info("✅ APT Attribution Engine initialized")
+    
+    def add_indicator(self, indicator: str, indicator_type: str = "unknown"):
+        """Add an observed indicator for attribution analysis."""
+        self.observed_indicators.append({
+            "value": indicator,
+            "type": indicator_type,
+            "timestamp": time.time(),
+        })
+    
+    def analyze_indicators(self) -> List[Dict]:
+        """
+        Analyze all observed indicators against APT database.
+        
+        Returns:
+            List of potential APT attributions with confidence scores
+        """
+        if not self.observed_indicators:
+            return []
+        
+        indicator_values = [i["value"] for i in self.observed_indicators]
+        attributions = check_apt_attribution(indicator_values)
+        
+        # Filter by confidence threshold
+        significant = [a for a in attributions if a["confidence"] >= self.confidence_threshold]
+        
+        # Store in history
+        for attr in significant:
+            attr["analysis_timestamp"] = time.time()
+            self.attribution_history.append(attr)
+        
+        return significant
+    
+    def check_domain(self, domain: str) -> Optional[Dict]:
+        """
+        Check a domain against known APT C2 patterns.
+        
+        Args:
+            domain: Domain name to check
+        
+        Returns:
+            Attribution details if matched
+        """
+        import re
+        
+        for apt_name, apt_data in APT_THREAT_ACTOR_IOCS.items():
+            for pattern in apt_data.get("c2_patterns", []):
+                if re.match(pattern, domain, re.IGNORECASE):
+                    return {
+                        "apt_group": apt_name,
+                        "aliases": apt_data.get("aliases", []),
+                        "attribution": apt_data.get("attribution", "Unknown"),
+                        "threat_level": apt_data.get("threat_level", "high"),
+                        "ttps": apt_data.get("ttps", []),
+                        "known_malware": apt_data.get("known_malware", []),
+                        "matched_pattern": pattern,
+                        "notes": apt_data.get("notes", ""),
+                    }
+        
+        return None
+    
+    def check_malware_family(self, malware_name: str) -> Optional[Dict]:
+        """
+        Check if a malware family is associated with a known APT.
+        
+        Args:
+            malware_name: Malware family name
+        
+        Returns:
+            Attribution details if matched
+        """
+        for apt_name, apt_data in APT_THREAT_ACTOR_IOCS.items():
+            for known in apt_data.get("known_malware", []):
+                if known.lower() in malware_name.lower() or malware_name.lower() in known.lower():
+                    return {
+                        "apt_group": apt_name,
+                        "aliases": apt_data.get("aliases", []),
+                        "attribution": apt_data.get("attribution", "Unknown"),
+                        "threat_level": apt_data.get("threat_level", "high"),
+                        "matched_malware": known,
+                        "notes": apt_data.get("notes", ""),
+                    }
+        
+        return None
+    
+    def get_apt_profile(self, apt_name: str) -> Optional[Dict]:
+        """
+        Get full profile for a named APT group.
+        
+        Args:
+            apt_name: APT group name or alias
+        
+        Returns:
+            Full APT profile dictionary
+        """
+        # Direct match
+        if apt_name.upper() in APT_THREAT_ACTOR_IOCS:
+            return APT_THREAT_ACTOR_IOCS[apt_name.upper()]
+        
+        # Search aliases
+        for name, data in APT_THREAT_ACTOR_IOCS.items():
+            for alias in data.get("aliases", []):
+                if alias.lower() == apt_name.lower():
+                    return data
+        
+        return None
+    
+    def generate_report(self) -> Dict:
+        """Generate a comprehensive attribution report."""
+        attributions = self.analyze_indicators()
+        
+        return {
+            "report_timestamp": time.time(),
+            "total_indicators": len(self.observed_indicators),
+            "potential_attributions": attributions,
+            "highest_confidence": attributions[0] if attributions else None,
+            "indicator_summary": {
+                "domains": len([i for i in self.observed_indicators if i["type"] == "domain"]),
+                "ips": len([i for i in self.observed_indicators if i["type"] == "ip"]),
+                "hashes": len([i for i in self.observed_indicators if i["type"] == "hash"]),
+                "other": len([i for i in self.observed_indicators if i["type"] == "unknown"]),
+            },
+        }
+
+
+class C2InfrastructureDetector:
+    """
+    Command and Control Infrastructure Detection Engine
+    
+    Monitors network traffic and DNS for C2 infrastructure patterns
+    including tunneling services, cloud hosting abuse, and webhooks.
+    """
+    
+    def __init__(self, dns_resolver=None):
+        self.dns_resolver = dns_resolver
+        self.detected_c2 = []
+        self.domain_cache = {}
+        self.alert_callback = None
+        logging.info("✅ C2 Infrastructure Detector initialized")
+    
+    def check_domain(self, domain: str) -> Optional[Dict]:
+        """
+        Check if a domain matches known C2 infrastructure patterns.
+        
+        Args:
+            domain: Domain to check
+        
+        Returns:
+            C2 infrastructure details if matched
+        """
+        # Check cache first
+        if domain in self.domain_cache:
+            return self.domain_cache[domain]
+        
+        result = check_c2_infrastructure(domain)
+        
+        if result:
+            result["domain"] = domain
+            result["detection_time"] = time.time()
+            self.detected_c2.append(result)
+            
+            if self.alert_callback:
+                self.alert_callback(result)
+        
+        # Cache result
+        self.domain_cache[domain] = result
+        return result
+    
+    def check_url(self, url: str) -> Optional[Dict]:
+        """
+        Check if a URL matches known C2 patterns.
+        
+        Args:
+            url: Full URL to check
+        
+        Returns:
+            C2 infrastructure details if matched
+        """
+        # Extract domain from URL
+        import re
+        
+        domain_match = re.search(r'https?://([^/]+)', url)
+        if domain_match:
+            domain = domain_match.group(1)
+            result = self.check_domain(domain)
+            if result:
+                result["original_url"] = url
+                return result
+        
+        # Check URL patterns (webhooks, paste sites)
+        for infra_name, infra_data in C2_INFRASTRUCTURE_IOCS.items():
+            pattern = infra_data.get("pattern", "")
+            if re.search(pattern, url, re.IGNORECASE):
+                result = {
+                    "name": infra_name,
+                    "category": infra_data.get("category", "UNKNOWN"),
+                    "threat_level": infra_data.get("threat_level", "medium"),
+                    "mitre_technique": infra_data.get("mitre_technique", ""),
+                    "notes": infra_data.get("notes", ""),
+                    "original_url": url,
+                    "detection_time": time.time(),
+                }
+                self.detected_c2.append(result)
+                return result
+        
+        return None
+    
+    def analyze_dns_query(self, query: str, query_type: str = "A") -> Dict:
+        """
+        Analyze a DNS query for suspicious patterns.
+        
+        Args:
+            query: DNS query string
+            query_type: Type of DNS query (A, AAAA, TXT, etc.)
+        
+        Returns:
+            Analysis results
+        """
+        import math
+        
+        results = {
+            "query": query,
+            "query_type": query_type,
+            "timestamp": time.time(),
+            "anomalies": [],
+            "threat_score": 0,
+        }
+        
+        # Check for C2 infrastructure
+        c2_match = self.check_domain(query)
+        if c2_match:
+            results["c2_match"] = c2_match
+            results["threat_score"] += 50
+            results["anomalies"].append("Known C2 infrastructure pattern")
+        
+        # Check for high entropy (possible DGA)
+        def entropy(s):
+            if not s:
+                return 0
+            prob = [s.count(c) / len(s) for c in set(s)]
+            return -sum(p * math.log2(p) for p in prob if p > 0)
+        
+        domain_parts = query.split(".")
+        if domain_parts:
+            subdomain = domain_parts[0]
+            sub_entropy = entropy(subdomain)
+            
+            if sub_entropy > 3.5 and len(subdomain) > 10:
+                results["anomalies"].append(f"High entropy subdomain: {sub_entropy:.2f}")
+                results["threat_score"] += 30
+        
+        # Check for long domain name
+        if len(query) > 60:
+            results["anomalies"].append(f"Unusually long domain name: {len(query)} chars")
+            results["threat_score"] += 20
+        
+        # Check for suspicious TXT query (common for tunneling)
+        if query_type == "TXT":
+            results["anomalies"].append("TXT query - potential data exfiltration")
+            results["threat_score"] += 15
+        
+        # Determine threat level
+        if results["threat_score"] >= 70:
+            results["threat_level"] = "critical"
+        elif results["threat_score"] >= 50:
+            results["threat_level"] = "high"
+        elif results["threat_score"] >= 30:
+            results["threat_level"] = "medium"
+        else:
+            results["threat_level"] = "low"
+        
+        return results
+    
+    def get_statistics(self) -> Dict:
+        """Get detection statistics."""
+        category_counts = {}
+        for c2 in self.detected_c2:
+            cat = c2.get("category", "UNKNOWN")
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+        
+        return {
+            "total_detections": len(self.detected_c2),
+            "unique_domains": len(set(c.get("domain", "") for c in self.detected_c2)),
+            "by_category": category_counts,
+            "cache_size": len(self.domain_cache),
+        }
+
+
+class BeaconPatternAnalyzer:
+    """
+    Network Beacon Pattern Analysis Engine
+    
+    Analyzes network traffic timing to detect C2 beaconing behavior
+    using statistical analysis of inter-communication intervals.
+    """
+    
+    def __init__(self, window_size: int = 100):
+        self.window_size = window_size
+        self.connection_times = {}  # destination -> list of timestamps
+        self.detected_beacons = []
+        self.alert_callback = None
+        logging.info("✅ Beacon Pattern Analyzer initialized")
+    
+    def record_connection(self, destination: str, timestamp: float = None):
+        """
+        Record a network connection for beacon analysis.
+        
+        Args:
+            destination: Destination IP or domain
+            timestamp: Connection timestamp (defaults to current time)
+        """
+        if timestamp is None:
+            timestamp = time.time()
+        
+        if destination not in self.connection_times:
+            self.connection_times[destination] = []
+        
+        self.connection_times[destination].append(timestamp)
+        
+        # Keep only recent connections
+        if len(self.connection_times[destination]) > self.window_size:
+            self.connection_times[destination] = self.connection_times[destination][-self.window_size:]
+        
+        # Analyze if we have enough data
+        if len(self.connection_times[destination]) >= 10:
+            self._analyze_destination(destination)
+    
+    def _analyze_destination(self, destination: str):
+        """Analyze a destination's connection pattern."""
+        times = self.connection_times[destination]
+        if len(times) < 5:
+            return
+        
+        # Calculate intervals
+        intervals = [times[i+1] - times[i] for i in range(len(times)-1)]
+        intervals_ms = [i * 1000 for i in intervals]  # Convert to milliseconds
+        
+        # Check for beacon pattern
+        result = check_beacon_pattern(intervals_ms)
+        
+        if result and result["confidence"] >= 50:
+            result["destination"] = destination
+            result["sample_count"] = len(times)
+            
+            # Check if this is a new detection
+            existing = [d for d in self.detected_beacons if d["destination"] == destination]
+            if not existing or result["confidence"] > existing[-1]["confidence"]:
+                self.detected_beacons.append(result)
+                
+                if self.alert_callback:
+                    self.alert_callback(result)
+    
+    def analyze_intervals(self, intervals_ms: List[float]) -> Optional[Dict]:
+        """
+        Directly analyze a list of intervals.
+        
+        Args:
+            intervals_ms: List of intervals in milliseconds
+        
+        Returns:
+            Beacon pattern analysis results
+        """
+        return check_beacon_pattern(intervals_ms)
+    
+    def get_detected_beacons(self, min_confidence: int = 60) -> List[Dict]:
+        """Get all detected beacons above confidence threshold."""
+        return [b for b in self.detected_beacons if b.get("confidence", 0) >= min_confidence]
+    
+    def get_statistics(self) -> Dict:
+        """Get analysis statistics."""
+        return {
+            "tracked_destinations": len(self.connection_times),
+            "total_connections": sum(len(t) for t in self.connection_times.values()),
+            "detected_beacons": len(self.detected_beacons),
+            "high_confidence_beacons": len([b for b in self.detected_beacons if b.get("confidence", 0) >= 80]),
+        }
+
+
+class CovertChannelDetector:
+    """
+    Covert Channel Detection Engine
+    
+    Detects various covert communication channels including:
+    - Audio/ultrasonic channels
+    - RF emanations
+    - Optical channels
+    - Network steganography
+    """
+    
+    def __init__(self, audio_analyzer=None, rf_analyzer=None):
+        self.audio_analyzer = audio_analyzer
+        self.rf_analyzer = rf_analyzer
+        self.detections = []
+        self.alert_callback = None
+        logging.info("✅ Covert Channel Detector initialized")
+    
+    def analyze_audio_spectrum(self, audio_data: np.ndarray, sample_rate: int) -> List[Dict]:
+        """
+        Analyze audio spectrum for covert channels.
+        
+        Args:
+            audio_data: Audio samples as numpy array
+            sample_rate: Sample rate in Hz
+        
+        Returns:
+            List of detected covert channels
+        """
+        if not SCIPY_AVAILABLE:
+            return []
+        
+        detections = []
+        
+        # Perform FFT
+        fft_data = np.abs(np.fft.rfft(audio_data))
+        freqs = np.fft.rfftfreq(len(audio_data), 1/sample_rate)
+        
+        # Check for ultrasonic activity (17-24 kHz)
+        ultrasonic_mask = (freqs >= 17000) & (freqs <= 24000)
+        ultrasonic_power = np.mean(fft_data[ultrasonic_mask]) if np.any(ultrasonic_mask) else 0
+        
+        # Check for audible activity (below 17 kHz)
+        audible_mask = freqs < 17000
+        audible_power = np.mean(fft_data[audible_mask]) if np.any(audible_mask) else 0
+        
+        # Detect anomalous ultrasonic activity
+        if audible_power > 0 and ultrasonic_power / audible_power > 0.5:
+            # Find peak frequency
+            ultrasonic_freqs = freqs[ultrasonic_mask]
+            ultrasonic_vals = fft_data[ultrasonic_mask]
+            peak_idx = np.argmax(ultrasonic_vals)
+            peak_freq = ultrasonic_freqs[peak_idx] if len(ultrasonic_freqs) > 0 else 0
+            
+            detection = {
+                "channel_type": "ultrasonic_data",
+                "peak_frequency": peak_freq,
+                "power_ratio": ultrasonic_power / audible_power,
+                "threat_level": "critical",
+                "confidence": min(95, int((ultrasonic_power / audible_power) * 100)),
+                "notes": "Potential ultrasonic covert channel detected",
+                "timestamp": time.time(),
+            }
+            detections.append(detection)
+            self.detections.append(detection)
+        
+        # Check for near-ultrasonic (18-22 kHz speaker-to-mic)
+        near_ultra_mask = (freqs >= 18000) & (freqs <= 22000)
+        near_ultra_power = np.mean(fft_data[near_ultra_mask]) if np.any(near_ultra_mask) else 0
+        
+        if near_ultra_power > audible_power * 0.3:
+            detection = {
+                "channel_type": "speaker_to_mic",
+                "freq_range": (18000, 22000),
+                "power_ratio": near_ultra_power / audible_power,
+                "threat_level": "critical",
+                "confidence": min(90, int((near_ultra_power / audible_power) * 80)),
+                "notes": "Potential speaker-to-microphone covert channel",
+                "timestamp": time.time(),
+            }
+            detections.append(detection)
+            self.detections.append(detection)
+        
+        return detections
+    
+    def analyze_network_packet(self, packet: Dict) -> List[Dict]:
+        """
+        Analyze a network packet for covert channel indicators.
+        
+        Args:
+            packet: Packet dictionary with headers and payload
+        
+        Returns:
+            List of detected covert channels
+        """
+        detections = []
+        
+        # Check TCP timestamp covert channel
+        if "tcp" in packet:
+            tcp = packet["tcp"]
+            if "timestamp" in tcp:
+                # Look for unusual timestamp patterns
+                ts = tcp["timestamp"]
+                if ts > 0 and (ts % 256 == 0 or ts % 1000 == 0):
+                    detection = {
+                        "channel_type": "tcp_timestamp",
+                        "indicator": "Suspicious TCP timestamp pattern",
+                        "value": ts,
+                        "threat_level": "medium",
+                        "confidence": 40,
+                        "timestamp": time.time(),
+                    }
+                    detections.append(detection)
+        
+        # Check IP ID field covert channel
+        if "ip" in packet:
+            ip = packet["ip"]
+            if "id" in ip:
+                ip_id = ip["id"]
+                # Look for sequential or patterned IDs
+                if ip_id > 0 and ip_id < 100:
+                    detection = {
+                        "channel_type": "ip_id_field",
+                        "indicator": "Suspicious IP ID value",
+                        "value": ip_id,
+                        "threat_level": "low",
+                        "confidence": 30,
+                        "timestamp": time.time(),
+                    }
+                    detections.append(detection)
+        
+        # Check TTL covert channel
+        if "ip" in packet and "ttl" in packet["ip"]:
+            ttl = packet["ip"]["ttl"]
+            # Unusual TTL values
+            if ttl not in [64, 128, 255, 32] and ttl < 64:
+                detection = {
+                    "channel_type": "ttl_encoding",
+                    "indicator": "Unusual TTL value",
+                    "value": ttl,
+                    "threat_level": "low",
+                    "confidence": 25,
+                    "timestamp": time.time(),
+                }
+                detections.append(detection)
+        
+        for d in detections:
+            self.detections.append(d)
+        
+        return detections
+    
+    def check_by_frequency(self, frequency_hz: float) -> List[Dict]:
+        """Check if a frequency matches known covert channel ranges."""
+        return check_covert_channel(frequency_hz=frequency_hz)
+    
+    def get_detections(self, min_confidence: int = 30) -> List[Dict]:
+        """Get all detections above confidence threshold."""
+        return [d for d in self.detections if d.get("confidence", 0) >= min_confidence]
+    
+    def get_statistics(self) -> Dict:
+        """Get detection statistics."""
+        by_type = {}
+        for d in self.detections:
+            ct = d.get("channel_type", "unknown")
+            by_type[ct] = by_type.get(ct, 0) + 1
+        
+        return {
+            "total_detections": len(self.detections),
+            "by_channel_type": by_type,
+            "critical_detections": len([d for d in self.detections if d.get("threat_level") == "critical"]),
+        }
+
+
+class EnhancedBLEThreatAnalyzer:
+    """
+    Enhanced BLE Threat Analysis Engine
+    
+    Comprehensive Bluetooth Low Energy threat detection using
+    extended IOC databases for device name patterns, service
+    UUIDs, and manufacturer identification.
+    """
+    
+    def __init__(self):
+        self.analyzed_devices = {}
+        self.threat_detections = []
+        self.alert_callback = None
+        logging.info("✅ Enhanced BLE Threat Analyzer initialized")
+    
+    def analyze_device(self, device_address: str, device_name: str = None,
+                      manufacturer_id: int = None, service_uuids: List[str] = None,
+                      rssi: int = None) -> Dict:
+        """
+        Perform comprehensive threat analysis on a BLE device.
+        
+        Args:
+            device_address: BLE MAC address
+            device_name: Advertised device name
+            manufacturer_id: Bluetooth manufacturer ID
+            service_uuids: List of advertised service UUIDs
+            rssi: Received signal strength
+        
+        Returns:
+            Comprehensive threat analysis results
+        """
+        results = {
+            "device_address": device_address,
+            "device_name": device_name,
+            "manufacturer_id": manufacturer_id,
+            "service_uuids": service_uuids or [],
+            "rssi": rssi,
+            "timestamp": time.time(),
+            "threats": [],
+            "overall_threat_level": "low",
+            "threat_score": 0,
+        }
+        
+        # Use extended BLE threat checking
+        threats = check_ble_extended_threat(
+            device_name or "",
+            manufacturer_id,
+            service_uuids
+        )
+        
+        for threat in threats:
+            results["threats"].append(threat)
+            
+            # Update threat score based on level
+            level = threat.get("threat_level", "low")
+            if level == "critical":
+                results["threat_score"] += 40
+            elif level == "high":
+                results["threat_score"] += 25
+            elif level == "medium":
+                results["threat_score"] += 15
+            else:
+                results["threat_score"] += 5
+        
+        # Check existing Bluetooth IOCs
+        if manufacturer_id:
+            mfg_ioc = BLUETOOTH_MANUFACTURER_IOCS.get(manufacturer_id)
+            if mfg_ioc:
+                results["manufacturer_info"] = mfg_ioc
+                level = mfg_ioc.get("threat_level", "low")
+                if level in ["high", "critical"]:
+                    results["threat_score"] += 20
+        
+        # Check service UUIDs against known dangerous services
+        if service_uuids:
+            for uuid in service_uuids:
+                svc_ioc = BLUETOOTH_SERVICE_IOCS.get(uuid) or BLUETOOTH_SERVICE_EXTENDED_IOCS.get(uuid)
+                if svc_ioc:
+                    results["threats"].append({
+                        "category": "known_service",
+                        "service_name": svc_ioc.get("name", "Unknown"),
+                        "threat_level": svc_ioc.get("threat_level", "low"),
+                        "notes": svc_ioc.get("notes", ""),
+                        "uuid": uuid,
+                    })
+                    level = svc_ioc.get("threat_level", "low")
+                    if level == "critical":
+                        results["threat_score"] += 30
+                    elif level == "high":
+                        results["threat_score"] += 20
+        
+        # Check for suspicious signal strength (very close device)
+        if rssi and rssi > -30:
+            results["threats"].append({
+                "category": "proximity_alert",
+                "threat_level": "medium",
+                "notes": f"Device is very close (RSSI: {rssi} dBm)",
+                "rssi": rssi,
+            })
+            results["threat_score"] += 10
+        
+        # Determine overall threat level
+        if results["threat_score"] >= 60:
+            results["overall_threat_level"] = "critical"
+        elif results["threat_score"] >= 40:
+            results["overall_threat_level"] = "high"
+        elif results["threat_score"] >= 20:
+            results["overall_threat_level"] = "medium"
+        else:
+            results["overall_threat_level"] = "low"
+        
+        # Store results
+        self.analyzed_devices[device_address] = results
+        
+        if results["threats"]:
+            self.threat_detections.append(results)
+            if self.alert_callback and results["overall_threat_level"] in ["high", "critical"]:
+                self.alert_callback(results)
+        
+        return results
+    
+    def check_device_name_patterns(self, name: str) -> List[Dict]:
+        """Check device name against all known threat patterns."""
+        import re
+        matches = []
+        
+        for category, data in BLUETOOTH_EXTENDED_IOCS.items():
+            for pattern in data.get("patterns", []):
+                if re.search(pattern, name or "", re.IGNORECASE):
+                    matches.append({
+                        "category": category,
+                        "pattern": pattern,
+                        "threat_level": data.get("threat_level", "medium"),
+                        "notes": data.get("notes", ""),
+                    })
+        
+        return matches
+    
+    def get_threat_statistics(self) -> Dict:
+        """Get threat detection statistics."""
+        by_level = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for det in self.threat_detections:
+            level = det.get("overall_threat_level", "low")
+            by_level[level] = by_level.get(level, 0) + 1
+        
+        return {
+            "total_devices_analyzed": len(self.analyzed_devices),
+            "devices_with_threats": len(self.threat_detections),
+            "by_threat_level": by_level,
+            "critical_alerts": by_level["critical"],
+        }
+
+
+class IoTBotnetDetector:
+    """
+    IoT Botnet Detection Engine
+    
+    Detects signs of IoT botnet infection and malicious activity
+    based on network behavior and known botnet signatures.
+    """
+    
+    def __init__(self):
+        self.monitored_devices = {}
+        self.detections = []
+        self.alert_callback = None
+        logging.info("✅ IoT Botnet Detector initialized")
+    
+    def analyze_device_behavior(self, device_ip: str, connections: List[Dict],
+                                 open_ports: List[int] = None) -> Dict:
+        """
+        Analyze device behavior for botnet indicators.
+        
+        Args:
+            device_ip: Device IP address
+            connections: List of connection dictionaries
+            open_ports: List of open ports on device
+        
+        Returns:
+            Botnet analysis results
+        """
+        results = {
+            "device_ip": device_ip,
+            "timestamp": time.time(),
+            "indicators": [],
+            "matched_botnets": [],
+            "threat_score": 0,
+        }
+        
+        open_ports = open_ports or []
+        
+        # Check for common botnet ports
+        botnet_ports = {23: "Telnet", 2323: "Alt Telnet", 7547: "TR-069",
+                       5555: "ADB", 80: "HTTP", 8080: "Alt HTTP", 8291: "Winbox"}
+        
+        for port in open_ports:
+            if port in botnet_ports:
+                results["indicators"].append({
+                    "type": "suspicious_port",
+                    "port": port,
+                    "service": botnet_ports[port],
+                    "notes": f"Port {port} commonly targeted by IoT botnets",
+                })
+                results["threat_score"] += 10
+        
+        # Check connections against known botnet patterns
+        for botnet_name, botnet_data in IOT_BOTNET_SIGNATURES.items():
+            match_score = 0
+            matched_indicators = []
+            
+            # Check ports
+            known_ports = botnet_data.get("ports", [])
+            for port in open_ports:
+                if port in known_ports:
+                    match_score += 15
+                    matched_indicators.append(f"Port {port}")
+            
+            # Check connection patterns
+            for indicator in botnet_data.get("indicators", []):
+                for conn in connections:
+                    if indicator.lower() in str(conn).lower():
+                        match_score += 20
+                        matched_indicators.append(indicator)
+            
+            if match_score >= 30:
+                results["matched_botnets"].append({
+                    "name": botnet_name,
+                    "threat_level": botnet_data.get("threat_level", "high"),
+                    "notes": botnet_data.get("notes", ""),
+                    "matched_indicators": matched_indicators,
+                    "confidence": min(95, match_score),
+                })
+                results["threat_score"] += match_score
+        
+        # Analyze connection patterns for botnet behavior
+        if connections:
+            # Check for C2 beaconing
+            dest_counts = {}
+            for conn in connections:
+                dest = conn.get("destination", "")
+                dest_counts[dest] = dest_counts.get(dest, 0) + 1
+            
+            # High connection count to single destination suggests C2
+            max_count = max(dest_counts.values()) if dest_counts else 0
+            if max_count > 10:
+                results["indicators"].append({
+                    "type": "beaconing",
+                    "connection_count": max_count,
+                    "notes": "Possible C2 beaconing detected",
+                })
+                results["threat_score"] += 25
+            
+            # Check for scanning behavior
+            unique_dests = len(dest_counts)
+            if unique_dests > 50:
+                results["indicators"].append({
+                    "type": "scanning",
+                    "unique_destinations": unique_dests,
+                    "notes": "Possible network scanning detected",
+                })
+                results["threat_score"] += 30
+        
+        # Determine threat level
+        if results["threat_score"] >= 80:
+            results["threat_level"] = "critical"
+        elif results["threat_score"] >= 50:
+            results["threat_level"] = "high"
+        elif results["threat_score"] >= 25:
+            results["threat_level"] = "medium"
+        else:
+            results["threat_level"] = "low"
+        
+        # Store results
+        self.monitored_devices[device_ip] = results
+        
+        if results["threat_level"] in ["high", "critical"]:
+            self.detections.append(results)
+            if self.alert_callback:
+                self.alert_callback(results)
+        
+        return results
+    
+    def check_botnet_signature(self, indicators: List[str]) -> List[Dict]:
+        """Check indicators against known botnet signatures."""
+        matches = []
+        
+        for botnet_name, botnet_data in IOT_BOTNET_SIGNATURES.items():
+            known_indicators = botnet_data.get("indicators", [])
+            matched = []
+            
+            for ind in indicators:
+                for known in known_indicators:
+                    if known.lower() in ind.lower():
+                        matched.append(known)
+            
+            if matched:
+                matches.append({
+                    "botnet": botnet_name,
+                    "matched_indicators": matched,
+                    "threat_level": botnet_data.get("threat_level", "high"),
+                    "notes": botnet_data.get("notes", ""),
+                })
+        
+        return matches
+    
+    def get_statistics(self) -> Dict:
+        """Get detection statistics."""
+        return {
+            "monitored_devices": len(self.monitored_devices),
+            "detections": len(self.detections),
+            "critical_detections": len([d for d in self.detections if d.get("threat_level") == "critical"]),
+            "unique_botnets_detected": len(set(
+                b["name"] for d in self.detections for b in d.get("matched_botnets", [])
+            )),
+        }
+
+
+class TimestampAnomalyDetector:
+    """
+    Timestamp Anomaly Detection Engine
+    
+    Detects file system timestamp manipulation and anomalies
+    that may indicate rootkit or malware activity.
+    """
+    
+    def __init__(self):
+        self.analyzed_files = []
+        self.anomalies = []
+        self.alert_callback = None
+        logging.info("✅ Timestamp Anomaly Detector initialized")
+    
+    def analyze_file(self, filepath: str, mtime: float, ctime: float,
+                    atime: float = None) -> Dict:
+        """
+        Analyze file timestamps for anomalies.
+        
+        Args:
+            filepath: Path to file
+            mtime: Modification time (Unix timestamp)
+            ctime: Creation time (Unix timestamp)  
+            atime: Access time (Unix timestamp, optional)
+        
+        Returns:
+            Analysis results
+        """
+        results = {
+            "filepath": filepath,
+            "mtime": mtime,
+            "ctime": ctime,
+            "atime": atime,
+            "anomalies": [],
+            "threat_score": 0,
+            "timestamp": time.time(),
+        }
+        
+        now = time.time()
+        
+        # Check for future timestamps
+        if mtime > now + 86400:  # More than 1 day in future
+            results["anomalies"].append({
+                "type": "future_timestamp",
+                "field": "mtime",
+                "value": mtime,
+                "notes": "Modification time is in the future",
+            })
+            results["threat_score"] += 40
+        
+        if ctime > now + 86400:
+            results["anomalies"].append({
+                "type": "future_timestamp",
+                "field": "ctime",
+                "value": ctime,
+                "notes": "Creation time is in the future",
+            })
+            results["threat_score"] += 40
+        
+        # Check for modified < created (impossible normally)
+        if mtime < ctime - 60:  # Allow 60 second tolerance
+            results["anomalies"].append({
+                "type": "impossible_sequence",
+                "notes": "Modified time is before creation time",
+                "mtime": mtime,
+                "ctime": ctime,
+            })
+            results["threat_score"] += 50
+        
+        # Check for epoch timestamps (1970)
+        if mtime < 86400 or ctime < 86400:
+            results["anomalies"].append({
+                "type": "epoch_timestamp",
+                "notes": "Timestamp near Unix epoch (1970)",
+            })
+            results["threat_score"] += 30
+        
+        # Check for very old timestamps (before OS release)
+        if mtime < 1000000000 and mtime > 86400:  # Before ~2001
+            results["anomalies"].append({
+                "type": "ancient_timestamp",
+                "notes": "Timestamp is from before modern OS era",
+            })
+            results["threat_score"] += 20
+        
+        # Check for round timestamps
+        if mtime % 3600 == 0:  # Exactly on the hour
+            results["anomalies"].append({
+                "type": "round_timestamp",
+                "field": "mtime",
+                "notes": "Suspiciously round timestamp",
+            })
+            results["threat_score"] += 15
+        
+        # Determine threat level
+        if results["threat_score"] >= 70:
+            results["threat_level"] = "critical"
+        elif results["threat_score"] >= 40:
+            results["threat_level"] = "high"
+        elif results["threat_score"] >= 20:
+            results["threat_level"] = "medium"
+        else:
+            results["threat_level"] = "low"
+        
+        self.analyzed_files.append(results)
+        
+        if results["anomalies"]:
+            self.anomalies.append(results)
+            if self.alert_callback and results["threat_level"] in ["high", "critical"]:
+                self.alert_callback(results)
+        
+        return results
+    
+    def analyze_bulk_timestamps(self, file_data: List[Dict]) -> Dict:
+        """
+        Analyze multiple files for mass timestamp anomalies.
+        
+        Args:
+            file_data: List of dicts with filepath, mtime, ctime
+        
+        Returns:
+            Bulk analysis results including identical timestamp detection
+        """
+        results = {
+            "total_files": len(file_data),
+            "timestamp": time.time(),
+            "anomalies": [],
+            "identical_timestamp_groups": [],
+            "threat_level": "low",
+        }
+        
+        # Group files by modification time
+        mtime_groups = {}
+        for f in file_data:
+            mt = f.get("mtime", 0)
+            if mt not in mtime_groups:
+                mtime_groups[mt] = []
+            mtime_groups[mt].append(f.get("filepath", ""))
+        
+        # Find groups with identical timestamps
+        threshold = TIMESTAMP_ANOMALY_SIGNATURES.get("mass_identical_timestamps", {}).get("threshold", 100)
+        
+        for mtime, files in mtime_groups.items():
+            if len(files) >= threshold:
+                results["identical_timestamp_groups"].append({
+                    "timestamp": mtime,
+                    "file_count": len(files),
+                    "sample_files": files[:10],  # First 10 as sample
+                })
+                results["anomalies"].append({
+                    "type": "mass_identical_timestamps",
+                    "timestamp_value": mtime,
+                    "affected_files": len(files),
+                    "threat_level": "critical",
+                    "notes": f"{len(files)} files with identical timestamps - possible rootkit",
+                })
+        
+        # Determine overall threat level
+        if results["identical_timestamp_groups"]:
+            results["threat_level"] = "critical"
+        elif len(results["anomalies"]) > 10:
+            results["threat_level"] = "high"
+        
+        return results
+    
+    def get_statistics(self) -> Dict:
+        """Get analysis statistics."""
+        return {
+            "files_analyzed": len(self.analyzed_files),
+            "files_with_anomalies": len(self.anomalies),
+            "critical_anomalies": len([a for a in self.anomalies if a.get("threat_level") == "critical"]),
+        }
+
+
+class ApplePlatformThreatDetector:
+    """
+    Apple Platform Threat Detection Engine
+    
+    Specialized detection for macOS and iOS threats including:
+    - Persistence mechanisms
+    - Known malware families
+    - Jailbreak detection
+    - Commercial spyware indicators
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.alert_callback = None
+        logging.info("✅ Apple Platform Threat Detector initialized")
+    
+    def check_persistence_location(self, path: str) -> Optional[Dict]:
+        """
+        Check if a path is a known persistence location.
+        
+        Args:
+            path: File system path to check
+        
+        Returns:
+            Persistence location details if matched
+        """
+        persistence_data = APPLE_PLATFORM_IOCS.get("macos_persistence_locations", {})
+        
+        for known_path in persistence_data.get("paths", []):
+            if path.startswith(known_path) or known_path in path:
+                return {
+                    "type": "persistence_location",
+                    "matched_path": known_path,
+                    "actual_path": path,
+                    "threat_level": persistence_data.get("threat_level", "high"),
+                    "notes": persistence_data.get("notes", ""),
+                    "timestamp": time.time(),
+                }
+        
+        return None
+    
+    def check_coreaudio_manipulation(self, audio_devices: List[Dict]) -> List[Dict]:
+        """
+        Check for CoreAudio manipulation (surveillance indicator).
+        
+        Args:
+            audio_devices: List of audio device information
+        
+        Returns:
+            List of detected anomalies
+        """
+        detections = []
+        coreaudio_data = APPLE_PLATFORM_IOCS.get("coreaudio_manipulation", {})
+        
+        for device in audio_devices:
+            # Check for virtual/suspicious devices
+            device_name = device.get("name", "").lower()
+            device_uid = device.get("uid", "")
+            
+            suspicious_patterns = [
+                "virtual", "aggregate", "soundflower", "blackhole",
+                "loopback", "ishowu", "screenflick", "obs",
+            ]
+            
+            for pattern in suspicious_patterns:
+                if pattern in device_name:
+                    detection = {
+                        "type": "virtual_audio_device",
+                        "device_name": device.get("name"),
+                        "device_uid": device_uid,
+                        "pattern_matched": pattern,
+                        "threat_level": "high",
+                        "notes": "Virtual audio device detected - potential audio interception",
+                        "timestamp": time.time(),
+                    }
+                    detections.append(detection)
+                    self.detections.append(detection)
+        
+        # Check for unexpected number of devices
+        if len(audio_devices) > 10:
+            detection = {
+                "type": "excessive_audio_devices",
+                "device_count": len(audio_devices),
+                "threat_level": "medium",
+                "notes": "Unusually high number of audio devices",
+                "timestamp": time.time(),
+            }
+            detections.append(detection)
+            self.detections.append(detection)
+        
+        return detections
+    
+    def check_ios_jailbreak(self, paths_to_check: List[str]) -> Dict:
+        """
+        Check for iOS jailbreak indicators.
+        
+        Args:
+            paths_to_check: List of paths to verify
+        
+        Returns:
+            Jailbreak detection results
+        """
+        results = {
+            "is_jailbroken": False,
+            "indicators": [],
+            "confidence": 0,
+            "timestamp": time.time(),
+        }
+        
+        jailbreak_data = APPLE_PLATFORM_IOCS.get("ios_jailbreak_indicators", {})
+        known_paths = jailbreak_data.get("paths", [])
+        
+        for path in paths_to_check:
+            if path in known_paths:
+                results["indicators"].append({
+                    "type": "jailbreak_path",
+                    "path": path,
+                })
+                results["confidence"] += 20
+        
+        if results["confidence"] >= 40:
+            results["is_jailbroken"] = True
+        
+        return results
+    
+    def check_spyware_indicators(self, indicators: List[str]) -> List[Dict]:
+        """
+        Check for commercial/government spyware indicators.
+        
+        Args:
+            indicators: List of observed indicators
+        
+        Returns:
+            List of matched spyware families
+        """
+        matches = []
+        spyware_data = APPLE_PLATFORM_IOCS.get("ios_spyware_indicators", {})
+        
+        known_indicators = spyware_data.get("indicators", [])
+        known_families = spyware_data.get("families", [])
+        
+        matched_indicators = []
+        for ind in indicators:
+            for known in known_indicators:
+                if known.lower() in ind.lower():
+                    matched_indicators.append(known)
+        
+        if matched_indicators:
+            matches.append({
+                "type": "spyware_indicators",
+                "matched_indicators": matched_indicators,
+                "possible_families": known_families,
+                "threat_level": "critical",
+                "notes": "Commercial/government spyware indicators detected",
+                "timestamp": time.time(),
+            })
+        
+        return matches
+    
+    def check_malware_family(self, sample_name: str, hashes: Dict = None) -> Optional[Dict]:
+        """
+        Check if a sample matches known macOS malware families.
+        
+        Args:
+            sample_name: Sample file name or identifier
+            hashes: Optional dictionary of hashes (md5, sha1, sha256)
+        
+        Returns:
+            Malware family details if matched
+        """
+        malware_data = APPLE_PLATFORM_IOCS.get("macos_malware_families", {})
+        known_families = malware_data.get("families", [])
+        
+        for family in known_families:
+            family_lower = family.lower().replace("osx.", "")
+            if family_lower in sample_name.lower():
+                detection = {
+                    "type": "known_malware_family",
+                    "family": family,
+                    "sample_name": sample_name,
+                    "hashes": hashes,
+                    "threat_level": "critical",
+                    "notes": f"Sample matches known macOS malware family: {family}",
+                    "timestamp": time.time(),
+                }
+                self.detections.append(detection)
+                return detection
+        
+        return None
+    
+    def get_statistics(self) -> Dict:
+        """Get detection statistics."""
+        by_type = {}
+        for d in self.detections:
+            t = d.get("type", "unknown")
+            by_type[t] = by_type.get(t, 0) + 1
+        
+        return {
+            "total_detections": len(self.detections),
+            "by_type": by_type,
+            "critical_detections": len([d for d in self.detections if d.get("threat_level") == "critical"]),
+        }
+
+
+# NOTE: UnifiedThreatIntelligenceEngine is defined earlier (line ~35865) with full
+# worker thread, queue-based processing, and multi-engine correlation capabilities.
+# The unified_threat_engine instance is initialized at line ~36178 with all detection
+# engines registered.
+
+
+# ============================================================
+# ADVANCED DETECTION ENGINES - EXTENDED MODULE 2
+# ============================================================
+# Additional comprehensive detection engines for threat coverage
+# ============================================================
+
+
+class FirmwareImplantDetector:
+    """
+    Firmware and Hardware Implant Detection Engine
+    
+    Detects indicators of firmware-level persistence including
+    UEFI rootkits, bootkit infections, and hardware implants.
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.scan_history = []
+        self.alert_callback = None
+        logging.info("✅ Firmware Implant Detector initialized")
+    
+    def check_uefi_indicator(self, indicator: str, context: Dict = None) -> Optional[Dict]:
+        """
+        Check if an indicator matches known UEFI/firmware implant patterns.
+        
+        Args:
+            indicator: File path, hash, or behavior indicator
+            context: Additional context about the indicator
+        
+        Returns:
+            Detection result if matched
+        """
+        import re
+        
+        for implant_name, implant_data in FIRMWARE_IMPLANT_IOCS.items():
+            for known_indicator in implant_data.get("indicators", []):
+                if known_indicator.lower() in indicator.lower():
+                    detection = {
+                        "implant_type": implant_name,
+                        "implant_name": implant_data.get("name"),
+                        "threat_level": implant_data.get("threat_level", "critical"),
+                        "attribution": implant_data.get("attribution", "Unknown"),
+                        "persistence": implant_data.get("persistence", "Unknown"),
+                        "matched_indicator": known_indicator,
+                        "observed_indicator": indicator,
+                        "mitre_technique": implant_data.get("mitre_technique", ""),
+                        "notes": implant_data.get("notes", ""),
+                        "timestamp": time.time(),
+                        "context": context,
+                    }
+                    
+                    self.detections.append(detection)
+                    
+                    if self.alert_callback:
+                        self.alert_callback(detection)
+                    
+                    return detection
+        
+        return None
+    
+    def scan_boot_components(self, paths: List[str]) -> List[Dict]:
+        """
+        Scan boot components for known implant indicators.
+        
+        Args:
+            paths: List of paths to scan
+        
+        Returns:
+            List of detections
+        """
+        results = []
+        
+        suspicious_patterns = [
+            r".*\.efi$",
+            r".*BOOTX64\.efi$",
+            r".*bootmgfw\.efi$",
+            r".*grubx64\.efi$",
+        ]
+        
+        for path in paths:
+            for pattern in suspicious_patterns:
+                import re
+                if re.match(pattern, path, re.IGNORECASE):
+                    result = self.check_uefi_indicator(path)
+                    if result:
+                        results.append(result)
+        
+        return results
+    
+    def analyze_spi_flash(self, flash_dump: bytes) -> Dict:
+        """
+        Analyze SPI flash dump for implant indicators.
+        
+        Args:
+            flash_dump: Raw SPI flash contents
+        
+        Returns:
+            Analysis results
+        """
+        analysis = {
+            "timestamp": time.time(),
+            "size": len(flash_dump),
+            "suspicious_regions": [],
+            "implant_indicators": [],
+            "recommendation": "none",
+        }
+        
+        # Look for known implant signatures in flash
+        implant_signatures = [
+            b"CORE_DXE",
+            b"SecDxe",
+            b"SmmAccess",
+            b"SmmControl",
+        ]
+        
+        for sig in implant_signatures:
+            offset = flash_dump.find(sig)
+            if offset != -1:
+                analysis["suspicious_regions"].append({
+                    "signature": sig.decode('utf-8', errors='ignore'),
+                    "offset": offset,
+                    "context": flash_dump[max(0, offset-16):offset+len(sig)+16],
+                })
+        
+        if analysis["suspicious_regions"]:
+            analysis["recommendation"] = "deep_analysis_required"
+        
+        return analysis
+    
+    def get_detections(self) -> List[Dict]:
+        """Get all recorded detections."""
+        return self.detections
+    
+    def generate_report(self) -> Dict:
+        """Generate firmware security report."""
+        return {
+            "report_timestamp": time.time(),
+            "total_detections": len(self.detections),
+            "critical_detections": len([d for d in self.detections if d.get("threat_level") == "critical"]),
+            "detections": self.detections,
+            "scan_history": self.scan_history,
+        }
+
+# NOTE: SupplyChainThreatDetector is defined earlier (line ~35715) with the run() method
+# for unified engine compatibility. That version includes firmware tampering, hardware
+# implant indicators, update channel compromise, and counterfeit component detection.
+
+
+class CryptoThreatDetector:
+    """
+    Cryptocurrency Threat Detection Engine
+    
+    Detects cryptojacking, wallet theft attempts, and
+    blockchain-related attack patterns.
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.mining_connections = []
+        self.clipboard_monitor = False
+        self.alert_callback = None
+        logging.info("✅ Crypto Threat Detector initialized")
+    
+    def check_mining_connection(self, host: str, port: int) -> Optional[Dict]:
+        """
+        Check if a connection matches known mining pool patterns.
+        
+        Args:
+            host: Destination hostname
+            port: Destination port
+        
+        Returns:
+            Detection result if matched
+        """
+        import re
+        
+        # Check XMRig pool patterns
+        xmrig_data = CRYPTO_THREAT_IOCS.get("xmrig_miner", {})
+        for pattern in xmrig_data.get("pool_patterns", []):
+            if re.match(pattern, host, re.IGNORECASE):
+                detection = {
+                    "threat_type": "cryptomining",
+                    "miner_family": "XMRig",
+                    "threat_level": "medium",
+                    "pool_host": host,
+                    "pool_port": port,
+                    "mitre_technique": "T1496",
+                    "timestamp": time.time(),
+                }
+                
+                self.detections.append(detection)
+                self.mining_connections.append(detection)
+                
+                if self.alert_callback:
+                    self.alert_callback(detection)
+                
+                return detection
+        
+        # Check common mining ports
+        mining_ports = [3333, 3334, 45560, 45700, 8080, 9999]
+        if port in mining_ports:
+            detection = {
+                "threat_type": "potential_cryptomining",
+                "threat_level": "low",
+                "pool_host": host,
+                "pool_port": port,
+                "notes": "Connection to common mining port",
+                "timestamp": time.time(),
+            }
+            
+            self.mining_connections.append(detection)
+            return detection
+        
+        return None
+    
+    def check_clipboard_for_crypto_address(self, clipboard_content: str) -> Optional[Dict]:
+        """
+        Check if clipboard contains cryptocurrency addresses.
+        
+        Args:
+            clipboard_content: Current clipboard content
+        
+        Returns:
+            Detection result if crypto address found
+        """
+        import re
+        
+        clipper_data = CRYPTO_THREAT_IOCS.get("clipper_malware", {})
+        
+        for pattern in clipper_data.get("address_patterns", []):
+            if re.match(pattern, clipboard_content):
+                return {
+                    "threat_type": "crypto_address_detected",
+                    "address": clipboard_content,
+                    "threat_level": "info",
+                    "notes": "Cryptocurrency address in clipboard - monitor for replacement",
+                    "timestamp": time.time(),
+                }
+        
+        return None
+    
+    def check_wallet_targeting(self, process_name: str, accessed_paths: List[str] = None) -> Optional[Dict]:
+        """
+        Check for wallet-targeting behavior.
+        
+        Args:
+            process_name: Name of the process
+            accessed_paths: File paths accessed by the process
+        
+        Returns:
+            Detection result if wallet targeting detected
+        """
+        wallet_patterns = [
+            r".*metamask.*",
+            r".*exodus.*",
+            r".*coinbase.*",
+            r".*phantom.*",
+            r".*ledger.*",
+            r".*trezor.*",
+            r".*electrum.*",
+            r".*walletconnect.*",
+        ]
+        
+        import re
+        
+        for pattern in wallet_patterns:
+            for path in (accessed_paths or []):
+                if re.match(pattern, path, re.IGNORECASE):
+                    detection = {
+                        "threat_type": "wallet_targeting",
+                        "threat_level": "high",
+                        "process": process_name,
+                        "targeted_path": path,
+                        "notes": "Process accessing cryptocurrency wallet data",
+                        "timestamp": time.time(),
+                    }
+                    
+                    self.detections.append(detection)
+                    return detection
+        
+        return None
+    
+    def get_detections(self) -> List[Dict]:
+        """Get all recorded detections."""
+        return self.detections
+
+
+class RansomwareDetector:
+    """
+    Ransomware Detection Engine
+    
+    Detects ransomware behavior patterns, file extension changes,
+    and known ransomware family indicators.
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.file_changes = []
+        self.encryption_activity = []
+        self.alert_callback = None
+        logging.info("✅ Ransomware Detector initialized")
+    
+    def check_ransomware_extension(self, file_path: str) -> Optional[Dict]:
+        """
+        Check if a file extension matches known ransomware patterns.
+        
+        Args:
+            file_path: Path to the file
+        
+        Returns:
+            Detection result if matched
+        """
+        import os
+        
+        ext = os.path.splitext(file_path)[1].lower()
+        
+        for family_name, family_data in RANSOMWARE_IOCS.items():
+            for indicator in family_data.get("indicators", []):
+                if indicator.startswith(".") and indicator.lower() == ext:
+                    detection = {
+                        "ransomware_family": family_data.get("name"),
+                        "threat_level": "critical",
+                        "file_path": file_path,
+                        "extension": ext,
+                        "encryption": family_data.get("encryption", "Unknown"),
+                        "data_exfiltration": family_data.get("data_exfiltration", False),
+                        "mitre_technique": family_data.get("mitre_technique", ""),
+                        "timestamp": time.time(),
+                    }
+                    
+                    self.detections.append(detection)
+                    
+                    if self.alert_callback:
+                        self.alert_callback(detection)
+                    
+                    return detection
+        
+        return None
+    
+    def check_ransom_note(self, file_content: str, file_path: str) -> Optional[Dict]:
+        """
+        Check if file content matches known ransom note patterns.
+        
+        Args:
+            file_content: Content of the file
+            file_path: Path to the file
+        
+        Returns:
+            Detection result if matched
+        """
+        ransom_keywords = [
+            "your files have been encrypted",
+            "bitcoin",
+            "pay the ransom",
+            "decryption key",
+            "tor browser",
+            ".onion",
+            "do not try to decrypt",
+            "files will be deleted",
+        ]
+        
+        content_lower = file_content.lower()
+        matched_keywords = [kw for kw in ransom_keywords if kw in content_lower]
+        
+        if len(matched_keywords) >= 3:
+            detection = {
+                "threat_type": "ransom_note",
+                "threat_level": "critical",
+                "file_path": file_path,
+                "matched_keywords": matched_keywords,
+                "timestamp": time.time(),
+            }
+            
+            self.detections.append(detection)
+            
+            if self.alert_callback:
+                self.alert_callback(detection)
+            
+            return detection
+        
+        return None
+    
+    def detect_bulk_encryption(self, file_operations: List[Dict]) -> Optional[Dict]:
+        """
+        Detect bulk file encryption behavior.
+        
+        Args:
+            file_operations: List of file operations with timestamps
+        
+        Returns:
+            Detection result if bulk encryption detected
+        """
+        if len(file_operations) < 10:
+            return None
+        
+        # Check for rapid file modifications
+        timestamps = sorted([op.get("timestamp", 0) for op in file_operations])
+        
+        if len(timestamps) >= 10:
+            time_span = timestamps[-1] - timestamps[0]
+            ops_per_second = len(timestamps) / max(time_span, 1)
+            
+            if ops_per_second > 5:  # More than 5 file ops per second
+                detection = {
+                    "threat_type": "bulk_encryption_activity",
+                    "threat_level": "critical",
+                    "files_affected": len(file_operations),
+                    "operations_per_second": ops_per_second,
+                    "time_span_seconds": time_span,
+                    "notes": "Rapid bulk file modification detected - possible ransomware",
+                    "timestamp": time.time(),
+                }
+                
+                self.detections.append(detection)
+                self.encryption_activity.append(detection)
+                
+                if self.alert_callback:
+                    self.alert_callback(detection)
+                
+                return detection
+        
+        return None
+    
+    def get_detections(self) -> List[Dict]:
+        """Get all recorded detections."""
+        return self.detections
+
+
+class ICSProtocolAnalyzer:
+    """
+    Industrial Control System Protocol Analyzer
+    
+    Monitors and analyzes ICS/SCADA protocols for
+    malicious commands and anomalies.
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.protocol_sessions = {}
+        self.command_history = []
+        self.alert_callback = None
+        logging.info("✅ ICS Protocol Analyzer initialized")
+    
+    def analyze_modbus_frame(self, frame_data: bytes, src_ip: str, dst_ip: str) -> Optional[Dict]:
+        """
+        Analyze Modbus TCP/RTU frame for malicious patterns.
+        
+        Args:
+            frame_data: Raw Modbus frame
+            src_ip: Source IP address
+            dst_ip: Destination IP address
+        
+        Returns:
+            Detection result if suspicious
+        """
+        if len(frame_data) < 8:
+            return None
+        
+        # Parse Modbus header
+        unit_id = frame_data[0] if len(frame_data) > 0 else 0
+        function_code = frame_data[1] if len(frame_data) > 1 else 0
+        
+        # Check for suspicious function codes
+        modbus_data = ICS_THREAT_IOCS.get("modbus_anomalies", {})
+        suspicious_codes = modbus_data.get("suspicious_function_codes", [])
+        
+        if function_code in suspicious_codes:
+            detection = {
+                "protocol": "Modbus",
+                "threat_type": "suspicious_function_code",
+                "threat_level": "high",
+                "function_code": function_code,
+                "unit_id": unit_id,
+                "src_ip": src_ip,
+                "dst_ip": dst_ip,
+                "notes": f"Modbus write function code {function_code} detected",
+                "timestamp": time.time(),
+            }
+            
+            self.detections.append(detection)
+            self.command_history.append(detection)
+            
+            if self.alert_callback:
+                self.alert_callback(detection)
+            
+            return detection
+        
+        return None
+    
+    def analyze_dnp3_frame(self, frame_data: bytes, src_ip: str, dst_ip: str) -> Optional[Dict]:
+        """
+        Analyze DNP3 frame for malicious patterns.
+        
+        Args:
+            frame_data: Raw DNP3 frame
+            src_ip: Source IP address
+            dst_ip: Destination IP address
+        
+        Returns:
+            Detection result if suspicious
+        """
+        if len(frame_data) < 10:
+            return None
+        
+        # DNP3 header check (0x05 0x64)
+        if frame_data[0:2] != b'\x05\x64':
+            return None
+        
+        # Check for control commands
+        dangerous_commands = [
+            0x03,  # Direct Operate
+            0x04,  # Direct Operate No Ack
+            0x05,  # Select
+            0x81,  # Response with data
+        ]
+        
+        function_code = frame_data[12] if len(frame_data) > 12 else 0
+        
+        if function_code in dangerous_commands:
+            detection = {
+                "protocol": "DNP3",
+                "threat_type": "control_command",
+                "threat_level": "high",
+                "function_code": function_code,
+                "src_ip": src_ip,
+                "dst_ip": dst_ip,
+                "notes": f"DNP3 control command detected",
+                "timestamp": time.time(),
+            }
+            
+            self.detections.append(detection)
+            
+            if self.alert_callback:
+                self.alert_callback(detection)
+            
+            return detection
+        
+        return None
+    
+    def check_ics_malware_indicator(self, indicator: str) -> Optional[Dict]:
+        """
+        Check indicator against known ICS malware.
+        
+        Args:
+            indicator: File hash, domain, or behavior indicator
+        
+        Returns:
+            Detection result if matched
+        """
+        for malware_name, malware_data in ICS_THREAT_IOCS.items():
+            for known_indicator in malware_data.get("indicators", []):
+                if known_indicator.lower() in indicator.lower():
+                    detection = {
+                        "malware_family": malware_data.get("name"),
+                        "threat_level": malware_data.get("threat_level", "critical"),
+                        "attribution": malware_data.get("attribution", "Unknown"),
+                        "matched_indicator": known_indicator,
+                        "protocols": malware_data.get("protocols", []),
+                        "mitre_technique": malware_data.get("mitre_technique", ""),
+                        "notes": malware_data.get("notes", ""),
+                        "timestamp": time.time(),
+                    }
+                    
+                    self.detections.append(detection)
+                    
+                    if self.alert_callback:
+                        self.alert_callback(detection)
+                    
+                    return detection
+        
+        return None
+    
+    def get_detections(self) -> List[Dict]:
+        """Get all recorded detections."""
+        return self.detections
+
+
+class MobileThreatDetector:
+    """
+    Mobile Threat Detection Engine
+    
+    Detects mobile malware, spyware, and suspicious
+    mobile application behavior.
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.monitored_apps = {}
+        self.suspicious_permissions = []
+        self.alert_callback = None
+        logging.info("✅ Mobile Threat Detector initialized")
+    
+    def check_spyware_indicator(self, indicator: str, platform: str = "both") -> Optional[Dict]:
+        """
+        Check indicator against known mobile spyware.
+        
+        Args:
+            indicator: File path, domain, or behavior indicator
+            platform: "ios", "android", or "both"
+        
+        Returns:
+            Detection result if matched
+        """
+        for spyware_name, spyware_data in MOBILE_THREAT_IOCS.items():
+            # Check platform match
+            platforms = spyware_data.get("platform", ["iOS", "Android"])
+            if platform != "both" and platform.lower() not in [p.lower() for p in platforms]:
+                continue
+            
+            for known_indicator in spyware_data.get("indicators", []):
+                if known_indicator.lower() in indicator.lower():
+                    detection = {
+                        "spyware_family": spyware_data.get("name"),
+                        "threat_level": spyware_data.get("threat_level", "critical"),
+                        "platforms": platforms,
+                        "matched_indicator": known_indicator,
+                        "observed_indicator": indicator,
+                        "mitre_technique": spyware_data.get("mitre_technique", ""),
+                        "notes": spyware_data.get("notes", ""),
+                        "timestamp": time.time(),
+                    }
+                    
+                    self.detections.append(detection)
+                    
+                    if self.alert_callback:
+                        self.alert_callback(detection)
+                    
+                    return detection
+        
+        return None
+    
+    def analyze_app_permissions(self, app_name: str, permissions: List[str]) -> Dict:
+        """
+        Analyze Android app permissions for suspicious patterns.
+        
+        Args:
+            app_name: Application name
+            permissions: List of requested permissions
+        
+        Returns:
+            Risk analysis result
+        """
+        high_risk_permissions = [
+            "android.permission.READ_SMS",
+            "android.permission.RECEIVE_SMS",
+            "android.permission.RECORD_AUDIO",
+            "android.permission.CAMERA",
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.READ_CONTACTS",
+            "android.permission.CALL_PHONE",
+            "android.permission.READ_CALL_LOG",
+            "android.permission.BIND_ACCESSIBILITY_SERVICE",
+            "android.permission.SYSTEM_ALERT_WINDOW",
+        ]
+        
+        risky = [p for p in permissions if p in high_risk_permissions]
+        
+        risk_level = "low"
+        if len(risky) >= 5:
+            risk_level = "high"
+        elif len(risky) >= 3:
+            risk_level = "medium"
+        
+        analysis = {
+            "app_name": app_name,
+            "total_permissions": len(permissions),
+            "high_risk_permissions": risky,
+            "risk_level": risk_level,
+            "timestamp": time.time(),
+        }
+        
+        if risk_level in ["high", "medium"]:
+            self.suspicious_permissions.append(analysis)
+        
+        return analysis
+    
+    def check_ios_jailbreak_indicator(self, file_path: str) -> Optional[Dict]:
+        """
+        Check for iOS jailbreak indicators.
+        
+        Args:
+            file_path: File path to check
+        
+        Returns:
+            Detection result if jailbreak indicator found
+        """
+        ios_jailbreak = APPLE_PLATFORM_IOCS.get("ios_jailbreak_indicators", {})
+        
+        for jb_path in ios_jailbreak.get("paths", []):
+            if file_path.startswith(jb_path) or jb_path in file_path:
+                detection = {
+                    "threat_type": "jailbreak_indicator",
+                    "threat_level": "high",
+                    "file_path": file_path,
+                    "jailbreak_path": jb_path,
+                    "notes": "iOS jailbreak indicator detected - increased attack surface",
+                    "timestamp": time.time(),
+                }
+                
+                self.detections.append(detection)
+                
+                if self.alert_callback:
+                    self.alert_callback(detection)
+                
+                return detection
+        
+        return None
+    
+    def get_detections(self) -> List[Dict]:
+        """Get all recorded detections."""
+        return self.detections
+
+
+class CloudThreatDetector:
+    """
+    Cloud Infrastructure Threat Detection Engine
+    
+    Detects cloud service abuse, misconfigurations,
+    and cloud-specific attack patterns.
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.monitored_services = {}
+        self.credential_alerts = []
+        self.alert_callback = None
+        logging.info("✅ Cloud Threat Detector initialized")
+    
+    def check_cloud_attack_indicator(self, indicator: str, service: str = "generic") -> Optional[Dict]:
+        """
+        Check indicator against known cloud attack patterns.
+        
+        Args:
+            indicator: IP, domain, API call, or behavior indicator
+            service: Cloud service name (aws, azure, gcp, kubernetes)
+        
+        Returns:
+            Detection result if matched
+        """
+        for attack_name, attack_data in CLOUD_THREAT_IOCS.items():
+            for known_indicator in attack_data.get("indicators", []):
+                if known_indicator.lower() in indicator.lower():
+                    detection = {
+                        "attack_type": attack_name,
+                        "threat_level": attack_data.get("threat_level", "high"),
+                        "cloud_service": service,
+                        "matched_indicator": known_indicator,
+                        "observed_indicator": indicator,
+                        "mitre_technique": attack_data.get("mitre_technique", ""),
+                        "notes": attack_data.get("notes", ""),
+                        "timestamp": time.time(),
+                    }
+                    
+                    self.detections.append(detection)
+                    
+                    if self.alert_callback:
+                        self.alert_callback(detection)
+                    
+                    return detection
+        
+        return None
+    
+    def detect_imds_access(self, request_url: str, source_ip: str) -> Optional[Dict]:
+        """
+        Detect potential IMDS (Instance Metadata Service) exploitation.
+        
+        Args:
+            request_url: URL being requested
+            source_ip: Source IP of the request
+        
+        Returns:
+            Detection result if IMDS access detected
+        """
+        imds_patterns = [
+            "169.254.169.254",
+            "metadata.google.internal",
+            "metadata.azure.internal",
+        ]
+        
+        for pattern in imds_patterns:
+            if pattern in request_url:
+                detection = {
+                    "threat_type": "imds_access",
+                    "threat_level": "critical",
+                    "request_url": request_url,
+                    "source_ip": source_ip,
+                    "notes": "Instance metadata service access detected - potential credential theft",
+                    "mitre_technique": "T1552.005",
+                    "timestamp": time.time(),
+                }
+                
+                self.detections.append(detection)
+                self.credential_alerts.append(detection)
+                
+                if self.alert_callback:
+                    self.alert_callback(detection)
+                
+                return detection
+        
+        return None
+    
+    def analyze_kubernetes_event(self, event: Dict) -> Optional[Dict]:
+        """
+        Analyze Kubernetes audit event for suspicious activity.
+        
+        Args:
+            event: Kubernetes audit event
+        
+        Returns:
+            Detection result if suspicious
+        """
+        suspicious_verbs = ["delete", "create", "patch"]
+        sensitive_resources = ["secrets", "configmaps", "serviceaccounts", "rolebindings", "clusterrolebindings"]
+        
+        verb = event.get("verb", "").lower()
+        resource = event.get("objectRef", {}).get("resource", "").lower()
+        
+        if verb in suspicious_verbs and resource in sensitive_resources:
+            detection = {
+                "threat_type": "kubernetes_sensitive_operation",
+                "threat_level": "high",
+                "verb": verb,
+                "resource": resource,
+                "user": event.get("user", {}).get("username", "unknown"),
+                "notes": f"Sensitive Kubernetes operation: {verb} on {resource}",
+                "timestamp": time.time(),
+            }
+            
+            self.detections.append(detection)
+            
+            if self.alert_callback:
+                self.alert_callback(detection)
+            
+            return detection
+        
+        return None
+    
+    def detect_container_escape_attempt(self, indicators: List[str]) -> Optional[Dict]:
+        """
+        Detect container escape attempt indicators.
+        
+        Args:
+            indicators: List of observed indicators
+        
+        Returns:
+            Detection result if container escape detected
+        """
+        escape_indicators = CLOUD_THREAT_IOCS.get("container_escape", {}).get("indicators", [])
+        
+        matched = [ind for ind in indicators if any(ei.lower() in ind.lower() for ei in escape_indicators)]
+        
+        if len(matched) >= 2:
+            detection = {
+                "threat_type": "container_escape_attempt",
+                "threat_level": "critical",
+                "matched_indicators": matched,
+                "mitre_technique": "T1611",
+                "notes": "Potential container escape attempt detected",
+                "timestamp": time.time(),
+            }
+            
+            self.detections.append(detection)
+            
+            if self.alert_callback:
+                self.alert_callback(detection)
+            
+            return detection
+        
+        return None
+    
+    def get_detections(self) -> List[Dict]:
+        """Get all recorded detections."""
+        return self.detections
+
+
+class NetworkAttackDetector:
+    """
+    Network Attack Detection Engine
+    
+    Detects lateral movement, Kerberos attacks,
+    Active Directory compromise, and network reconnaissance.
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.lateral_movement_alerts = []
+        self.kerberos_alerts = []
+        self.alert_callback = None
+        logging.info("✅ Network Attack Detector initialized")
+    
+    def check_lateral_movement(self, src_ip: str, dst_ip: str, protocol: str, indicators: List[str] = None) -> Optional[Dict]:
+        """
+        Check for lateral movement indicators.
+        
+        Args:
+            src_ip: Source IP address
+            dst_ip: Destination IP address
+            protocol: Protocol used
+            indicators: Additional observed indicators
+        
+        Returns:
+            Detection result if lateral movement detected
+        """
+        lateral_attacks = ["psexec_activity", "wmi_lateral", "dcom_lateral", "rdp_tunneling"]
+        
+        for attack_name in lateral_attacks:
+            attack_data = NETWORK_ATTACK_IOCS.get(attack_name, {})
+            
+            if indicators:
+                known_indicators = attack_data.get("indicators", [])
+                matched = [ind for ind in indicators if any(ki.lower() in ind.lower() for ki in known_indicators)]
+                
+                if matched:
+                    detection = {
+                        "attack_type": attack_name,
+                        "attack_name": attack_data.get("name"),
+                        "threat_level": attack_data.get("threat_level", "high"),
+                        "src_ip": src_ip,
+                        "dst_ip": dst_ip,
+                        "protocol": protocol,
+                        "matched_indicators": matched,
+                        "mitre_technique": attack_data.get("mitre_technique", ""),
+                        "timestamp": time.time(),
+                    }
+                    
+                    self.detections.append(detection)
+                    self.lateral_movement_alerts.append(detection)
+                    
+                    if self.alert_callback:
+                        self.alert_callback(detection)
+                    
+                    return detection
+        
+        return None
+    
+    def detect_kerberos_attack(self, kerberos_event: Dict) -> Optional[Dict]:
+        """
+        Detect Kerberos-based attacks.
+        
+        Args:
+            kerberos_event: Kerberos authentication event
+        
+        Returns:
+            Detection result if attack detected
+        """
+        kerberos_attacks = ["kerberoasting", "asreproasting", "golden_ticket", "silver_ticket"]
+        
+        event_type = kerberos_event.get("event_type", "").lower()
+        encryption = kerberos_event.get("encryption_type", "").lower()
+        
+        for attack_name in kerberos_attacks:
+            attack_data = NETWORK_ATTACK_IOCS.get(attack_name, {})
+            attack_indicators = attack_data.get("indicators", [])
+            
+            # Check for RC4/DES downgrade attacks
+            if "rc4" in encryption or "des" in encryption:
+                if any("rc4" in ind.lower() or "des" in ind.lower() for ind in attack_indicators):
+                    detection = {
+                        "attack_type": attack_name,
+                        "attack_name": attack_data.get("name"),
+                        "threat_level": "critical",
+                        "encryption_type": encryption,
+                        "mitre_technique": attack_data.get("mitre_technique", ""),
+                        "notes": attack_data.get("notes", ""),
+                        "timestamp": time.time(),
+                    }
+                    
+                    self.detections.append(detection)
+                    self.kerberos_alerts.append(detection)
+                    
+                    if self.alert_callback:
+                        self.alert_callback(detection)
+                    
+                    return detection
+        
+        return None
+    
+    def detect_dcsync(self, replication_event: Dict) -> Optional[Dict]:
+        """
+        Detect DCSync attack attempts.
+        
+        Args:
+            replication_event: Directory replication event
+        
+        Returns:
+            Detection result if DCSync detected
+        """
+        dcsync_data = NETWORK_ATTACK_IOCS.get("dcsync_attack", {})
+        
+        source = replication_event.get("source_account", "")
+        is_dc = replication_event.get("source_is_dc", False)
+        
+        # Non-DC attempting replication is suspicious
+        if not is_dc and "DS-Replication" in replication_event.get("operation", ""):
+            detection = {
+                "attack_type": "dcsync",
+                "threat_level": "critical",
+                "source_account": source,
+                "operation": replication_event.get("operation"),
+                "mitre_technique": "T1003.006",
+                "notes": "Non-DC attempting directory replication - possible DCSync attack",
+                "timestamp": time.time(),
+            }
+            
+            self.detections.append(detection)
+            
+            if self.alert_callback:
+                self.alert_callback(detection)
+            
+            return detection
+        
+        return None
+    
+    def detect_password_spraying(self, auth_events: List[Dict]) -> Optional[Dict]:
+        """
+        Detect password spraying attacks.
+        
+        Args:
+            auth_events: List of authentication events
+        
+        Returns:
+            Detection result if password spraying detected
+        """
+        if len(auth_events) < 10:
+            return None
+        
+        # Group by source IP and password hash
+        from collections import defaultdict
+        
+        failed_by_source = defaultdict(list)
+        
+        for event in auth_events:
+            if event.get("result") == "failure":
+                src = event.get("source_ip", "unknown")
+                user = event.get("username", "unknown")
+                failed_by_source[src].append(user)
+        
+        # Check for single source hitting many users
+        for src, users in failed_by_source.items():
+            unique_users = len(set(users))
+            if unique_users >= 5:
+                detection = {
+                    "attack_type": "password_spraying",
+                    "threat_level": "high",
+                    "source_ip": src,
+                    "targeted_users": unique_users,
+                    "mitre_technique": "T1110.003",
+                    "notes": f"Single source failed authentication against {unique_users} unique accounts",
+                    "timestamp": time.time(),
+                }
+                
+                self.detections.append(detection)
+                
+                if self.alert_callback:
+                    self.alert_callback(detection)
+                
+                return detection
+        
+        return None
+    
+    def get_detections(self) -> List[Dict]:
+        """Get all recorded detections."""
+        return self.detections
+
+
+class DataExfiltrationDetector:
+    """
+    Data Exfiltration Detection Engine
+    
+    Detects data theft attempts via various channels
+    including DNS tunneling, cloud uploads, and steganography.
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.dns_query_history = []
+        self.upload_history = []
+        self.alert_callback = None
+        logging.info("✅ Data Exfiltration Detector initialized")
+    
+    def analyze_dns_query(self, query: str, query_type: str = "A") -> Optional[Dict]:
+        """
+        Analyze DNS query for data exfiltration patterns.
+        
+        Args:
+            query: DNS query string
+            query_type: DNS query type
+        
+        Returns:
+            Detection result if exfiltration detected
+        """
+        import re
+        
+        dns_exfil = DATA_EXFIL_IOCS.get("dns_exfiltration", {})
+        
+        # Check query length
+        if len(query) > 52:
+            # Check for encoded data patterns
+            for pattern in dns_exfil.get("detection_patterns", []):
+                if re.match(pattern, query):
+                    detection = {
+                        "threat_type": "dns_exfiltration",
+                        "threat_level": "critical",
+                        "query": query,
+                        "query_type": query_type,
+                        "query_length": len(query),
+                        "mitre_technique": "T1048.003",
+                        "notes": "Long DNS query with encoded data pattern",
+                        "timestamp": time.time(),
+                    }
+                    
+                    self.detections.append(detection)
+                    self.dns_query_history.append(detection)
+                    
+                    if self.alert_callback:
+                        self.alert_callback(detection)
+                    
+                    return detection
+        
+        return None
+    
+    def detect_cloud_exfiltration(self, upload_event: Dict) -> Optional[Dict]:
+        """
+        Detect data exfiltration to cloud services.
+        
+        Args:
+            upload_event: Cloud upload event details
+        
+        Returns:
+            Detection result if exfiltration detected
+        """
+        cloud_exfil = DATA_EXFIL_IOCS.get("cloud_storage_exfil", {})
+        
+        destination = upload_event.get("destination", "")
+        size_bytes = upload_event.get("size", 0)
+        
+        for service in cloud_exfil.get("services", []):
+            if service in destination:
+                # Large uploads to cloud services are suspicious
+                if size_bytes > 10 * 1024 * 1024:  # > 10 MB
+                    detection = {
+                        "threat_type": "cloud_exfiltration",
+                        "threat_level": "high",
+                        "destination": destination,
+                        "service": service,
+                        "size_bytes": size_bytes,
+                        "mitre_technique": "T1567.002",
+                        "notes": "Large file upload to cloud storage",
+                        "timestamp": time.time(),
+                    }
+                    
+                    self.detections.append(detection)
+                    self.upload_history.append(detection)
+                    
+                    if self.alert_callback:
+                        self.alert_callback(detection)
+                    
+                    return detection
+        
+        return None
+    
+    def detect_icmp_tunnel(self, icmp_packets: List[Dict]) -> Optional[Dict]:
+        """
+        Detect ICMP tunneling for data exfiltration.
+        
+        Args:
+            icmp_packets: List of ICMP packet details
+        
+        Returns:
+            Detection result if tunneling detected
+        """
+        if len(icmp_packets) < 5:
+            return None
+        
+        # Check for large ICMP payloads
+        large_payloads = [p for p in icmp_packets if p.get("payload_size", 0) > 64]
+        
+        if len(large_payloads) >= 3:
+            detection = {
+                "threat_type": "icmp_tunnel",
+                "threat_level": "critical",
+                "packets_analyzed": len(icmp_packets),
+                "large_payload_count": len(large_payloads),
+                "mitre_technique": "T1095",
+                "notes": "Unusual ICMP traffic with large payloads - possible data tunnel",
+                "timestamp": time.time(),
+            }
+            
+            self.detections.append(detection)
+            
+            if self.alert_callback:
+                self.alert_callback(detection)
+            
+            return detection
+        
+        return None
+    
+    def analyze_scheduled_transfer(self, transfer_events: List[Dict]) -> Optional[Dict]:
+        """
+        Detect scheduled/periodic data transfers.
+        
+        Args:
+            transfer_events: List of data transfer events
+        
+        Returns:
+            Detection result if scheduled exfiltration detected
+        """
+        if len(transfer_events) < 5:
+            return None
+        
+        import numpy as np
+        
+        timestamps = sorted([e.get("timestamp", 0) for e in transfer_events])
+        intervals = np.diff(timestamps)
+        
+        if len(intervals) >= 4:
+            std = np.std(intervals)
+            mean = np.mean(intervals)
+            
+            # Low variance indicates scheduled transfers
+            if std / max(mean, 1) < 0.2:  # Coefficient of variation < 20%
+                detection = {
+                    "threat_type": "scheduled_exfiltration",
+                    "threat_level": "high",
+                    "transfer_count": len(transfer_events),
+                    "mean_interval_seconds": mean,
+                    "interval_consistency": 1 - (std / max(mean, 1)),
+                    "mitre_technique": "T1029",
+                    "notes": "Regular scheduled data transfers detected",
+                    "timestamp": time.time(),
+                }
+                
+                self.detections.append(detection)
+                
+                if self.alert_callback:
+                    self.alert_callback(detection)
+                
+                return detection
+        
+        return None
+    
+    def get_detections(self) -> List[Dict]:
+        """Get all recorded detections."""
+        return self.detections
+
+
+class WiFiAttackDetector:
+    """
+    WiFi Attack Detection Engine
+    
+    Detects wireless network attacks including evil twin,
+    deauth floods, KRACK, and rogue AP attacks.
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.known_networks = {}
+        self.probe_requests = []
+        self.deauth_counter = {}
+        self.alert_callback = None
+        logging.info("✅ WiFi Attack Detector initialized")
+    
+    def register_known_network(self, ssid: str, bssid: str, security: str = "WPA2"):
+        """
+        Register a known legitimate network.
+        
+        Args:
+            ssid: Network SSID
+            bssid: Access point MAC address
+            security: Security protocol
+        """
+        if ssid not in self.known_networks:
+            self.known_networks[ssid] = []
+        
+        self.known_networks[ssid].append({
+            "bssid": bssid.upper(),
+            "security": security,
+            "first_seen": time.time(),
+        })
+    
+    def detect_evil_twin(self, beacon: Dict) -> Optional[Dict]:
+        """
+        Detect evil twin / rogue AP attack.
+        
+        Args:
+            beacon: Beacon frame information
+        
+        Returns:
+            Detection result if evil twin detected
+        """
+        ssid = beacon.get("ssid", "")
+        bssid = beacon.get("bssid", "").upper()
+        rssi = beacon.get("rssi", -100)
+        
+        if ssid in self.known_networks:
+            known_bssids = [n["bssid"] for n in self.known_networks[ssid]]
+            
+            if bssid not in known_bssids:
+                detection = {
+                    "attack_type": "evil_twin",
+                    "threat_level": "critical",
+                    "ssid": ssid,
+                    "rogue_bssid": bssid,
+                    "known_bssids": known_bssids,
+                    "rssi": rssi,
+                    "mitre_technique": "T1557.003",
+                    "notes": "Unknown access point using known SSID - possible evil twin",
+                    "timestamp": time.time(),
+                }
+                
+                self.detections.append(detection)
+                
+                if self.alert_callback:
+                    self.alert_callback(detection)
+                
+                return detection
+        
+        return None
+    
+    def detect_deauth_attack(self, deauth_frame: Dict) -> Optional[Dict]:
+        """
+        Detect deauthentication flood attack.
+        
+        Args:
+            deauth_frame: Deauth frame information
+        
+        Returns:
+            Detection result if deauth attack detected
+        """
+        bssid = deauth_frame.get("bssid", "").upper()
+        current_time = time.time()
+        
+        # Track deauth frames per BSSID
+        if bssid not in self.deauth_counter:
+            self.deauth_counter[bssid] = []
+        
+        self.deauth_counter[bssid].append(current_time)
+        
+        # Clean old entries (older than 10 seconds)
+        self.deauth_counter[bssid] = [
+            t for t in self.deauth_counter[bssid]
+            if current_time - t < 10
+        ]
+        
+        # Threshold: More than 10 deauths in 10 seconds
+        if len(self.deauth_counter[bssid]) > 10:
+            detection = {
+                "attack_type": "deauth_flood",
+                "threat_level": "high",
+                "bssid": bssid,
+                "deauth_count": len(self.deauth_counter[bssid]),
+                "time_window_seconds": 10,
+                "mitre_technique": "T1498.001",
+                "notes": "Deauthentication flood detected",
+                "timestamp": current_time,
+            }
+            
+            self.detections.append(detection)
+            
+            if self.alert_callback:
+                self.alert_callback(detection)
+            
+            return detection
+        
+        return None
+    
+    def track_probe_request(self, probe: Dict):
+        """
+        Track probe request for surveillance detection.
+        
+        Args:
+            probe: Probe request information
+        """
+        self.probe_requests.append({
+            "mac": probe.get("source_mac", ""),
+            "ssid": probe.get("ssid", ""),
+            "timestamp": time.time(),
+        })
+        
+        # Keep only last 1000 probes
+        if len(self.probe_requests) > 1000:
+            self.probe_requests = self.probe_requests[-1000:]
+    
+    def detect_karma_attack(self, ap_responses: List[Dict]) -> Optional[Dict]:
+        """
+        Detect KARMA attack (AP responding to all probe requests).
+        
+        Args:
+            ap_responses: List of AP probe responses
+        
+        Returns:
+            Detection result if KARMA attack detected
+        """
+        from collections import defaultdict
+        
+        # Group responses by BSSID
+        responses_by_ap = defaultdict(set)
+        
+        for response in ap_responses:
+            bssid = response.get("bssid", "")
+            ssid = response.get("ssid", "")
+            responses_by_ap[bssid].add(ssid)
+        
+        # AP responding to many different SSIDs is suspicious
+        for bssid, ssids in responses_by_ap.items():
+            if len(ssids) >= 5:
+                detection = {
+                    "attack_type": "karma_attack",
+                    "threat_level": "critical",
+                    "rogue_bssid": bssid,
+                    "ssids_advertised": len(ssids),
+                    "mitre_technique": "T1557.003",
+                    "notes": "AP responding to multiple SSIDs - possible KARMA attack",
+                    "timestamp": time.time(),
+                }
+                
+                self.detections.append(detection)
+                
+                if self.alert_callback:
+                    self.alert_callback(detection)
+                
+                return detection
+        
+        return None
+    
+    def get_detections(self) -> List[Dict]:
+        """Get all recorded detections."""
+        return self.detections
+
+
+class EmergingThreatDetector:
+    """
+    Emerging Threat Detection Engine
+    
+    Detects new and emerging attack techniques including
+    AI-related threats, MFA bypass, and novel TTPs.
+    """
+    
+    def __init__(self):
+        self.detections = []
+        self.mfa_push_history = {}
+        self.alert_callback = None
+        logging.info("✅ Emerging Threat Detector initialized")
+    
+    def detect_prompt_injection(self, input_text: str) -> Optional[Dict]:
+        """
+        Detect AI prompt injection attempts.
+        
+        Args:
+            input_text: User input to check
+        
+        Returns:
+            Detection result if prompt injection detected
+        """
+        import re
+        
+        prompt_injection = EMERGING_THREAT_IOCS.get("ai_prompt_injection", {})
+        
+        for pattern in prompt_injection.get("patterns", []):
+            if re.search(pattern, input_text, re.IGNORECASE):
+                detection = {
+                    "threat_type": "prompt_injection",
+                    "threat_level": "high",
+                    "matched_pattern": pattern,
+                    "input_preview": input_text[:100],
+                    "mitre_technique": "T1204",
+                    "notes": "AI prompt injection attempt detected",
+                    "timestamp": time.time(),
+                }
+                
+                self.detections.append(detection)
+                
+                if self.alert_callback:
+                    self.alert_callback(detection)
+                
+                return detection
+        
+        return None
+    
+    def detect_mfa_fatigue(self, user_id: str, push_event: Dict) -> Optional[Dict]:
+        """
+        Detect MFA fatigue / push bombing attack.
+        
+        Args:
+            user_id: User identifier
+            push_event: MFA push notification event
+        
+        Returns:
+            Detection result if MFA fatigue attack detected
+        """
+        current_time = time.time()
+        
+        if user_id not in self.mfa_push_history:
+            self.mfa_push_history[user_id] = []
+        
+        self.mfa_push_history[user_id].append(current_time)
+        
+        # Clean old entries (older than 5 minutes)
+        self.mfa_push_history[user_id] = [
+            t for t in self.mfa_push_history[user_id]
+            if current_time - t < 300
+        ]
+        
+        # Threshold: More than 5 pushes in 5 minutes
+        if len(self.mfa_push_history[user_id]) > 5:
+            detection = {
+                "threat_type": "mfa_fatigue",
+                "threat_level": "high",
+                "user_id": user_id,
+                "push_count": len(self.mfa_push_history[user_id]),
+                "time_window_seconds": 300,
+                "mitre_technique": "T1621",
+                "notes": "Multiple MFA push notifications - possible MFA fatigue attack",
+                "timestamp": current_time,
+            }
+            
+            self.detections.append(detection)
+            
+            if self.alert_callback:
+                self.alert_callback(detection)
+            
+            return detection
+        
+        return None
+    
+    def detect_aitm_phishing(self, indicators: List[str]) -> Optional[Dict]:
+        """
+        Detect Adversary-in-the-Middle MFA bypass.
+        
+        Args:
+            indicators: Observed indicators
+        
+        Returns:
+            Detection result if AiTM detected
+        """
+        aitm_data = EMERGING_THREAT_IOCS.get("adversary_in_the_middle_mfa", {})
+        known_indicators = aitm_data.get("indicators", [])
+        
+        matched = [ind for ind in indicators if any(ki.lower() in ind.lower() for ki in known_indicators)]
+        
+        if len(matched) >= 2:
+            detection = {
+                "threat_type": "aitm_phishing",
+                "threat_level": "critical",
+                "matched_indicators": matched,
+                "mitre_technique": "T1557.001",
+                "notes": "Adversary-in-the-Middle phishing detected - real-time credential relay",
+                "timestamp": time.time(),
+            }
+            
+            self.detections.append(detection)
+            
+            if self.alert_callback:
+                self.alert_callback(detection)
+            
+            return detection
+        
+        return None
+    
+    def detect_qr_phishing(self, qr_content: str, context: str = "") -> Optional[Dict]:
+        """
+        Detect QR code phishing (Quishing).
+        
+        Args:
+            qr_content: Decoded QR code content
+            context: Where the QR code was found
+        
+        Returns:
+            Detection result if quishing detected
+        """
+        import re
+        
+        # Check for suspicious URL patterns in QR codes
+        suspicious_patterns = [
+            r"https?://[a-z0-9-]+\.workers\.dev",
+            r"https?://[a-z0-9-]+\.pages\.dev",
+            r"https?://[a-z0-9-]+\.ngrok\.io",
+            r"https?://bit\.ly/",
+            r"https?://t\.co/",
+            r"https?://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+",  # IP addresses
+        ]
+        
+        for pattern in suspicious_patterns:
+            if re.search(pattern, qr_content, re.IGNORECASE):
+                detection = {
+                    "threat_type": "qr_phishing",
+                    "threat_level": "high",
+                    "qr_content": qr_content[:200],
+                    "context": context,
+                    "matched_pattern": pattern,
+                    "mitre_technique": "T1566.002",
+                    "notes": "Suspicious URL in QR code - possible quishing",
+                    "timestamp": time.time(),
+                }
+                
+                self.detections.append(detection)
+                
+                if self.alert_callback:
+                    self.alert_callback(detection)
+                
+                return detection
+        
+        return None
+    
+    def get_detections(self) -> List[Dict]:
+        """Get all recorded detections."""
+        return self.detections
+
+
+# ============================================================
+# COMPREHENSIVE THREAT CORRELATION ENGINE
+# ============================================================
+
+class ComprehensiveThreatCorrelator:
+    """
+    Comprehensive Threat Correlation Engine
+    
+    Integrates all detection engines for cross-correlation
+    and comprehensive threat analysis.
+    """
+    
+    def __init__(self):
+        # Initialize all detection engines
+        self.firmware_detector = FirmwareImplantDetector()
+        self.supply_chain_detector = SupplyChainThreatDetector()
+        self.crypto_detector = CryptoThreatDetector()
+        self.ransomware_detector = RansomwareDetector()
+        self.ics_analyzer = ICSProtocolAnalyzer()
+        self.mobile_detector = MobileThreatDetector()
+        self.cloud_detector = CloudThreatDetector()
+        self.network_detector = NetworkAttackDetector()
+        self.exfil_detector = DataExfiltrationDetector()
+        self.wifi_detector = WiFiAttackDetector()
+        self.emerging_detector = EmergingThreatDetector()
+        
+        self.correlated_threats = []
+        self.threat_timeline = []
+        self.alert_callbacks = []
+        
+        logging.info("✅ Comprehensive Threat Correlator initialized with all detection engines")
+    
+    def add_alert_callback(self, callback):
+        """Add callback for threat alerts."""
+        self.alert_callbacks.append(callback)
+    
+    def _trigger_alerts(self, threat: Dict):
+        """Trigger all registered alert callbacks."""
+        for callback in self.alert_callbacks:
+            try:
+                callback(threat)
+            except Exception as e:
+                logging.error(f"Alert callback error: {e}")
+    
+    def process_event(self, event: Dict) -> List[Dict]:
+        """
+        Process a security event through all detection engines.
+        
+        Args:
+            event: Security event with type and data
+        
+        Returns:
+            List of detections
+        """
+        detections = []
+        event_type = event.get("type", "unknown")
+        event_data = event.get("data", {})
+        
+        # Route to appropriate detectors based on event type
+        if event_type == "file_system":
+            # Check for firmware implants
+            if "path" in event_data:
+                result = self.firmware_detector.check_uefi_indicator(event_data["path"])
+                if result:
+                    detections.append(result)
+                
+                # Check for ransomware
+                result = self.ransomware_detector.check_ransomware_extension(event_data["path"])
+                if result:
+                    detections.append(result)
+        
+        elif event_type == "network":
+            # Check for lateral movement
+            result = self.network_detector.check_lateral_movement(
+                event_data.get("src_ip", ""),
+                event_data.get("dst_ip", ""),
+                event_data.get("protocol", ""),
+                event_data.get("indicators", [])
+            )
+            if result:
+                detections.append(result)
+            
+            # Check for cryptomining
+            if "host" in event_data and "port" in event_data:
+                result = self.crypto_detector.check_mining_connection(
+                    event_data["host"],
+                    event_data["port"]
+                )
+                if result:
+                    detections.append(result)
+        
+        elif event_type == "dns":
+            # Check for DNS exfiltration
+            result = self.exfil_detector.analyze_dns_query(event_data.get("query", ""))
+            if result:
+                detections.append(result)
+        
+        elif event_type == "wifi":
+            # Check for WiFi attacks
+            if "beacon" in event_data:
+                result = self.wifi_detector.detect_evil_twin(event_data["beacon"])
+                if result:
+                    detections.append(result)
+            
+            if "deauth" in event_data:
+                result = self.wifi_detector.detect_deauth_attack(event_data["deauth"])
+                if result:
+                    detections.append(result)
+        
+        elif event_type == "cloud":
+            # Check for cloud attacks
+            result = self.cloud_detector.check_cloud_attack_indicator(
+                event_data.get("indicator", ""),
+                event_data.get("service", "generic")
+            )
+            if result:
+                detections.append(result)
+        
+        elif event_type == "mobile":
+            # Check for mobile threats
+            result = self.mobile_detector.check_spyware_indicator(
+                event_data.get("indicator", ""),
+                event_data.get("platform", "both")
+            )
+            if result:
+                detections.append(result)
+        
+        elif event_type == "user_input":
+            # Check for prompt injection
+            result = self.emerging_detector.detect_prompt_injection(event_data.get("text", ""))
+            if result:
+                detections.append(result)
+        
+        elif event_type == "mfa":
+            # Check for MFA fatigue
+            result = self.emerging_detector.detect_mfa_fatigue(
+                event_data.get("user_id", ""),
+                event_data
+            )
+            if result:
+                detections.append(result)
+        
+        # Add to timeline
+        for detection in detections:
+            self.threat_timeline.append(detection)
+            self._trigger_alerts(detection)
+        
+        return detections
+    
+    def correlate_threats(self) -> List[Dict]:
+        """
+        Correlate threats across all detection engines.
+        
+        Returns:
+            List of correlated threat groups
+        """
+        all_detections = []
+        
+        # Gather all detections from all engines
+        all_detections.extend(self.firmware_detector.get_detections())
+        all_detections.extend(self.supply_chain_detector.get_detections())
+        all_detections.extend(self.crypto_detector.get_detections())
+        all_detections.extend(self.ransomware_detector.get_detections())
+        all_detections.extend(self.ics_analyzer.get_detections())
+        all_detections.extend(self.mobile_detector.get_detections())
+        all_detections.extend(self.cloud_detector.get_detections())
+        all_detections.extend(self.network_detector.get_detections())
+        all_detections.extend(self.exfil_detector.get_detections())
+        all_detections.extend(self.wifi_detector.get_detections())
+        all_detections.extend(self.emerging_detector.get_detections())
+        
+        # Sort by timestamp
+        all_detections.sort(key=lambda x: x.get("timestamp", 0))
+        
+        # Group related threats (simple time-based correlation)
+        correlation_window = 300  # 5 minutes
+        correlated_groups = []
+        current_group = []
+        
+        for detection in all_detections:
+            if not current_group:
+                current_group.append(detection)
+            else:
+                time_diff = detection.get("timestamp", 0) - current_group[-1].get("timestamp", 0)
+                if time_diff <= correlation_window:
+                    current_group.append(detection)
+                else:
+                    if len(current_group) >= 2:
+                        correlated_groups.append({
+                            "detections": current_group,
+                            "start_time": current_group[0].get("timestamp"),
+                            "end_time": current_group[-1].get("timestamp"),
+                            "threat_types": list(set(d.get("threat_type", d.get("attack_type", "unknown")) for d in current_group)),
+                            "max_severity": max(d.get("threat_level", "low") for d in current_group),
+                        })
+                    current_group = [detection]
+        
+        # Handle final group
+        if len(current_group) >= 2:
+            correlated_groups.append({
+                "detections": current_group,
+                "start_time": current_group[0].get("timestamp"),
+                "end_time": current_group[-1].get("timestamp"),
+                "threat_types": list(set(d.get("threat_type", d.get("attack_type", "unknown")) for d in current_group)),
+                "max_severity": max(d.get("threat_level", "low") for d in current_group),
+            })
+        
+        self.correlated_threats = correlated_groups
+        return correlated_groups
+    
+    def get_threat_summary(self) -> Dict:
+        """Get summary of all detected threats."""
+        all_detections = []
+        
+        all_detections.extend(self.firmware_detector.get_detections())
+        all_detections.extend(self.supply_chain_detector.get_detections())
+        all_detections.extend(self.crypto_detector.get_detections())
+        all_detections.extend(self.ransomware_detector.get_detections())
+        all_detections.extend(self.ics_analyzer.get_detections())
+        all_detections.extend(self.mobile_detector.get_detections())
+        all_detections.extend(self.cloud_detector.get_detections())
+        all_detections.extend(self.network_detector.get_detections())
+        all_detections.extend(self.exfil_detector.get_detections())
+        all_detections.extend(self.wifi_detector.get_detections())
+        all_detections.extend(self.emerging_detector.get_detections())
+        
+        severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for detection in all_detections:
+            level = detection.get("threat_level", "low")
+            if level in severity_counts:
+                severity_counts[level] += 1
+        
+        return {
+            "total_detections": len(all_detections),
+            "severity_breakdown": severity_counts,
+            "correlated_incidents": len(self.correlated_threats),
+            "engines_active": 11,
+            "timeline_entries": len(self.threat_timeline),
+        }
+    
+    def generate_comprehensive_report(self) -> Dict:
+        """Generate comprehensive threat intelligence report."""
+        self.correlate_threats()
+        
+        return {
+            "report_timestamp": time.time(),
+            "summary": self.get_threat_summary(),
+            "correlated_threats": self.correlated_threats,
+            "threat_timeline": self.threat_timeline[-100:],  # Last 100 events
+            "engine_reports": {
+                "firmware": self.firmware_detector.generate_report() if hasattr(self.firmware_detector, 'generate_report') else {},
+                "supply_chain": {"detections": len(self.supply_chain_detector.get_detections())},
+                "crypto": {"detections": len(self.crypto_detector.get_detections())},
+                "ransomware": {"detections": len(self.ransomware_detector.get_detections())},
+                "ics": {"detections": len(self.ics_analyzer.get_detections())},
+                "mobile": {"detections": len(self.mobile_detector.get_detections())},
+                "cloud": {"detections": len(self.cloud_detector.get_detections())},
+                "network": {"detections": len(self.network_detector.get_detections())},
+                "exfiltration": {"detections": len(self.exfil_detector.get_detections())},
+                "wifi": {"detections": len(self.wifi_detector.get_detections())},
+                "emerging": {"detections": len(self.emerging_detector.get_detections())},
+            },
+        }
+
+
+# Initialize the comprehensive threat correlator
+try:
+    comprehensive_correlator = ComprehensiveThreatCorrelator()
+    logging.info("✅ Comprehensive Threat Correlator initialized with 11 detection engines")
+except Exception as e:
+    comprehensive_correlator = None
+    logging.warning(f"Comprehensive correlator initialization failed: {e}")
+
+
+# Print extended IOC statistics on load
+def print_extended_ioc_stats():
+    """Print statistics about loaded extended IOC databases."""
+    stats = get_ioc_statistics_extended()
+    print("\n" + "=" * 80)
+    print("📊 EXTENDED IOC DATABASE STATISTICS")
+    print("=" * 80)
+    print("  Core IOC Databases:")
+    print(f"    • APT Threat Actors:           {stats['apt_threat_actors']}")
+    print(f"    • C2 Infrastructure Patterns:  {stats['c2_infrastructure_patterns']}")
+    print(f"    • Malware Beacon Patterns:     {stats['malware_beacon_patterns']}")
+    print(f"    • Network Protocol IOCs:       {stats['network_protocol_iocs']}")
+    print(f"    • Covert Channel Signatures:   {stats['covert_channel_signatures']}")
+    print(f"    • BLE Extended Patterns:       {stats['bluetooth_extended_patterns']}")
+    print(f"    • BLE Service Extended:        {stats['bluetooth_service_extended']}")
+    print(f"    • RF Implant Frequencies:      {stats['rf_implant_frequencies']}")
+    print(f"    • IoT Botnet Signatures:       {stats['iot_botnet_signatures']}")
+    print(f"    • Apple Platform IOCs:         {stats['apple_platform_iocs']}")
+    print(f"    • Timestamp Anomaly Sigs:      {stats['timestamp_anomaly_signatures']}")
+    print(f"    • Network Infrastructure:      {stats['network_infrastructure_iocs']}")
+    print("  " + "-" * 40)
+    print("  Extended IOC Databases:")
+    print(f"    • Firmware Implant IOCs:       {stats['firmware_implant_iocs']}")
+    print(f"    • Supply Chain IOCs:           {stats['supply_chain_iocs']}")
+    print(f"    • Crypto Threat IOCs:          {stats['crypto_threat_iocs']}")
+    print(f"    • Ransomware IOCs:             {stats['ransomware_iocs']}")
+    print(f"    • ICS Threat IOCs:             {stats['ics_threat_iocs']}")
+    print(f"    • Mobile Threat IOCs:          {stats['mobile_threat_iocs']}")
+    print(f"    • Cloud Threat IOCs:           {stats['cloud_threat_iocs']}")
+    print(f"    • Network Attack IOCs:         {stats['network_attack_iocs']}")
+    print(f"    • Data Exfiltration IOCs:      {stats['data_exfil_iocs']}")
+    print(f"    • Browser Extension IOCs:      {stats['browser_extension_iocs']}")
+    print(f"    • WiFi Attack IOCs:            {stats['wifi_attack_iocs']}")
+    print(f"    • Emerging Threat IOCs:        {stats['emerging_threat_iocs']}")
+    print("  " + "-" * 40)
+    print(f"  ★ TOTAL EXTENDED IOCs:           {stats['total_extended_iocs']}")
+    print("=" * 80 + "\n")
+
+
+# Call on module load
+print_extended_ioc_stats()
+
+
 def print_banner():
     print("=" * 80)
     print("🔥 ULTIMATE FREQUENCY DETECTOR - GPU-ACCELERATED EDITION (Apple M1 Optimized)")
@@ -33477,14 +41723,62 @@ def main():
     print()
     sys.stdout.flush()
     
+    # Start the Unified Threat Intelligence Engine
+    print("🧠 UNIFIED THREAT INTELLIGENCE ENGINE:")
+    print("-" * 60)
+    try:
+        if unified_threat_engine:
+            # Register alert callback for real-time notifications
+            def unified_alert_callback(alert):
+                alert_type = alert.get('alert_type', 'UNKNOWN')
+                severity = alert.get('severity', 0)
+                detection = alert.get('detection', {})
+                
+                if alert_type == 'CORRELATED':
+                    engines = detection.get('engines', [])
+                    print(f"\n🔴 [CORRELATED THREAT] Multi-engine detection!")
+                    print(f"   Engines: {', '.join(engines)}")
+                    print(f"   Detection Count: {detection.get('detection_count', 0)}")
+                    print(f"   Max Severity: {detection.get('max_severity', 0)}")
+                elif alert_type in ['CRITICAL', 'HIGH']:
+                    print(f"\n🔴 [{alert_type} THREAT] Severity: {severity}")
+                    engine = detection.get('_engine', 'unknown')
+                    print(f"   Engine: {engine}")
+                    desc = detection.get('description', detection.get('type', 'Unknown threat'))
+                    print(f"   Description: {desc}")
+                
+                sys.stdout.flush()
+            
+            unified_threat_engine.register_alert_callback(unified_alert_callback)
+            unified_threat_engine.start()
+            
+            print(f"   Status: ✅ ACTIVE")
+            print(f"   Registered Engines: {len(unified_threat_engine.engines)}")
+            for eng_name in unified_threat_engine.engines.keys():
+                print(f"      • {eng_name}")
+            print(f"   Correlation Window: {unified_threat_engine.correlation_window_sec}s")
+            print(f"   Queue Capacity: 10,000 observations")
+            print("-" * 60)
+        else:
+            print("   Status: ⚠️  NOT AVAILABLE")
+            print("-" * 60)
+    except Exception as e:
+        logging.error(f"Failed to start unified threat engine: {e}")
+        print(f"   Status: ❌ FAILED - {e}")
+        print("-" * 60)
+    print()
+    sys.stdout.flush()
+    
     last_stats = time.time()
     last_network_summary = time.time()
     last_engine_check = time.time()
     last_rf_status = time.time()  # NEW: RF scanning status
+    last_unified_report = time.time()  # Unified threat intelligence report
     stats_print_interval = STATISTICS_INTERVAL  # Print stats periodically
     network_summary_interval = 30.0  # Print network summary every 30 seconds
     engine_check_interval = 15.0  # Run periodic threat engine checks
     rf_status_interval = 20.0  # RF scanning status every 20 seconds
+    unified_report_interval = 60.0  # Unified threat report every 60 seconds
     
     while not shutdown_requested.is_set():
         time.sleep(0.5)  # Shorter sleep for more responsive shutdown
@@ -33633,6 +41927,16 @@ def main():
                     except Exception as e:
                         logging.debug(f"Error getting WiFi snapshot for hidden cam detection: {e}")
                 
+                # Submit observations to Unified Threat Intelligence Engine
+                # This processes through all registered engines (EMF, APT, Supply Chain, etc.)
+                if unified_threat_engine and unified_threat_engine.running:
+                    for obs in pending_observations[:40]:
+                        try:
+                            source_type = obs.get('type', 'unknown')
+                            unified_threat_engine.submit_observation(obs, source=source_type)
+                        except Exception as e:
+                            logging.debug(f"Error submitting to unified engine: {e}")
+                
                 # Run observations through all active engines
                 total_detections = 0
                 hidden_cam_detections = 0  # Track hidden camera detections separately
@@ -33754,6 +42058,67 @@ def main():
                 for burst in satellite_engine.last_bursts:
                     print(f"  Burst: {burst.satellite}, ID: {burst.burst_id}, Freq: {burst.center_freq_hz/1e6:.2f} MHz, SNR: {burst.snr_db}")
                 satellite_engine.last_bursts.clear()  # Clear after displaying
+        
+        # Print Unified Threat Intelligence Report periodically
+        if (current_time - last_unified_report) >= unified_report_interval:
+            try:
+                if unified_threat_engine and unified_threat_engine.running:
+                    summary = unified_threat_engine.get_threat_summary()
+                    
+                    print("\n" + "=" * 80)
+                    print(f"🧠 UNIFIED THREAT INTELLIGENCE [{datetime.now().strftime('%H:%M:%S')}]")
+                    print("=" * 80)
+                    
+                    # Threat level display with color coding
+                    threat_level = summary.get('threat_level', 'MINIMAL')
+                    threat_score = summary.get('threat_score', 0)
+                    
+                    level_indicators = {
+                        'CRITICAL': '🔴 CRITICAL',
+                        'HIGH': '🟠 HIGH',
+                        'MEDIUM': '🟡 MEDIUM',
+                        'LOW': '🟢 LOW',
+                        'MINIMAL': '⚪ MINIMAL'
+                    }
+                    
+                    print(f"\n   THREAT LEVEL: {level_indicators.get(threat_level, threat_level)}")
+                    print(f"   Threat Score: {threat_score:.1f}/100")
+                    print(f"   Session Duration: {summary.get('uptime_sec', 0)/60:.1f} minutes")
+                    
+                    # Statistics
+                    stats = summary.get('stats', {})
+                    print(f"\n   📊 STATISTICS:")
+                    print(f"      Total Observations: {stats.get('total_observations', 0):,}")
+                    print(f"      Total Detections: {stats.get('total_detections', 0):,}")
+                    print(f"      Correlated Incidents: {stats.get('correlated_incidents', 0)}")
+                    
+                    # Detections by engine
+                    engine_detections = stats.get('detections_by_engine', {})
+                    if engine_detections:
+                        print(f"\n   🔧 DETECTIONS BY ENGINE:")
+                        for engine_name, count in sorted(engine_detections.items(), key=lambda x: x[1], reverse=True):
+                            if count > 0:
+                                print(f"      • {engine_name}: {count}")
+                    
+                    # Severity distribution
+                    severity_counts = stats.get('detections_by_severity', {})
+                    if severity_counts:
+                        print(f"\n   ⚡ DETECTIONS BY SEVERITY:")
+                        for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
+                            count = severity_counts.get(sev, 0)
+                            if count > 0:
+                                print(f"      • {sev}: {count}")
+                    
+                    # Active engines
+                    print(f"\n   🔌 Active Engines: {summary.get('active_engines', 0)}")
+                    
+                    print("=" * 80)
+                    sys.stdout.flush()
+                    
+            except Exception as e:
+                logging.error(f"Error printing unified threat report: {e}")
+            
+            last_unified_report = current_time
     
     # ============================================================
     # SHUTDOWN SEQUENCE
@@ -34104,6 +42469,53 @@ def main():
     print("💾 DATA EXPORT")
     print("=" * 80)
     sys.stdout.flush()
+    
+    # Export Unified Threat Intelligence forensic data
+    try:
+        if unified_threat_engine and unified_threat_engine.running:
+            print("\n🧠 UNIFIED THREAT INTELLIGENCE - FINAL REPORT")
+            print("-" * 60)
+            
+            # Print final threat report
+            print(unified_threat_engine.get_threat_report())
+            
+            # Export forensic data
+            forensic_path = LOG_DIR / f"unified_forensic_{session_id}.json"
+            forensic_data = unified_threat_engine.export_forensic_data()
+            
+            import json
+            with open(forensic_path, 'w') as f:
+                # Convert Counter objects and other non-serializable types
+                def convert_for_json(obj):
+                    if isinstance(obj, Counter):
+                        return dict(obj)
+                    elif hasattr(obj, '__dict__'):
+                        return str(obj)
+                    return obj
+                
+                serializable_data = {}
+                for key, value in forensic_data.items():
+                    if isinstance(value, dict):
+                        serializable_data[key] = {k: convert_for_json(v) for k, v in value.items()}
+                    elif isinstance(value, list):
+                        serializable_data[key] = [convert_for_json(v) if isinstance(v, dict) else v for v in value]
+                    else:
+                        serializable_data[key] = convert_for_json(value)
+                
+                json.dump(serializable_data, f, indent=2, default=str)
+            
+            print(f"✅ Forensic data exported: {forensic_path}")
+            
+            # Stop the unified engine
+            unified_threat_engine.stop()
+            print("✅ Unified Threat Intelligence Engine stopped")
+            print("-" * 60)
+            sys.stdout.flush()
+    except Exception as e:
+        logging.error(f"Error in unified engine shutdown: {e}")
+        print(f"⚠️  Unified engine shutdown error: {e}")
+        sys.stdout.flush()
+    
     try:
         csv_path = LOG_DIR / f"ultimate_{session_id}.csv"
         print(f"📊 Exporting data to: {csv_path}")
