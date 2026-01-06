@@ -33972,6 +33972,12 @@ analyze_dga_domains() {
 APEX DGA Detection Engine
 Research-grade algorithmic domain detection system. 
 
+MEMORY OPTIMIZATION:
+- Output written to file to avoid bash command substitution memory limits
+- Uses @lru_cache for memoization of expensive computations
+- Efficient data structures (dicts, sets) for lookups
+- Processes data in streaming fashion where possible
+
 References:
 - Antonakakis et al. "From Throw-Away Traffic to Bots:  Detecting the Rise of DGA-Based Malware" (USENIX 2012)
 - Schiavoni et al. "Phoenix: DGA-Based Botnet Tracking and Intelligence" (DIMVA 2014)
@@ -33985,6 +33991,7 @@ try:
     import re
     import sys
     import string
+    import gc  # Explicit garbage collection for large analysis
     from collections import Counter, defaultdict
     from typing import Dict, List, Tuple, Optional, Any
     from functools import lru_cache
@@ -35268,6 +35275,9 @@ def main():
         
         print(json.dumps(results, indent=2))
         
+        # Explicit garbage collection to free memory
+        gc.collect()
+        
     except Exception as e:
         import traceback
         print(json.dumps({
@@ -35275,6 +35285,9 @@ def main():
             "traceback": traceback.format_exc()
         }), file=sys.stderr)
         sys.exit(1)
+    finally:
+        # Final cleanup
+        gc.collect()
 
 if __name__ == "__main__":
     main()
@@ -35284,18 +35297,22 @@ EOF
     chmod 600 "$dga_script"
     register_temp_file "$dga_script"
     
-    # Execute the Python script
-    dga_analysis=$(printf '%s' "$domain" | python3 "$dga_script" 2>&1)
+    # Create temporary file for Python output (avoids command substitution memory limits)
+    local dga_output_file="${TEMP_DIR}/dga_output_$$.json"
+    register_temp_file "$dga_output_file"
+    
+    # Execute the Python script - write output to file instead of variable
+    printf '%s' "$domain" | python3 "$dga_script" > "$dga_output_file" 2>&1
     
     # Capture Python exit code
     local python_exit_code=$?
     
     # Check if we got valid JSON output
-    if [ -n "$dga_analysis" ] && printf '%s' "$dga_analysis" | grep -q '"domain"'; then
+    if [ -s "$dga_output_file" ] && grep -q '"domain"' "$dga_output_file"; then
         echo "DGA Analysis Results:" >> "$dga_report"
-        echo "$dga_analysis" >> "$dga_report"
+        cat "$dga_output_file" >> "$dga_report"
         
-        # Parse results
+        # Parse results - read from file instead of variable
         local verdict
         local score
         local entropy
@@ -35303,66 +35320,71 @@ EOF
         local family_match
         local recommendations
         
-        verdict=$(json_extract_string "$dga_analysis" "verdict")
-        score=$(json_extract_int "$dga_analysis" "dga_score")
-        entropy=$(json_extract_number "$dga_analysis" "entropy")
-        threat_level=$(json_extract_string "$dga_analysis" "threat_level")
+        verdict=$(json_extract_string "$(cat "$dga_output_file")" "verdict")
+        score=$(json_extract_int "$(cat "$dga_output_file")" "dga_score")
+        entropy=$(json_extract_number "$(cat "$dga_output_file")" "entropy")
+        threat_level=$(json_extract_string "$(cat "$dga_output_file")" "threat_level")
         
         # Extract family match if present
-        family_match=$(printf '%s' "$dga_analysis" | python3 -c '
+        family_match=$(python3 -c '
 import json, sys
 try:
-    data = json.load(sys.stdin)
-    matches = data.get('dga_family_matches', [])
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    matches = data.get("dga_family_matches", [])
     if matches:
-        print(f\"{matches[0]['family']} ({matches[0]['confidence']}%)\")
+        print(f\"{matches[0][\"family\"]} ({matches[0][\"confidence\"]}%)\")
     else:
-        print('None')
+        print("None")
 except:
-    print('None')
-' 2>/dev/null || echo "None")
+    print("None")
+' "$dga_output_file" 2>/dev/null || echo "None")
         
         # Extract contributing factors
         local factors_list
-        factors_list=$(printf '%s' "$dga_analysis" | python3 -c '
+        factors_list=$(python3 -c '
 import json, sys
 try:
-    data = json.load(sys.stdin)
-    factors = data.get('contributing_factors', [])
-    for f in factors[: 5]:
-        print(f'    • {f}')
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    factors = data.get("contributing_factors", [])
+    for f in factors[:5]:
+        print(f"    • {f}")
 except:
     pass
-' 2>/dev/null)
+' "$dga_output_file" 2>/dev/null)
         
         # Extract additional metrics
         local markov_prob bigram_ratio pronounce_score tld_risk
-        markov_prob=$(json_extract_number "$dga_analysis" "markov_probability")
-        pronounce_score=$(printf '%s' "$dga_analysis" | python3 -c '
+        markov_prob=$(json_extract_number "$(cat "$dga_output_file")" "markov_probability")
+        pronounce_score=$(python3 -c '
 import json, sys
 try:
-    data = json. load(sys.stdin)
-    print(data.get('pronounceability', {}).get('score', 'N/A'))
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    print(data.get("pronounceability", {}).get("score", "N/A"))
 except:
-    print('N/A')
-' 2>/dev/null)
-        bigram_ratio=$(printf '%s' "$dga_analysis" | python3 -c '
+    print("N/A")
+' "$dga_output_file" 2>/dev/null)
+        bigram_ratio=$(python3 -c '
 import json, sys
 try:
-    data = json. load(sys.stdin)
-    print(data.get('bigram_analysis', {}).get('common_ratio', 'N/A'))
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    print(data.get("bigram_analysis", {}).get("common_ratio", "N/A"))
 except:
-    print('N/A')
-' 2>/dev/null)
-        tld_risk=$(printf '%s' "$dga_analysis" | python3 -c '
+    print("N/A")
+' "$dga_output_file" 2>/dev/null)
+        tld_risk=$(python3 -c '
 import json, sys
 try:
-    data = json.load(sys. stdin)
-    tld_data = data.get('tld_analysis', {})
-    print(f\"{tld_data.get('risk_level', 'unknown')} ({tld_data.get('risk_score', 0):. 2f})\")
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    tld_data = data.get("tld_analysis", {})
+    print(f\"{tld_data.get(\"risk_level\", \"unknown\")} ({tld_data.get(\"risk_score\", 0):.2f})\")
 except:
-    print('N/A')
-' 2>/dev/null)
+    print("N/A")
+' "$dga_output_file" 2>/dev/null)
         
         # Determine colors based on threat level
         local threat_color="${WHITE}"
@@ -35408,16 +35430,17 @@ except:
         # Display recommendations if score is significant
         if [ "${score:-0}" -ge 25 ]; then
             echo -e "${CYAN}║${NC} ${WHITE}RECOMMENDATIONS${NC}"
-            printf '%s' "$dga_analysis" | python3 -c '
+            python3 -c '
 import json, sys
 try:
-    data = json. load(sys.stdin)
-    recs = data.get('recommendations', [])
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    recs = data.get("recommendations", [])
     for r in recs[:4]:
-        print(f'    → {r}')
+        print(f"    → {r}")
 except:
     pass
-' 2>/dev/null | while IFS= read -r rec; do
+' "$dga_output_file" 2>/dev/null | while IFS= read -r rec; do
                 printf "${CYAN}║${NC} %s\n" "$rec"
             done
             echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════════════════════╣${NC}"
@@ -35465,17 +35488,18 @@ except:
         # Export ML feature vector to separate file for research/training purposes
         if [ "${EXPORT_ML_FEATURES:-false}" = true ]; then
             local ml_export_file="${OUTPUT_DIR}/dga_ml_features.json"
-            printf '%s' "$dga_analysis" | python3 -c '
+            python3 -c '
 import json, sys
 try:
-    data = json. load(sys.stdin)
-    features = data.get('ml_feature_vector', {})
-    features['domain'] = data.get('domain', '')
-    features['label'] = 1 if data.get('dga_score', 0) >= 55 else 0
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    features = data.get("ml_feature_vector", {})
+    features["domain"] = data.get("domain", "")
+    features["label"] = 1 if data.get("dga_score", 0) >= 55 else 0
     print(json.dumps(features))
 except Exception as e:
-    print(json.dumps({'error': str(e)}))
-' 2>/dev/null > "$ml_export_file"
+    print(json.dumps({"error": str(e)}))
+' "$dga_output_file" 2>/dev/null > "$ml_export_file"
             log_info "ML feature vector exported to:  $ml_export_file"
         fi
         
@@ -35485,14 +35509,14 @@ except Exception as e:
             log_error "Python DGA analysis exited with code:  $python_exit_code"
         fi
         
-        if [ -n "$dga_analysis" ]; then
+        if [ -s "$dga_output_file" ]; then
             # Check if it's a JSON error message
-            if printf '%s' "$dga_analysis" | grep -q '"error"'; then
-                local error_msg=$(json_extract_string "$dga_analysis" "error" 2>/dev/null || echo "$dga_analysis")
+            if grep -q '"error"' "$dga_output_file"; then
+                local error_msg=$(json_extract_string "$(cat "$dga_output_file")" "error" 2>/dev/null || cat "$dga_output_file")
                 log_error "DGA analysis error: $error_msg"
                 analysis_error "DGA-ANALYSIS" "Python error: ${error_msg:0:100}"
             else
-                log_debug "DGA Python output: ${dga_analysis:0:200}"
+                log_debug "DGA Python output: $(head -c 200 "$dga_output_file")"
                 analysis_error "DGA-ANALYSIS" "Python analysis failed (invalid output)"
             fi
         else
