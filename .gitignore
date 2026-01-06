@@ -1,0 +1,6 @@
+# Output directories created by QR21.sh
+qr_analysis_*/
+
+# Temporary files
+*.tmp
+*.log
