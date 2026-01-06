@@ -9070,16 +9070,20 @@ PYDECODE
 }
 
 decode_with_zbar() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # Use safe wrapper instead of direct call
     safe_zbarimg "$image" "$output_file"
 }
 
 decode_with_pyzbar() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # Use safe wrapper with crash protection
     safe_python_decode "$image" "$output_file"
@@ -9096,8 +9100,10 @@ safe_python_script() {
 }
 
 decode_with_quirc() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     if command -v quirc &> /dev/null; then
         # Use run_isolated_with_output to prevent crashes from propagating
@@ -9118,8 +9124,10 @@ decode_with_quirc() {
 }
 
 decode_with_zxing() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Try Java ZXing if available - use safe output redirection
@@ -9134,7 +9142,7 @@ decode_with_zxing() {
     fi
     
     # Try Python ZXing library - Python scripts write to file internally
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYZXING' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYZXING' 2>/dev/null
 import sys
 import signal
 
@@ -9160,8 +9168,10 @@ PYZXING
 }
 
 decode_with_qrdecode() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     if command -v qrdecode &> /dev/null; then
         # Use run_isolated_with_output to prevent crashes from propagating
@@ -9182,11 +9192,13 @@ decode_with_qrdecode() {
 }
 
 decode_with_opencv() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYOPENCV' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYOPENCV' 2>/dev/null
 import sys
 import signal
 
@@ -9252,11 +9264,13 @@ PYOPENCV
 }
 
 decode_with_opencv_wechat() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYWECHAT' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYWECHAT' 2>/dev/null
 import sys
 import signal
 
@@ -9293,11 +9307,13 @@ PYWECHAT
 }
 
 decode_with_pyzbar_enhanced() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYENHANCED' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYENHANCED' 2>/dev/null
 import sys
 import signal
 
@@ -9403,8 +9419,10 @@ decode_qr_boofcv() {
 
 # AUDIT: Wrapper for BoofCV decoder following decode_with_* naming convention
 decode_with_boofcv() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # HARDEN: ensure image provided and readable
     if [ -z "$image" ] || [ ! -f "$image" ] || [ ! -r "$image" ]; then
