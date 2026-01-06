@@ -11185,7 +11185,7 @@ decode_with_pdf417() {
     # Try via zxing-cpp with PDF417 filter
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/pdf417_decode_$$.py"
-        cat > "$temp_script" << 'PYPDF417_SCRIPT'
+        cat > "$temp_script" <<'PYPDF417_SCRIPT'
 import sys
 import signal
 
@@ -11535,7 +11535,7 @@ PYCODE128_PYZBAR
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/code128_decode_$$.py"
-        cat > "$temp_script" << 'PYCODE128_SCRIPT'
+        cat > "$temp_script" <<'PYCODE128_SCRIPT'
 import sys
 import signal
 
@@ -11632,7 +11632,7 @@ PYCODE39_PYZBAR
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/code39_decode_$$.py"
-        cat > "$temp_script" << 'PYCODE39_SCRIPT'
+        cat > "$temp_script" <<'PYCODE39_SCRIPT'
 import sys
 import signal
 
@@ -12389,7 +12389,7 @@ PYCODE93_PYZBAR
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/code93_decode_$$.py"
-        cat > "$temp_script" << 'PYCODE93_SCRIPT'
+        cat > "$temp_script" <<'PYCODE93_SCRIPT'
 import sys
 import signal
 
