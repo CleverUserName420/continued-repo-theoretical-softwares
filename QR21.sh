@@ -33784,7 +33784,7 @@ try:
     except Exception as e:
         print(json.dumps({"error": f"Analysis failed: {str(e)}"}), file=sys.stderr)
         sys.exit(1)
-    EOF
+EOF
     )
     
     # Capture Python exit code
