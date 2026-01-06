@@ -1,0 +1,2 @@
+{"timestamp":"2026-01-06T02:42:30+00:00","action":"SCAN_INITIALIZED","description":"Scanner initialized with version 5.0.0-AUDIT","artifact":"","hash":""}
+{"timestamp":"2026-01-06T02:42:31+00:00","action":"IOC_LOAD","description":"Loaded 0 IOCs from 0 sources","artifact":"","hash":""}

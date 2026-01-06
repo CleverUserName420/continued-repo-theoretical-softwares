@@ -29133,11 +29133,11 @@ analyze_injection_attacks() {
         local engine_guess="unknown"
         
         # Attempt to identify the templating engine
-        if echo "$content" | grep -qE '\{\{.*\}\}.*\{%' 2>/dev/null; then
+        if echo "$content" | grep -qE '\{\{.*\}\}.*\{%.*%\}' 2>/dev/null || echo "$content" | grep -qE '\{\{.*\}\}' 2>/dev/null; then
             engine_guess="Jinja2/Twig/Django"
         elif echo "$content" | grep -qE '<#assign|#set.*\$' 2>/dev/null; then
             engine_guess="Freemarker/Velocity"
-        elif echo "$content" | grep -qE '\$\{T\(.*\)\}|__\$\{' 2>/dev/null; then
+        elif echo "$content" | grep -qE '\$\{T\(.*\)\}|__\$\{.*\}' 2>/dev/null; then
             engine_guess="Thymeleaf"
         elif echo "$content" | grep -qE '\{php\}|{literal}' 2>/dev/null; then
             engine_guess="Smarty"
@@ -29404,7 +29404,7 @@ analyze_injection_attacks() {
     done
     
     # MongoDB-specific patterns
-    if echo "$content" | grep -qiE '\{[[:space:]]*"\$[[:alnum:]_]+"[[:space:]]*:[[:space:]]*\{|\[[[:space:]]*\{[[:space:]]*"\$' 2>/dev/null; then
+    if echo "$content" | grep -qiE '\{[[:space:]]*"\$[[:alnum:]_]+"[[:space:]]*:[[:space:]]*\{.*\}\}' 2>/dev/null || echo "$content" | grep -qiE '\[[[:space:]]*\{[[:space:]]*"\$.*\}\]' 2>/dev/null; then
         log_threat 55 "MongoDB injection pattern structure detected"
         injection_findings+=("mongodb_injection")
         ((injection_score += 50))
@@ -29449,7 +29449,7 @@ analyze_injection_attacks() {
     done
     
     # GraphQL batching attack detection
-    if echo "$content" | grep -qiE '\[[[:space:]]*\{[[:space:]]*"query"[[:space:]]*:.*\},[[:space:]]*\{[[:space:]]*"query"' 2>/dev/null; then
+    if echo "$content" | grep -qiE '\[[[:space:]]*\{[[:space:]]*"query"[[:space:]]*:.*\},[[:space:]]*\{[[:space:]]*"query".*\}' 2>/dev/null; then
         log_threat 45 "GraphQL batching attack pattern detected"
         injection_findings+=("graphql_batching")
         ((injection_score += 40))
@@ -29495,7 +29495,7 @@ analyze_injection_attacks() {
     done
     
     # Log4j bypass variations
-    if echo "$content" | grep -qiE '\$\{j\$\{.*\}n\$\{.*\}di|\$\{\$\{:-j\}|\$\{lower:j\}\$\{lower:n\}' 2>/dev/null; then
+    if echo "$content" | grep -qiE '\$\{j\$\{.*\}n\$\{.*\}di\}|\$\{\$\{:-j\}\}|\$\{lower:j\}\$\{lower:n\}\$\{lower:d\}\$\{lower:i\}' 2>/dev/null; then
         log_threat 75 "CRITICAL: Log4Shell bypass/obfuscation detected"
         injection_findings+=("log4shell_bypass")
         ((injection_score += 75))
@@ -29545,7 +29545,7 @@ analyze_injection_attacks() {
     done
     
     # Multi-context escape sequences
-    if echo "$content" | grep -qE '("|'"'"'|>|%>|\}\}|\]\]){2,}.*(<|'"'"'|"|<%|\{\{|\[\[)' 2>/dev/null; then
+    if echo "$content" | grep -qE '(\}\}|\]\]|\x27\x27|"").*(\{\{|\[\[|<%|<\?)' 2>/dev/null; then
         log_threat 65 "Multi-context escape sequence detected (potential polyglot)"
         injection_findings+=("multi_context_escape")
         ((injection_score += 55))
