@@ -2456,7 +2456,9 @@ incremental_yara_scan() {
 
 # Analyze DNS over HTTPS tunneling
 analyze_dns_over_https() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing for DNS over HTTPS (DoH) tunneling..."
     
@@ -8801,7 +8803,7 @@ validate_image_safety() {
     # Try to validate with Python PIL in isolated subprocess with timeout
     # This catches corrupted images that would crash decoders
     local validation_result
-    validation_result=$(timeout 10 "$python_cmd" - "$image" 2>/dev/null << 'PYVALIDATE'
+    validation_result=$(timeout 10 "$python_cmd" - "$image" 2>/dev/null <<'PYVALIDATE'
 import sys
 import os
 
@@ -9024,7 +9026,7 @@ safe_python_decode() {
     local output_file="$2"
     local python_cmd=$(get_python_cmd)
     
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYDECODE'
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYDECODE'
 import sys
 import os
 import signal
@@ -9070,16 +9072,20 @@ PYDECODE
 }
 
 decode_with_zbar() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # Use safe wrapper instead of direct call
     safe_zbarimg "$image" "$output_file"
 }
 
 decode_with_pyzbar() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # Use safe wrapper with crash protection
     safe_python_decode "$image" "$output_file"
@@ -9096,8 +9102,10 @@ safe_python_script() {
 }
 
 decode_with_quirc() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     if command -v quirc &> /dev/null; then
         # Use run_isolated_with_output to prevent crashes from propagating
@@ -9118,8 +9126,10 @@ decode_with_quirc() {
 }
 
 decode_with_zxing() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Try Java ZXing if available - use safe output redirection
@@ -9134,7 +9144,7 @@ decode_with_zxing() {
     fi
     
     # Try Python ZXing library - Python scripts write to file internally
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYZXING' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYZXING' 2>/dev/null
 import sys
 import signal
 
@@ -9160,8 +9170,10 @@ PYZXING
 }
 
 decode_with_qrdecode() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     if command -v qrdecode &> /dev/null; then
         # Use run_isolated_with_output to prevent crashes from propagating
@@ -9182,11 +9194,13 @@ decode_with_qrdecode() {
 }
 
 decode_with_opencv() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYOPENCV' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYOPENCV' 2>/dev/null
 import sys
 import signal
 
@@ -9252,11 +9266,13 @@ PYOPENCV
 }
 
 decode_with_opencv_wechat() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYWECHAT' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYWECHAT' 2>/dev/null
 import sys
 import signal
 
@@ -9293,11 +9309,13 @@ PYWECHAT
 }
 
 decode_with_pyzbar_enhanced() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYENHANCED' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYENHANCED' 2>/dev/null
 import sys
 import signal
 
@@ -9403,8 +9421,10 @@ decode_qr_boofcv() {
 
 # AUDIT: Wrapper for BoofCV decoder following decode_with_* naming convention
 decode_with_boofcv() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # HARDEN: ensure image provided and readable
     if [ -z "$image" ] || [ ! -f "$image" ] || [ ! -r "$image" ]; then
@@ -9471,8 +9491,10 @@ decode_with_boofcv() {
 
 # AUDIT: Additional decoder - libdmtx for DataMatrix codes
 decode_with_dmtx() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # HARDENING: validate input image file
     if [ -z "$image" ] || [ ! -f "$image" ] || [ ! -r "$image" ]; then
@@ -9516,8 +9538,10 @@ decode_with_dmtx() {
 
 # AUDIT: Additional decoder - segno for QR validation
 decode_with_segno() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # HARDEN: ensure image provided and readable
@@ -9538,7 +9562,7 @@ decode_with_segno() {
     fi
 
     # HARDEN: segno and pyzbar installed check
-    "$python_cmd" - << 'PYCHECK' 2>/dev/null
+    "$python_cmd" - <<'PYCHECK' 2>/dev/null
 try:
     import segno
     import pyzbar
@@ -9556,7 +9580,7 @@ PYCHECK
     rm -f "$output_file"
 
     # ORIGINAL LOGIC: run in isolated environment with sig protection
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYSEGNO' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYSEGNO' 2>/dev/null
 import sys
 import signal
 
@@ -9594,8 +9618,10 @@ PYSEGNO
 
 # AUDIT: Additional decoder - Multi-scale detection for small/damaged QRs
 decode_with_multiscale() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # HARDEN: ensure image provided and readable
@@ -9616,7 +9642,7 @@ decode_with_multiscale() {
     fi
     
     # HARDEN: required python modules present
-    "$python_cmd" - << 'PYREQCHECK' 2>/dev/null
+    "$python_cmd" - <<'PYREQCHECK' 2>/dev/null
 try:
     import cv2
     import pyzbar
@@ -9634,7 +9660,7 @@ PYREQCHECK
     rm -f "$output_file"
     
     # ORIGINAL LOGIC: multi-scale QR scan in isolated environment
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYMULTISCALE' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYMULTISCALE' 2>/dev/null
 import sys
 import signal
 
@@ -9690,8 +9716,10 @@ PYMULTISCALE
 
 # AUDIT: Additional decoder - Rotation/perspective correction
 decode_with_perspective() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # HARDEN: ensure image provided and readable
@@ -9712,7 +9740,7 @@ decode_with_perspective() {
     fi
     
     # HARDEN: required python modules present
-    "$python_cmd" - << 'PYREQCHECK' 2>/dev/null
+    "$python_cmd" - <<'PYREQCHECK' 2>/dev/null
 try:
     import cv2
     import pyzbar
@@ -9730,7 +9758,7 @@ PYREQCHECK
     rm -f "$output_file"
     
     # ORIGINAL LOGIC: rotation + perspective correction QR scan
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYPERSPECTIVE' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYPERSPECTIVE' 2>/dev/null
 import sys
 import signal
 
@@ -9785,8 +9813,10 @@ PYPERSPECTIVE
 
 # AUDIT: Additional decoder - Inverse/negative image
 decode_with_inverse() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # HARDEN: ensure image provided and readable
@@ -9807,7 +9837,7 @@ decode_with_inverse() {
     fi
     
     # HARDEN: required python modules present
-    "$python_cmd" - << 'PYREQCHECK' 2>/dev/null
+    "$python_cmd" - <<'PYREQCHECK' 2>/dev/null
 try:
     from PIL import Image, ImageOps
     import pyzbar
@@ -9824,7 +9854,7 @@ PYREQCHECK
     rm -f "$output_file"
     
     # ORIGINAL LOGIC: QR decode, invert and grayscale fallback
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYINVERSE' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYINVERSE' 2>/dev/null
 import sys
 import signal
 
@@ -9881,8 +9911,10 @@ PYINVERSE
 
 # AUDIT: Additional decoder - Adaptive threshold
 decode_with_adaptive() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # HARDEN: ensure image provided and readable
@@ -9903,7 +9935,7 @@ decode_with_adaptive() {
     fi
     
     # HARDEN: required python modules present
-    "$python_cmd" - << 'PYREQCHECK' 2>/dev/null
+    "$python_cmd" - <<'PYREQCHECK' 2>/dev/null
 try:
     import cv2
     import pyzbar
@@ -9921,7 +9953,7 @@ PYREQCHECK
     rm -f "$output_file"
     
     # ORIGINAL LOGIC: adaptive thresholding QR scan, multi-method
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYADAPTIVE' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYADAPTIVE' 2>/dev/null
 import sys
 import signal
 
@@ -9977,8 +10009,10 @@ PYADAPTIVE
 
 # AUDIT: Additional decoder - Color channel separation
 decode_with_channels() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # HARDEN: ensure image provided and readable
@@ -9999,7 +10033,7 @@ decode_with_channels() {
     fi
     
     # HARDEN: required python modules present
-    "$python_cmd" - << 'PYREQCHECK' 2>/dev/null
+    "$python_cmd" - <<'PYREQCHECK' 2>/dev/null
 try:
     from PIL import Image
     import pyzbar
@@ -10016,7 +10050,7 @@ PYREQCHECK
     rm -f "$output_file"
     
     # ORIGINAL LOGIC: color channel separation QR decode
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYCHANNELS' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYCHANNELS' 2>/dev/null
 import sys
 import signal
 
@@ -10060,8 +10094,10 @@ PYCHANNELS
 
 # Decoder using ImageMagick preprocessing + zbar
 decode_with_imagemagick_zbar() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     if command -v convert &> /dev/null && command -v zbarimg &> /dev/null; then
         local temp_img="${TEMP_DIR}/preprocessed_$(basename "$image")"
@@ -10090,8 +10126,10 @@ decode_with_imagemagick_zbar() {
 
 # Decoder using libdmtx for Data Matrix codes (simple variant)
 decode_with_dmtxread() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     if command -v dmtxread &> /dev/null; then
         dmtxread "$image" 2>/dev/null > "$output_file"
@@ -10103,8 +10141,10 @@ decode_with_dmtxread() {
 
 # Decoder using qreader Python library
 decode_with_qreader() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Check if module exists first - skip entirely if not installed
@@ -10156,8 +10196,10 @@ PYEOF
 
 # Decoder using pyzxing Python library
 decode_with_pyzxing() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Check if module exists first - skip entirely if not installed
@@ -10206,8 +10248,10 @@ PYEOF
 # Decoder 13: ZXing Java CLI (direct JAR execution, not via Python wrapper)
 # More robust than pyzxing for some edge cases
 decode_with_zxing_java_cli() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # Check for Java
     if ! command -v java &>/dev/null; then
@@ -10256,8 +10300,10 @@ decode_with_zxing_java_cli() {
 # Decoder 14: libdecodeqr (C/C++ library command-line tool)
 # Good for weird/small QR codes
 decode_with_libdecodeqr() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # Check for libdecodeqr command-line tool
     if command -v decodeqr &>/dev/null; then
@@ -10283,8 +10329,10 @@ decode_with_libdecodeqr() {
 # Decoder 15: Tesseract OCR + Leptonica (for degraded/damaged QR codes)
 # Extracts text from very degraded codes that fail standard QR detection
 decode_with_tesseract_ocr() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Check for tesseract
@@ -10340,8 +10388,10 @@ decode_with_tesseract_ocr() {
 # Strong QR/barcode decoder with good error correction handling
 # Extended version with broader JAR search and inline Java code
 decode_with_boofcv_extended() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # Check for Java
     if ! command -v java &>/dev/null; then
@@ -10374,7 +10424,7 @@ decode_with_boofcv_extended() {
     if [[ -n "$boofcv_jar" ]] && [[ -f "$boofcv_jar" ]]; then
         # Create inline Java decoder script
         local java_code="${TEMP_DIR}/BoofQRDecoder.java"
-        cat > "$java_code" << 'BOOFCV_JAVA'
+        cat > "$java_code" <<'BOOFCV_JAVA'
 import boofcv.abst.fiducial.QrCodeDetector;
 import boofcv.factory.fiducial.FactoryFiducial;
 import boofcv.io.image.UtilImageIO;
@@ -10417,8 +10467,10 @@ BOOFCV_JAVA
 # Decoder 17: bwip-js (Node.js barcode library)
 # JavaScript barcode generator/decoder - good for 1D and 2D codes
 decode_with_bwipjs() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # Check for Node.js
     if ! command -v node &>/dev/null && ! command -v nodejs &>/dev/null; then
@@ -10485,8 +10537,10 @@ NODEJS_EOF
 
 # Decoder 18: jsQR (standalone Node.js QR decoder)
 decode_with_jsqr() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # Check for Node.js
     local node_cmd=""
@@ -10500,7 +10554,7 @@ decode_with_jsqr() {
     
     (
         exec 2>/dev/null
-        timeout 30 $node_cmd << 'JSQR_EOF' > "$output_file" 2>/dev/null
+        timeout 30 $node_cmd <<'JSQR_EOF' > "$output_file" 2>/dev/null
 const fs = require('fs');
 const path = require('path');
 
@@ -10543,8 +10597,10 @@ JSQR_EOF
 # Decoder 19: python-barcode / pyBarcode (1D barcode types)
 # Primarily for 1D barcodes: Code128, Code39, EAN, UPC, etc.
 decode_with_python_barcode() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     [[ -z "$python_cmd" ]] && return 2
@@ -10627,15 +10683,17 @@ PYBARCODE_EOF
 
 # Decoder 20: OpenCV ARUCO + DataMatrix (specialized 2D codes)
 decode_with_opencv_aruco() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     [[ -z "$python_cmd" ]] && return 2
     
     (
         exec 2>/dev/null
-        timeout 30 "$python_cmd" << 'PYARUCO_EOF' 2>/dev/null
+        timeout 30 "$python_cmd" <<'PYARUCO_EOF' 2>/dev/null
 import sys
 import signal
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
@@ -10720,8 +10778,10 @@ PYARUCO_EOF
 
 # Decoder 21: Dynamsoft Barcode Reader (if available - commercial but has free tier)
 decode_with_dynamsoft() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     [[ -z "$python_cmd" ]] && return 2
@@ -10735,7 +10795,7 @@ decode_with_dynamsoft() {
     # Run in completely isolated subprocess with all crash signals trapped
     # Use a separate script file to ensure complete isolation
     local temp_script="${TEMP_DIR}/dynamsoft_decode_$$.py"
-    cat > "$temp_script" << 'PYDYNAMSOFT_SCRIPT'
+    cat > "$temp_script" <<'PYDYNAMSOFT_SCRIPT'
 import sys
 import os
 import signal
@@ -10817,8 +10877,10 @@ PYDYNAMSOFT_SCRIPT
 
 # Decoder 22: zxing-cpp (C++ port of ZXing, often faster)
 decode_with_zxingcpp() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Check for zxing-cpp command line tool first (safest option)
@@ -10843,7 +10905,7 @@ decode_with_zxingcpp() {
     
     # Create isolated script file
     local temp_script="${TEMP_DIR}/zxingcpp_decode_$$.py"
-    cat > "$temp_script" << 'PYZXINGCPP_SCRIPT'
+    cat > "$temp_script" <<'PYZXINGCPP_SCRIPT'
 import sys
 import signal
 
@@ -10908,8 +10970,10 @@ PYZXINGCPP_SCRIPT
 # Decoder 23: GoQR - Go-based QR decoder (fast, memory-safe)
 # Uses gozxing or goqr command-line tools
 decode_with_goqr() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Input validation
@@ -10973,8 +11037,10 @@ decode_with_goqr() {
 # Decoder 24: Aztec Code decoder (ISO/IEC 24778)
 # Common in transport tickets, boarding passes, European train tickets
 decode_with_aztec() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -11000,7 +11066,7 @@ decode_with_aztec() {
     
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/aztec_decode_$$.py"
-        cat > "$temp_script" << 'PYAZTEC_SCRIPT'
+        cat > "$temp_script" <<'PYAZTEC_SCRIPT'
 import sys
 import signal
 
@@ -11090,8 +11156,10 @@ PYAZTEC_PYZBAR
 # Decoder 25: PDF417 barcode decoder (ISO 15438)
 # Used in IDs, driver's licenses, boarding passes, shipping labels
 decode_with_pdf417() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -11117,7 +11185,7 @@ decode_with_pdf417() {
     # Try via zxing-cpp with PDF417 filter
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/pdf417_decode_$$.py"
-        cat > "$temp_script" << 'PYPDF417_SCRIPT'
+        cat > "$temp_script" <<'PYPDF417_SCRIPT'
 import sys
 import signal
 
@@ -11210,8 +11278,10 @@ PYPDF417_PYZBAR
 # Decoder 26: MaxiCode decoder (ISO/IEC 16023)
 # Used primarily by UPS for shipping labels
 decode_with_maxicode() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -11237,7 +11307,7 @@ decode_with_maxicode() {
     # Try via zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/maxicode_decode_$$.py"
-        cat > "$temp_script" << 'PYMAXICODE_SCRIPT'
+        cat > "$temp_script" <<'PYMAXICODE_SCRIPT'
 import sys
 import signal
 
@@ -11309,8 +11379,10 @@ PYMAXICODE_SCRIPT
 # Decoder 27: Codabar decoder (NW-7, USD-4, Code 2 of 7)
 # Used in libraries, blood banks, FedEx airbills
 decode_with_codabar() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -11350,7 +11422,7 @@ PYCODABAR_PYZBAR
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/codabar_decode_$$.py"
-        cat > "$temp_script" << 'PYCODABAR_SCRIPT'
+        cat > "$temp_script" <<'PYCODABAR_SCRIPT'
 import sys
 import signal
 
@@ -11404,8 +11476,10 @@ PYCODABAR_SCRIPT
 # Decoder 28: Code 128 linear barcode decoder (ISO/IEC 15417)
 # High-density alphanumeric barcode - logistics, healthcare, retail
 decode_with_code128() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -11461,7 +11535,7 @@ PYCODE128_PYZBAR
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/code128_decode_$$.py"
-        cat > "$temp_script" << 'PYCODE128_SCRIPT'
+        cat > "$temp_script" <<'PYCODE128_SCRIPT'
 import sys
 import signal
 
@@ -11515,8 +11589,10 @@ PYCODE128_SCRIPT
 # Decoder 29: Code 39 decoder (ISO/IEC 16388)
 # Automotive VINs, defense (LOGMARS), healthcare
 decode_with_code39() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -11556,7 +11632,7 @@ PYCODE39_PYZBAR
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/code39_decode_$$.py"
-        cat > "$temp_script" << 'PYCODE39_SCRIPT'
+        cat > "$temp_script" <<'PYCODE39_SCRIPT'
 import sys
 import signal
 
@@ -11610,8 +11686,10 @@ PYCODE39_SCRIPT
 # Decoder 30: EAN/UPC decoder (ISO/IEC 15420)
 # Retail product barcodes - EAN-13, EAN-8, UPC-A, UPC-E
 decode_with_ean() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -11671,7 +11749,7 @@ PYEAN_PYZBAR
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/ean_decode_$$.py"
-        cat > "$temp_script" << 'PYEAN_SCRIPT'
+        cat > "$temp_script" <<'PYEAN_SCRIPT'
 import sys
 import signal
 
@@ -11734,8 +11812,10 @@ PYEAN_SCRIPT
 # Decoder 31: rMQR (Rectangular Micro QR) decoder (ISO/IEC 23941)
 # Compact QR variant for narrow spaces - product labels, electronics
 decode_with_rmqr() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -11752,7 +11832,7 @@ decode_with_rmqr() {
     # Try zxing-cpp (has rMQR support in newer versions)
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/rmqr_decode_$$.py"
-        cat > "$temp_script" << 'PYRMQR_SCRIPT'
+        cat > "$temp_script" <<'PYRMQR_SCRIPT'
 import sys
 import signal
 
@@ -11821,8 +11901,10 @@ PYRMQR_SCRIPT
 # Decoder 32: Han Xin Code decoder (GB/T 21049 - Chinese national standard)
 # High-capacity 2D barcode supporting Chinese characters natively
 decode_with_hanxin() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -11848,7 +11930,7 @@ decode_with_hanxin() {
     # Try zxing-cpp (has Han Xin support)
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/hanxin_decode_$$.py"
-        cat > "$temp_script" << 'PYHANXIN_SCRIPT'
+        cat > "$temp_script" <<'PYHANXIN_SCRIPT'
 import sys
 import signal
 
@@ -11915,8 +11997,10 @@ PYHANXIN_SCRIPT
 # Decoder 33: DotCode decoder (AIM DotCode, ISS DotCode)
 # High-speed industrial printing - tobacco, pharmaceuticals
 decode_with_dotcode() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -11933,7 +12017,7 @@ decode_with_dotcode() {
     # Try zxing-cpp (newer versions support DotCode)
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/dotcode_decode_$$.py"
-        cat > "$temp_script" << 'PYDOTCODE_SCRIPT'
+        cat > "$temp_script" <<'PYDOTCODE_SCRIPT'
 import sys
 import signal
 
@@ -12010,8 +12094,10 @@ PYDOTCODE_SCRIPT
 # Decoder 34: Grid Matrix decoder (GB/T 21049 - Chinese standard)
 # Alternative Chinese 2D barcode standard, similar to Han Xin
 decode_with_gridmatrix() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -12028,7 +12114,7 @@ decode_with_gridmatrix() {
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/gridmatrix_decode_$$.py"
-        cat > "$temp_script" << 'PYGRIDMATRIX_SCRIPT'
+        cat > "$temp_script" <<'PYGRIDMATRIX_SCRIPT'
 import sys
 import signal
 
@@ -12096,8 +12182,10 @@ PYGRIDMATRIX_SCRIPT
 # Decoder 35: Composite barcode decoder (GS1 Composite - CC-A, CC-B, CC-C)
 # 2D component linked to linear barcode - pharmaceutical, retail
 decode_with_composite() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -12163,8 +12251,10 @@ PYCOMPOSITE_PYZBAR
 # Decoder 36: Interleaved 2 of 5 (ITF) decoder (ISO/IEC 16390)
 # Distribution, warehouse, ticketing
 decode_with_itf() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -12203,7 +12293,7 @@ PYITF_PYZBAR
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/itf_decode_$$.py"
-        cat > "$temp_script" << 'PYITF_SCRIPT'
+        cat > "$temp_script" <<'PYITF_SCRIPT'
 import sys
 import signal
 
@@ -12257,8 +12347,10 @@ PYITF_SCRIPT
 # Decoder 37: Code 93 decoder
 # Higher density than Code 39, used in logistics
 decode_with_code93() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -12297,7 +12389,7 @@ PYCODE93_PYZBAR
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/code93_decode_$$.py"
-        cat > "$temp_script" << 'PYCODE93_SCRIPT'
+        cat > "$temp_script" <<'PYCODE93_SCRIPT'
 import sys
 import signal
 
@@ -12351,8 +12443,10 @@ PYCODE93_SCRIPT
 # Decoder 38: Universal decoder with all formats enabled
 # Catches any barcode type not handled by specific decoders
 decode_with_universal() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -12369,7 +12463,7 @@ decode_with_universal() {
     # Universal decoder using zxing-cpp with ALL formats enabled
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
         local temp_script="${TEMP_DIR}/universal_decode_$$.py"
-        cat > "$temp_script" << 'PYUNIVERSAL_SCRIPT'
+        cat > "$temp_script" <<'PYUNIVERSAL_SCRIPT'
 import sys
 import signal
 
@@ -13777,7 +13871,9 @@ declare -a ANTI_ANALYSIS_IOC_PATTERNS=(
 )
 
 analyze_anti_analysis_techniques() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local success_count="${2:-0}"
     local total_decoders="${3:-1}"
     local decoder_results="${4:-}"
@@ -14990,7 +15086,9 @@ init_extended_yara_rules() {
 }
 
 analyze_steganography() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     log_stego "Analyzing image for steganographic content and advanced evasion techniques..."
     local stego_score=0
     local stego_findings=()
@@ -15170,7 +15268,9 @@ analyze_steganography() {
 }
 
 analyze_lsb_patterns() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Skip if PIL/numpy not available
@@ -15178,7 +15278,7 @@ analyze_lsb_patterns() {
         return 0
     fi
     
-    timeout 60 "$python_cmd" - "$image" << 'PYLSB' 2>/dev/null || true
+    timeout 60 "$python_cmd" - "$image" <<'PYLSB' 2>/dev/null || true
 import sys
 import os
 import mmap
@@ -15296,7 +15396,9 @@ PYLSB
 }
 
 analyze_color_distribution() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Skip if PIL not available
@@ -15304,7 +15406,7 @@ analyze_color_distribution() {
         return 0
     fi
     
-    timeout 60 "$python_cmd" - "$image" << 'PYCOLOR' 2>/dev/null || true
+    timeout 60 "$python_cmd" - "$image" <<'PYCOLOR' 2>/dev/null || true
 import sys
 import os
 import mmap
@@ -15418,13 +15520,15 @@ PYCOLOR
 }
 
 analyze_file_entropy() {
-    local file="$1"
+    set +u
+    local file="${1:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     local entropy_result=""
     
     # Try Python-based entropy calculation first
     if [ -n "$python_cmd" ]; then
-        entropy_result=$("$python_cmd" - "$file" << 'PYENTROPY' 2>/dev/null
+        entropy_result=$("$python_cmd" - "$file" <<'PYENTROPY' 2>/dev/null
 import sys
 import os
 import math
@@ -15543,7 +15647,9 @@ check_appended_data() {
 ################################################################################
 
 analyze_image_metadata() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     
     log_info "Extracting and analyzing image metadata..."
     
@@ -15771,7 +15877,7 @@ check_jpeg_structure() {
         local python_cmd=$(get_python_cmd)
         if [ -n "$python_cmd" ]; then
             local validation_result
-            validation_result=$("$python_cmd" - "$image" << 'PYJPEGVALIDATE' 2>/dev/null
+            validation_result=$("$python_cmd" - "$image" <<'PYJPEGVALIDATE' 2>/dev/null
 import sys
 try:
     from PIL import Image
@@ -16004,7 +16110,9 @@ perform_ocr_analysis() {
 ################################################################################
 
 analyze_url_structure() {
-    local url="$1"
+    set +u
+    local url="${1:-}"
+    set -u
     local threats=0
 
     log_info "QR CODE MALWARE: Deep URL analysis of payload: $url"
@@ -16238,7 +16346,9 @@ analyze_url_structure() {
 }
 
 analyze_data_uri() {
-    local uri="$1"
+    set +u
+    local uri="${1:-}"
+    set -u
 
     log_info "Analyzing Data URI from QR code payload..."
 
@@ -16323,7 +16433,9 @@ analyze_data_uri() {
 }
 
 analyze_base64_in_url() {
-    local url="$1"
+    set +u
+    local url="${1:-}"
+    set -u
 
     # Extract potential Base64 strings (QR codes often encode entire payloads or commands)
     local b64_strings=$(echo "$url" | grep -oE "[A-Za-z0-9+/]{50,}=*")
@@ -16359,7 +16471,9 @@ analyze_base64_in_url() {
 }
 
 analyze_decoded_content() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
 
     # Check for script tags, inline JS, event handlers (QR phishing/exploit)
     if echo "$content" | grep -qiE "<script|javascript:|onerror=|onload=|onmouseover=|onfocus=|onwheel=|onmessage=|setTimeout\(|setInterval\(|fetch\(|XMLHttpRequest"; then
@@ -18283,7 +18397,9 @@ enrich_qr_ioc_context() {
 ################################################################################
 
 analyze_apt_indicators() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$APT_ATTRIBUTION" = false ]; then
         return
@@ -19086,7 +19202,9 @@ check_impact_techniques() {
 }
 
 analyze_payload_content() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     log_info "Analyzing payload content..."
 
     # Encoding, obfuscation, scripts, commands
@@ -19124,7 +19242,9 @@ analyze_payload_content() {
 }
 
 analyze_encoding() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
 
     log_info "  Checking for encoded, packed, or hidden content..."
 
@@ -19232,7 +19352,9 @@ analyze_encoding() {
 }
 
 analyze_obfuscation() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
 
     log_info "  Checking for advanced obfuscation techniques..."
 
@@ -19372,7 +19494,9 @@ EOF
 }
 
 analyze_char_frequency() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
 
     # Skip very short strings, but allow longer non-ASCII blocks
     if [ "${#content}" -lt 50 ]; then
@@ -19446,7 +19570,9 @@ EOF
 }
 
 analyze_script_content() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "  Checking for script content..."
     
@@ -19561,7 +19687,9 @@ analyze_script_content() {
 }
 
 analyze_powershell_payload() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_forensic "Analyzing PowerShell payload..."
     
@@ -19654,7 +19782,9 @@ analyze_powershell_payload() {
 }
 
 analyze_shell_payload() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_forensic "Analyzing shell payload..."
     
@@ -19744,7 +19874,9 @@ analyze_shell_payload() {
 }
 
 analyze_javascript_payload() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_forensic "Analyzing JavaScript payload..."
     
@@ -19834,7 +19966,9 @@ analyze_javascript_payload() {
 }
 
 analyze_python_payload() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_forensic "Analyzing Python payload..."
     
@@ -19916,7 +20050,9 @@ analyze_python_payload() {
 }
 
 analyze_command_content() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "  Checking for command patterns..."
     
@@ -20128,7 +20264,9 @@ analyze_command_content() {
 }
 
 analyze_secrets() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "  Checking for exposed secrets..."
     
@@ -20206,7 +20344,9 @@ analyze_secrets() {
 }
 
 analyze_crypto_addresses() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "  Checking for cryptocurrency addresses..."
     
@@ -20328,7 +20468,9 @@ analyze_crypto_addresses() {
 }
 
 analyze_phone_numbers() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     # International phone patterns
     local phone_patterns=(
@@ -20359,7 +20501,9 @@ analyze_phone_numbers() {
 }
 
 analyze_email_addresses() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     local email_pattern="[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
     local emails=$(echo "$content" | grep -oE "$email_pattern")
@@ -20868,7 +21012,9 @@ evaluate_yara_rule() {
 }
 
 analyze_env_fingerprinting() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     # Evasion, fingerprinting, sandbox, VM, emulator, defense check
     if echo "$content" | grep -qiE "VBox|vmware|qemu|parallels|sandboxie|testrun|whoami|systeminfo|uname|getprop|android\.os\.Build|frida|emulator|checkvm|check_sandbox"; then
         log_forensic_detection 55 \
@@ -20882,7 +21028,9 @@ analyze_env_fingerprinting() {
 }
 
 analyze_defense_evasion() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     # Defense evasion, tampering, AMSI, AV, log/cleaner
     if echo "$content" | grep -qiE "amsi.*bypass|Defender.*disable|antivirus.*off|clear-log|wevtutil|attrib.*hidden|powershell.*-nop|set-mppreference.*disable|tamper|bypass"; then
         log_forensic_detection 65 \
@@ -20896,7 +21044,9 @@ analyze_defense_evasion() {
 }
 
 analyze_exploit_payloads() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     # Exploits, shellcode, CVEs, heap spray, buffer overflow
     if echo "$content" | grep -qiE "0x[0-9a-fA-F]{8,}|stage1_shellcode|exploit|rop_chain|buffer overflow|metasploit|cve-|heap_spray|dll_inject|overflow"; then
         log_forensic_detection 77 \
@@ -21022,7 +21172,9 @@ check_impact_techniques() {
 }
 
 analyze_qr_specific_iocs() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     # QR-specific: intent abuse, instant QR malware, QR mobilizer, app provisioning
     if echo "$content" | grep -qiE "qr code.*payload|scan.*intent://|market://|mobile.*dropper|provisioning.*profile|android\.intent\.action|ios.*UniversalLink|scan.*app list"; then
         log_forensic_detection 64 \
@@ -21036,7 +21188,9 @@ analyze_qr_specific_iocs() {
 }
 
 analyze_supply_chain_impact() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     # Supply chain: installer, script, app builder/packer/provisioning, SDK injection
     if echo "$content" | grep -qiE "setup\.py|requirements\.txt|signapk|signipa|manifest\.json|provisioning profile|npm install|apktool|drozer|build.gradle|PyInstaller|shellter|veil|obfuscator|packer"; then
         log_forensic_detection 72 \
@@ -21050,7 +21204,9 @@ analyze_supply_chain_impact() {
 }
 
 analyze_mobile_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     # Mobile-specific: SMS abuse, ADB, overlay, permissions, QR, fraud
     if echo "$content" | grep -qiE "READ_SMS|SEND_SMS|CALL_PHONE|adb shell|pm install|am start|content://contacts|MMS|overlay|draw over|packageinstaller|deepLink|qr code.*sms|fido_key|gcm|push_key|twilio|whatsapp"; then
         log_forensic_detection 59 \
@@ -21064,7 +21220,9 @@ analyze_mobile_abuse() {
 }
 
 analyze_cloud_saas_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     # Cloud/SaaS: data exfil, API tokens, shadow IT, risky SaaS operations
     if echo "$content" | grep -qiE "aws_access_key_id|gcp_token|azure|cloudtrail|gs://|s3://|bucket|slack_token|discord_token|teams_token|office365|dropbox|gdrive|zapier|automation anywhere"; then
         log_forensic_detection 62 \
@@ -21078,7 +21236,9 @@ analyze_cloud_saas_abuse() {
 }
 
 analyze_social_engineering() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     # Phishing, fraud, vishing, QR-induced scam, social/impersonation/SEO/smishing/fake popups
     if echo "$content" | grep -qiE "phish|fake login|urgent action|required|confirm account|security alert|vishing|smishing|qr code.*phish|reset password|verify.*identity|impersonat(e|ion)|fakesender|spoofed"; then
         log_forensic_detection 65 \
@@ -21092,7 +21252,9 @@ analyze_social_engineering() {
 }
 
 analyze_steganography() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     # Stego/hidden: Data hidden in images, files, LSB, QR, packers
     if echo "$content" | grep -qiE "steganography|jpeg|png|lsb|hidden.*data|imageData|canvas\.toDataURL|exiftool|encode.*image|decode.*image|Stego|qr code.*steg"; then
         log_forensic_detection 50 \
@@ -21168,7 +21330,9 @@ generate_ioc_summary() {
 ################################################################################
 
 analyze_qr_image() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     
     # AUDIT: Validate and sanitize image path
     image=$(sanitize_path "$image") || {
@@ -21428,7 +21592,9 @@ validate_image_format() {
 ################################################################################
 
 analyze_cloud_service_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$CLOUD_ABUSE_CHECK" = false ]; then
         return
@@ -21605,7 +21771,9 @@ analyze_cloud_service_abuse() {
 ################################################################################
 
 analyze_messaging_platform_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local msg_report="${OUTPUT_DIR}/messaging_abuse_analysis.txt"
     
     log_info "Analyzing for messaging platform abuse..."
@@ -21741,7 +21909,9 @@ analyze_messaging_platform_abuse() {
 ################################################################################
 
 analyze_url_shortener_extended() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local shortener_report="${OUTPUT_DIR}/url_shortener_analysis.txt"
     
     log_info "Analyzing for URL shortener abuse..."
@@ -21814,7 +21984,9 @@ analyze_url_shortener_extended() {
 }
 
 analyze_offensive_tools() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing for offensive security tools and indicators..."
     
@@ -21999,7 +22171,9 @@ analyze_offensive_tools() {
 }
 
 analyze_service_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing for legitimate service abuse patterns..."
     
@@ -22101,7 +22275,9 @@ analyze_service_abuse() {
 }
 
 analyze_pastebin_content() {
-    local url="$1"
+    set +u
+    local url="${1:-}"
+    set -u
     
     # Extract pastebin URL
     local paste_url=$(echo "$url" | grep -oiE "pastebin\.com/raw/[a-zA-Z0-9]+" | head -1)
@@ -22147,7 +22323,9 @@ analyze_pastebin_content() {
 ################################################################################
 
 analyze_mobile_deeplinks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$MOBILE_DEEPLINK_CHECK" = false ]; then
         return
@@ -22295,7 +22473,9 @@ analyze_mobile_deeplinks() {
 ################################################################################
 
 analyze_wireless_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$BLUETOOTH_NFC_CHECK" = false ]; then
         return
@@ -22451,7 +22631,9 @@ analyze_wireless_attacks() {
 }
 
 analyze_mac_oui() {
-    local mac="$1"
+    set +u
+    local mac="${1:-}"
+    set -u
     local oui="${mac:0:8}"
     
     # Convert to uppercase and replace colons
@@ -22488,7 +22670,9 @@ analyze_mac_oui() {
 ################################################################################
 
 analyze_telephony_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing for telephony/USSD attacks..."
     
@@ -22625,7 +22809,9 @@ analyze_telephony_attacks() {
 ################################################################################
 
 analyze_hardware_exploits() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$HARDWARE_EXPLOIT_CHECK" = false ]; then
         return
@@ -22785,7 +22971,9 @@ analyze_hardware_exploits() {
 ################################################################################
 
 analyze_geofencing_cloaking() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$GEOFENCING_CHECK" = false ]; then
         return
@@ -22893,7 +23081,9 @@ analyze_geofencing_cloaking() {
 ################################################################################
 
 analyze_fileless_malware() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$FILELESS_MALWARE_CHECK" = false ]; then
         return
@@ -24252,7 +24442,9 @@ detect_living_off_cloud() {
 }
 
 analyze_decoded_content_threats() {
-    local decoded_content="$1"
+    set +u
+    local decoded_content="${1:-}"
+    set -u
     
     # Check for additional threats in decoded content
     if printf '%s' "$decoded_content" | grep -qiE -- 'IEX|Invoke-Expression|downloadstring' 2>/dev/null; then
@@ -24304,7 +24496,9 @@ analyze_decoded_content_threats() {
 ################################################################################
 
 analyze_ransomware_notes() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$RANSOMWARE_NOTE_CHECK" = false ]; then
         return
@@ -24486,7 +24680,9 @@ analyze_ransomware_notes() {
 ################################################################################
 
 analyze_tor_vpn() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$TOR_VPN_CHECK" = false ]; then
         return
@@ -24628,7 +24824,9 @@ check_tor_exit_nodes() {
 
 # DNS Tunneling Detection - DNS exfiltration via encoded QR payloads
 analyze_dns_tunneling() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local dns_report="${OUTPUT_DIR}/dns_tunneling_analysis.txt"
     
     log_info "Analyzing for DNS tunneling indicators..."
@@ -24729,7 +24927,9 @@ analyze_dns_tunneling() {
 
 # ICMP Tunneling Detection - ICMP covert channel indicators
 analyze_icmp_tunneling() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local icmp_report="${OUTPUT_DIR}/icmp_tunneling_analysis.txt"
     
     log_info "Analyzing for ICMP tunneling indicators..."
@@ -24802,7 +25002,9 @@ analyze_icmp_tunneling() {
 
 # WebSocket Abuse Detection - WebSocket upgrade/hijack patterns
 analyze_websocket_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local ws_report="${OUTPUT_DIR}/websocket_abuse_analysis.txt"
     
     log_info "Analyzing for WebSocket abuse patterns..."
@@ -24897,7 +25099,9 @@ analyze_websocket_abuse() {
 
 # gRPC Abuse Detection - gRPC endpoint exploitation
 analyze_grpc_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local grpc_report="${OUTPUT_DIR}/grpc_abuse_analysis.txt"
     
     log_info "Analyzing for gRPC abuse patterns..."
@@ -24982,7 +25186,9 @@ analyze_grpc_abuse() {
 
 # GraphQL Injection Detection - GraphQL query injection in URLs
 analyze_graphql_injection() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local graphql_report="${OUTPUT_DIR}/graphql_injection_analysis.txt"
     
     log_info "Analyzing for GraphQL injection patterns..."
@@ -25076,7 +25282,9 @@ analyze_graphql_injection() {
 
 # MQTT IoT Abuse Detection - MQTT protocol abuse for IoT attacks
 analyze_mqtt_iot_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local mqtt_report="${OUTPUT_DIR}/mqtt_iot_analysis.txt"
     
     log_info "Analyzing for MQTT/IoT abuse patterns..."
@@ -25189,7 +25397,9 @@ analyze_mqtt_iot_abuse() {
 
 # CoAP Attack Detection - Constrained Application Protocol abuse
 analyze_coap_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local coap_report="${OUTPUT_DIR}/coap_attack_analysis.txt"
     
     log_info "Analyzing for CoAP attack patterns..."
@@ -25266,7 +25476,9 @@ analyze_coap_attacks() {
 
 # QUIC Protocol Tunneling Detection
 analyze_quic_tunneling() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local quic_report="${OUTPUT_DIR}/quic_tunneling_analysis.txt"
     
     log_info "Analyzing for QUIC tunneling patterns..."
@@ -25344,7 +25556,9 @@ analyze_quic_tunneling() {
 
 # HTTP/3 Fingerprinting Evasion Detection
 analyze_http3_fingerprinting() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local http3_report="${OUTPUT_DIR}/http3_fingerprinting_analysis.txt"
     
     log_info "Analyzing for HTTP/3 fingerprinting evasion..."
@@ -25409,7 +25623,9 @@ analyze_http3_fingerprinting() {
 
 # IPFS/Distributed Storage Threat Detection
 analyze_ipfs_threats() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local ipfs_report="${OUTPUT_DIR}/ipfs_threat_analysis.txt"
     
     log_info "Analyzing for IPFS/distributed storage threats..."
@@ -25517,7 +25733,9 @@ analyze_ipfs_threats() {
 
 # SSE (Server-Sent Events) Abuse Detection
 analyze_sse_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing for SSE abuse patterns..."
     
@@ -25550,7 +25768,9 @@ analyze_sse_abuse() {
 
 # WebRTC Abuse Detection
 analyze_webrtc_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local webrtc_report="${OUTPUT_DIR}/webrtc_abuse_analysis.txt"
     
     log_info "Analyzing for WebRTC abuse patterns..."
@@ -25629,7 +25849,9 @@ analyze_webrtc_abuse() {
 
 # Blockchain/Web3 Attack Detection
 analyze_blockchain_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local blockchain_report="${OUTPUT_DIR}/blockchain_attack_analysis.txt"
     
     log_info "Analyzing for blockchain/Web3 attack patterns..."
@@ -25734,7 +25956,9 @@ analyze_blockchain_attacks() {
 
 # OAuth/OIDC Attack Detection
 analyze_oauth_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local oauth_report="${OUTPUT_DIR}/oauth_attack_analysis.txt"
     
     log_info "Analyzing for OAuth/OIDC attack patterns..."
@@ -25819,7 +26043,9 @@ analyze_oauth_attacks() {
 
 # SAML Attack Detection
 analyze_saml_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local saml_report="${OUTPUT_DIR}/saml_attack_analysis.txt"
     
     log_info "Analyzing for SAML attack patterns..."
@@ -25897,7 +26123,9 @@ analyze_saml_attacks() {
 
 # Container/Kubernetes Attack Detection
 analyze_container_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local container_report="${OUTPUT_DIR}/container_attack_analysis.txt"
     
     log_info "Analyzing for container/Kubernetes attack patterns..."
@@ -25985,7 +26213,9 @@ analyze_container_attacks() {
 
 # Serverless/Function Attack Detection
 analyze_serverless_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local serverless_report="${OUTPUT_DIR}/serverless_attack_analysis.txt"
     
     log_info "Analyzing for serverless/function attack patterns..."
@@ -26071,7 +26301,9 @@ analyze_serverless_attacks() {
 # Fast-Flux DNS Network Detection
 # Detects rapidly changing DNS records used by botnets and malware C2
 analyze_fast_flux() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local fastflux_report="${OUTPUT_DIR}/fast_flux_analysis.txt"
     
     log_info "Analyzing for Fast-Flux DNS indicators..."
@@ -26173,7 +26405,9 @@ analyze_fast_flux() {
 # Domain Fronting Detection
 # Detects technique of routing traffic through legitimate CDN domains
 analyze_domain_fronting() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local df_report="${OUTPUT_DIR}/domain_fronting_analysis.txt"
     
     log_info "Analyzing for domain fronting indicators..."
@@ -26277,7 +26511,9 @@ analyze_domain_fronting() {
 # DNS over HTTPS (DoH) Abuse Detection
 # Detects malicious use of encrypted DNS for C2 communication
 analyze_dns_over_https() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local doh_report="${OUTPUT_DIR}/doh_abuse_analysis.txt"
     
     log_info "Analyzing for DNS-over-HTTPS abuse..."
@@ -26383,7 +26619,9 @@ analyze_dns_over_https() {
 
 # DNS over TLS (DoT) Abuse Detection
 analyze_dns_over_tls() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local dot_report="${OUTPUT_DIR}/dot_abuse_analysis.txt"
     
     log_info "Analyzing for DNS-over-TLS abuse..."
@@ -26451,7 +26689,9 @@ analyze_dns_over_tls() {
 
 # Encrypted SNI (ESNI/ECH) Bypass Detection
 analyze_esni_sni_bypass() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local esni_report="${OUTPUT_DIR}/esni_bypass_analysis.txt"
     
     log_info "Analyzing for ESNI/ECH bypass techniques..."
@@ -26523,7 +26763,9 @@ analyze_esni_sni_bypass() {
 
 # Traffic Fragmentation Evasion Detection
 analyze_traffic_fragmentation() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local frag_report="${OUTPUT_DIR}/traffic_fragmentation_analysis.txt"
     
     log_info "Analyzing for traffic fragmentation evasion..."
@@ -26598,7 +26840,9 @@ analyze_traffic_fragmentation() {
 # Protocol Switching Detection
 # Detects mid-session protocol switching for evasion
 analyze_protocol_switching() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local proto_report="${OUTPUT_DIR}/protocol_switching_analysis.txt"
     
     log_info "Analyzing for protocol switching evasion..."
@@ -26680,7 +26924,9 @@ analyze_protocol_switching() {
 # Timing Channel Detection
 # Detects timing-based covert channels
 analyze_timing_channels() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local timing_report="${OUTPUT_DIR}/timing_channel_analysis.txt"
     
     log_info "Analyzing for timing-based covert channels..."
@@ -26757,7 +27003,9 @@ analyze_timing_channels() {
 # Steganographic DNS Detection
 # Detects DNS TXT record steganography
 analyze_steganographic_dns() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local steg_dns_report="${OUTPUT_DIR}/steganographic_dns_analysis.txt"
     
     log_info "Analyzing for DNS steganography..."
@@ -26851,7 +27099,9 @@ analyze_steganographic_dns() {
 # Dependency Confusion Attack Detection
 # Detects package name confusion attacks (internal vs public packages)
 analyze_dependency_confusion() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local dc_report="${OUTPUT_DIR}/dependency_confusion_analysis.txt"
     
     log_info "Analyzing for dependency confusion attacks..."
@@ -26954,7 +27204,9 @@ analyze_dependency_confusion() {
 # Typosquatting Package Detection
 # Detects npm/PyPI package typosquatting
 analyze_typosquatting_packages() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local typo_report="${OUTPUT_DIR}/typosquatting_analysis.txt"
     
     log_info "Analyzing for package typosquatting..."
@@ -27063,7 +27315,9 @@ analyze_typosquatting_packages() {
 # Compromised CDN Detection
 # Detects malicious CDN resource injection
 analyze_compromised_cdn() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local cdn_report="${OUTPUT_DIR}/compromised_cdn_analysis.txt"
     
     log_info "Analyzing for compromised CDN resources..."
@@ -27164,7 +27418,9 @@ analyze_compromised_cdn() {
 # Subresource Integrity Bypass Detection
 # Detects SRI bypass attempts
 analyze_subresource_integrity() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local sri_report="${OUTPUT_DIR}/sri_bypass_analysis.txt"
     
     log_info "Analyzing for SRI bypass attempts..."
@@ -27263,7 +27519,9 @@ analyze_subresource_integrity() {
 # Package Manifest Abuse Detection
 # Detects package.json/requirements.txt injection
 analyze_package_manifest_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local manifest_report="${OUTPUT_DIR}/package_manifest_analysis.txt"
     
     log_info "Analyzing for package manifest abuse..."
@@ -27389,7 +27647,9 @@ analyze_package_manifest_abuse() {
 ################################################################################
 
 analyze_social_engineering() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$PERSONA_LINKING" = false ]; then
         return
@@ -27796,7 +28056,9 @@ analyze_asn_infrastructure() {
 ################################################################################
 
 analyze_adversarial_qr() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     
     if [ "$ADVERSARIAL_QR_CHECK" = false ]; then
         return
@@ -27940,13 +28202,15 @@ analyze_adversarial_qr() {
 }
 
 analyze_qr_visual_properties() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Run in isolated subshell to prevent segfaults from crashing the main script
     (
         exec 2>/dev/null
-        timeout 60 "$python_cmd" - "$image" << 'PYVISUAL' 2>/dev/null
+        timeout 60 "$python_cmd" - "$image" <<'PYVISUAL' 2>/dev/null
 import sys
 import os
 import signal
@@ -28054,13 +28318,15 @@ PYVISUAL
 }
 
 analyze_qr_density() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Run in isolated subshell to prevent crashes
     (
         exec 2>/dev/null
-        timeout 30 "$python_cmd" - "$image" << 'PYDENSITY' 2>/dev/null
+        timeout 30 "$python_cmd" - "$image" <<'PYDENSITY' 2>/dev/null
 import sys
 import signal
 
@@ -28112,7 +28378,9 @@ PYDENSITY
 ################################################################################
 
 analyze_zero_day_anomalies() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$ZERO_DAY_DETECTION" = false ]; then
         return
@@ -28209,7 +28477,9 @@ analyze_zero_day_anomalies() {
 }
 
 analyze_encoding_anomalies() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     # Check for mixed encodings
     local has_base64=false
@@ -28234,7 +28504,9 @@ analyze_encoding_anomalies() {
 }
 
 analyze_polyglot_content() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     # Check for polyglot file signatures in content
     
@@ -28260,7 +28532,9 @@ analyze_polyglot_content() {
 }
 
 analyze_parser_differentials() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # Validate content is not empty
@@ -28329,7 +28603,9 @@ check_known_cve_patterns() {
 ################################################################################
 
 analyze_ml_heuristics() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$ML_CLASSIFICATION" = false ]; then
         return
@@ -28505,7 +28781,9 @@ analyze_ml_heuristics() {
 #     fi
 
 analyze_ngram_patterns() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     # Check for suspicious character n-grams
     # Note: Using -F for fixed string matching to avoid regex issues with special chars
@@ -28629,7 +28907,9 @@ get_threat_level() {
 ################################################################################
 
 analyze_industry_threats() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing for industry-specific threats..."
     
@@ -28718,7 +28998,9 @@ analyze_industry_threats() {
 ################################################################################
 
 analyze_url_obfuscation() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing for URL obfuscation techniques..."
     
@@ -29067,7 +29349,9 @@ declare -A INJECTION_SEVERITY=(
 )
 
 analyze_injection_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing for injection attack patterns..."
     
@@ -29816,7 +30100,9 @@ decode_payload() {
 
 # Extract and analyze nested payloads
 analyze_nested_injection() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local depth="${2:-0}"
     local max_depth=3
     
@@ -29868,7 +30154,9 @@ generate_injection_report_json() {
 ################################################################################
 
 analyze_c2_beacons() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing for C2 beacon patterns..."
     
@@ -29919,7 +30207,9 @@ analyze_c2_beacons() {
 ################################################################################
 
 analyze_crypto_scams() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing for cryptocurrency scam patterns..."
     
@@ -29970,8 +30260,10 @@ analyze_crypto_scams() {
 ################################################################################
 
 analyze_decoded_qr_content() {
-    local content="$1"
-    local report_file="$2"
+    set +u
+    local content="${1:-}"
+    local report_file="${2:-}"
+    set -u
     
     log_info "Analyzing decoded QR content..."
     
@@ -30260,7 +30552,9 @@ analyze_decoded_qr_content() {
 }
 
 analyze_wifi_config() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing WiFi configuration..."
     
@@ -30300,7 +30594,9 @@ analyze_wifi_config() {
 }
 
 analyze_vcard() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing vCard content..."
     
@@ -30327,7 +30623,9 @@ analyze_vcard() {
 }
 
 analyze_otp_uri() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing OTP URI..."
     
@@ -30952,7 +31250,9 @@ declare -a SANDBOX_MALICIOUS_BEHAVIORS=(
 )
 
 analyze_sandbox_detonation() {
-    local url="$1"
+    set +u
+    local url="${1:-}"
+    set -u
     
     if [ "$SANDBOX_DETONATION" = false ]; then
         analysis_success_none "SANDBOX-DETONATION"
@@ -31168,8 +31468,10 @@ declare -a HTML_PHISHING_PATTERNS=(
 )
 
 analyze_js_browser_exploits() {
-    local content="$1"
-    local url="$2"
+    set +u
+    local content="${1:-}"
+    local url="${2:-}"
+    set -u
     
     if [ "$JS_BROWSER_ANALYSIS" = false ]; then
         analysis_success_none "JS-BROWSER-ANALYSIS"
@@ -31352,7 +31654,9 @@ declare -a ML_BRAND_LIST=(
 )
 
 analyze_ml_classification_enhanced() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$ML_CLASSIFICATION_ENHANCED" = false ]; then
         analysis_success_none "ML-CLASSIFICATION"
@@ -31636,8 +31940,10 @@ declare -a OFFICE_MACRO_PATTERNS=(
 )
 
 analyze_pdf_document() {
-    local content="$1"
-    local url="$2"
+    set +u
+    local content="${1:-}"
+    local url="${2:-}"
+    set -u
     
     if [ "$PDF_DOC_ANALYSIS" = false ]; then
         analysis_success_none "PDF-DOC-ANALYSIS"
@@ -31871,7 +32177,9 @@ declare -a NLP_LEGITIMATE_PATTERNS=(
 )
 
 analyze_nlp_content() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$NLP_ANALYSIS" = false ]; then
         analysis_success_none "NLP-ANALYSIS"
@@ -32112,8 +32420,10 @@ declare -a IOS_SUSPICIOUS_ENTITLEMENTS=(
 )
 
 analyze_mobile_static() {
-    local content="$1"
-    local url="$2"
+    set +u
+    local content="${1:-}"
+    local url="${2:-}"
+    set -u
     
     if [ "$MOBILE_STATIC_ANALYSIS" = false ]; then
         analysis_success_none "MOBILE-STATIC"
@@ -32255,7 +32565,9 @@ analyze_mobile_static() {
 # ============================================================================
 
 analyze_web_archive() {
-    local url="$1"
+    set +u
+    local url="${1:-}"
+    set -u
     
     if [ "$WEB_ARCHIVE_ANALYSIS" = false ]; then
         analysis_success_none "WEB-ARCHIVE"
@@ -32406,7 +32718,9 @@ declare -a CRAWL_TARGET_SERVICES=(
 )
 
 analyze_recursive_crawl() {
-    local url="$1"
+    set +u
+    local url="${1:-}"
+    set -u
     local depth="${2:-0}"
     
     if [ "$RECURSIVE_CRAWL" = false ]; then
@@ -32539,7 +32853,9 @@ analyze_recursive_crawl() {
 # ============================================================================
 
 analyze_adversarial_ai() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     
     if [ "$ADVERSARIAL_AI_DETECTION" = false ]; then
         analysis_success_none "ADVERSARIAL-AI"
@@ -32718,8 +33034,10 @@ declare -a DNS_COVERT_INDICATORS=(
 )
 
 analyze_covert_channels() {
-    local content="$1"
-    local url="$2"
+    set +u
+    local content="${1:-}"
+    local url="${2:-}"
+    set -u
     
     if [ "$COVERT_CHANNEL_DETECTION" = false ]; then
         analysis_success_none "COVERT-CHANNELS"
@@ -32858,8 +33176,10 @@ declare -a QR_CHAIN_HASHES=()
 declare -a QR_CHAIN_CONTENTS=()
 
 analyze_qr_chaining() {
-    local content="$1"
-    local image="$2"
+    set +u
+    local content="${1:-}"
+    local image="${2:-}"
+    set -u
     local batch_mode="${3:-false}"
     
     if [ "$CROSS_QR_CHAIN_DETECTION" = false ]; then
@@ -33037,8 +33357,10 @@ declare -a MALICIOUS_TEMPLATE_PATTERNS=(
 )
 
 analyze_template_spoofing() {
-    local content="$1"
-    local image="$2"
+    set +u
+    local content="${1:-}"
+    local image="${2:-}"
+    set -u
     
     if [ "$TEMPLATE_SPOOF_DETECTION" = false ]; then
         analysis_success_none "TEMPLATE-SPOOFING"
@@ -33227,7 +33549,9 @@ declare -a TRACKING_PARAMS=(
 )
 
 analyze_social_marketing_links() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$SOCIAL_MEDIA_LINK_DETECTION" = false ]; then
         analysis_success_none "SOCIAL-MARKETING"
@@ -33415,8 +33739,10 @@ declare -a BROWSER_ATTACK_PATTERNS=(
 )
 
 analyze_ux_redress_attacks() {
-    local content="$1"
-    local url="$2"
+    set +u
+    local content="${1:-}"
+    local url="${2:-}"
+    set -u
     
     if [ "$UX_REDRESS_DETECTION" = false ]; then
         analysis_success_none "UX-REDRESS"
@@ -33582,7 +33908,9 @@ analyze_ux_redress_attacks() {
 # ============================================================================
 
 analyze_dga_domains() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$DGA_ANALYSIS" = false ]; then
         analysis_success_none "DGA-ANALYSIS"
@@ -33638,11 +33966,17 @@ analyze_dga_domains() {
     local dga_analysis
     
     # Write Python script to temp file (avoids bash command substitution memory limits)
-    cat > "$dga_script" << 'EOF'
+    cat > "$dga_script" <<'EOF'
 #!/usr/bin/env python3
 """
 APEX DGA Detection Engine
 Research-grade algorithmic domain detection system. 
+
+MEMORY OPTIMIZATION:
+- Output written to file to avoid bash command substitution memory limits
+- Uses @lru_cache for memoization of expensive computations
+- Efficient data structures (dicts, sets) for lookups
+- Processes data in streaming fashion where possible
 
 References:
 - Antonakakis et al. "From Throw-Away Traffic to Bots:  Detecting the Rise of DGA-Based Malware" (USENIX 2012)
@@ -33657,6 +33991,7 @@ try:
     import re
     import sys
     import string
+    import gc  # Explicit garbage collection for large analysis
     from collections import Counter, defaultdict
     from typing import Dict, List, Tuple, Optional, Any
     from functools import lru_cache
@@ -34053,7 +34388,7 @@ CONSONANTS = set('bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ')
 # ============================================================================
 
 @lru_cache(maxsize=1024)
-def calculate_entropy(text:  str) -> float:
+def calculate_entropy(text: str) -> float:
     """Calculate Shannon entropy of text."""
     if not text:
         return 0.0
@@ -34082,11 +34417,11 @@ def calculate_sliding_window_entropy(text: str, window_size: int = 5) -> Dict[st
     return {
         'mean': round(mean_entropy, 4),
         'std': round(std_entropy, 4),
-        'max':  round(max(entropies), 4),
+        'max': round(max(entropies), 4),
         'min': round(min(entropies), 4)
     }
 
-def calculate_normalized_entropy(text:  str) -> float:
+def calculate_normalized_entropy(text: str) -> float:
     """Calculate normalized entropy (0-1 scale based on character set)."""
     if not text:
         return 0.0
@@ -34108,7 +34443,7 @@ def calculate_bigram_frequency_score(text: str) -> Dict[str, Any]:
     
     bigrams = [text[i:i+2] for i in range(len(text) - 1)]
     if not bigrams:
-        return {'score':  0, 'common_ratio': 0, 'rare_count': 0}
+        return {'score': 0, 'common_ratio': 0, 'rare_count': 0}
     
     common_count = sum(1 for b in bigrams if b in COMMON_BIGRAMS)
     common_ratio = common_count / len(bigrams)
@@ -34232,7 +34567,7 @@ def calculate_pronounceability_score(text: str) -> Dict[str, Any]:
         'vowel_ratio': round(vowel_ratio, 4)
     }
 
-def analyze_character_distribution(text:  str) -> Dict[str, Any]:
+def analyze_character_distribution(text: str) -> Dict[str, Any]:
     """Analyze character class distribution and transitions."""
     if not text:
         return {}
@@ -34325,7 +34660,7 @@ def detect_keyboard_patterns(text: str) -> Dict[str, Any]:
         'has_keyboard_pattern': walk_ratio > 0.4 or max_row_concentration > 0.8
     }
 
-def detect_number_patterns(text:  str) -> Dict[str, Any]:
+def detect_number_patterns(text: str) -> Dict[str, Any]:
     """Detect suspicious number patterns in domain."""
     # Extract all numbers
     numbers = re.findall(r'\d+', text)
@@ -34379,7 +34714,7 @@ def check_dga_family_signatures(domain: str, main_domain: str, tld: str, entropy
         match_reasons = []
         
         # Check regex pattern
-        if re.match(signature['pattern'], full_domain. lower()):
+        if re.match(signature['pattern'], full_domain.lower()):
             match_score += 40
             match_reasons.append('pattern_match')
         
@@ -34391,7 +34726,7 @@ def check_dga_family_signatures(domain: str, main_domain: str, tld: str, entropy
         
         # Check charset
         charset = signature.get('charset', 'any')
-        if charset == 'lowercase' and main_domain.islower() and main_domain. isalpha():
+        if charset == 'lowercase' and main_domain.islower() and main_domain.isalpha():
             match_score += 15
             match_reasons.append('charset_match')
         elif charset == 'alphanumeric' and main_domain.isalnum():
@@ -34407,7 +34742,7 @@ def check_dga_family_signatures(domain: str, main_domain: str, tld: str, entropy
         
         # Only report if we have significant match
         if match_score >= 40:
-            matches. append({
+            matches.append({
                 'family': family_name,
                 'confidence': min(match_score, 100),
                 'description': signature['description'],
@@ -34431,7 +34766,7 @@ def analyze_subdomain_structure(domain: str) -> Dict[str, Any]:
     parts = domain.split('.')
     
     # Determine TLD (could be compound like co.uk)
-    compound_tlds = ['co.uk', 'com.au', 'co.nz', 'co.jp', 'com.br', 'com. mx', 'co.za', 'org.uk', 'net.au']
+    compound_tlds = ['co.uk', 'com.au', 'co.nz', 'co.jp', 'com.br', 'com.mx', 'co.za', 'org.uk', 'net.au']
     
     tld = parts[-1] if parts else ''
     tld_parts = 1
@@ -34478,11 +34813,11 @@ def detect_punycode_homograph(domain: str) -> Dict[str, Any]:
     }
     
     # Check for punycode (xn--)
-    if 'xn--' in domain. lower():
+    if 'xn--' in domain.lower():
         result['is_punycode'] = True
         try:
             # Decode punycode
-            decoded = domain. encode('ascii').decode('idna')
+            decoded = domain.encode('ascii').decode('idna')
             result['decoded_domain'] = decoded
             result['homograph_risk'] = 'high'
         except (UnicodeError, UnicodeDecodeError):
@@ -34559,7 +34894,7 @@ def calculate_lexical_features(text: str) -> Dict[str, Any]:
     n_lowercase = sum(1 for c in text if c.islower())
     n_uppercase = sum(1 for c in text if c.isupper())
     n_digits = sum(1 for c in text if c.isdigit())
-    n_special = sum(1 for c in text if not c. isalnum())
+    n_special = sum(1 for c in text if not c.isalnum())
     n_vowels = sum(1 for c in text_lower if c in 'aeiou')
     n_consonants = sum(1 for c in text_lower if c in 'bcdfghjklmnpqrstvwxyz')
     
@@ -34575,7 +34910,7 @@ def calculate_lexical_features(text: str) -> Dict[str, Any]:
     cv_ratio = n_consonants / n_vowels if n_vowels > 0 else n_consonants
     
     # Longest run of same character class
-    max_consonant_run = max((len(m. group()) for m in re.finditer(r'[bcdfghjklmnpqrstvwxyz]+', text_lower)), default=0)
+    max_consonant_run = max((len(m.group()) for m in re.finditer(r'[bcdfghjklmnpqrstvwxyz]+', text_lower)), default=0)
     max_vowel_run = max((len(m.group()) for m in re.finditer(r'[aeiou]+', text_lower)), default=0)
     max_digit_run = max((len(m.group()) for m in re.finditer(r'\d+', text)), default=0)
     
@@ -34623,7 +34958,7 @@ def calculate_dga_confidence_score(results: Dict[str, Any]) -> Tuple[int, str, L
     
     # 1. Entropy analysis (max 25 points)
     entropy = results.get('entropy', 0)
-    if entropy > 4. 2:
+    if entropy > 4.2:
         score += 25
         factors.append(f"Very high entropy ({entropy:.2f})")
     elif entropy > 3.9:
@@ -34688,7 +35023,7 @@ def calculate_dga_confidence_score(results: Dict[str, Any]) -> Tuple[int, str, L
     tld_risk = tld_data.get('risk_score', 0)
     if tld_risk >= 0.6:
         score += 10
-        factors.append(f"High-risk TLD (. {tld_data.get('tld', 'unknown')})")
+        factors.append(f"High-risk TLD (.{tld_data.get('tld', 'unknown')})")
     elif tld_risk >= 0.4:
         score += 5
         factors.append(f"Medium-risk TLD (.{tld_data.get('tld', 'unknown')})")
@@ -34708,7 +35043,7 @@ def calculate_dga_confidence_score(results: Dict[str, Any]) -> Tuple[int, str, L
         if num_data.get('digit_ratio', 0) > 0.4:
             score += 7
             factors.append("High digit ratio")
-        elif num_data. get('suffix_numbers') or num_data.get('prefix_numbers'):
+        elif num_data.get('suffix_numbers') or num_data.get('prefix_numbers'):
             score += 4
             factors.append("Numbers at domain boundary")
     
@@ -34719,7 +35054,7 @@ def calculate_dga_confidence_score(results: Dict[str, Any]) -> Tuple[int, str, L
         factors.append("Keyboard walk pattern detected")
     
     # 10. Punycode/homograph (max 10 points)
-    puny_data = results. get('punycode_analysis', {})
+    puny_data = results.get('punycode_analysis', {})
     if puny_data.get('homograph_risk') == 'high':
         score += 10
         factors.append("Punycode/homograph attack indicators")
@@ -34783,23 +35118,23 @@ def main():
         if len(parts) > 1:
             # Check for compound TLDs
             compound_tlds = ['co.uk', 'com.au', 'co.nz', 'co.jp', 'com.br', 'com.mx',
-                           'co. za', 'org.uk', 'net.au', 'gov.uk', 'ac.uk', 'edu.au',
+                           'co.za', 'org.uk', 'net.au', 'gov.uk', 'ac.uk', 'edu.au',
                            'gov.au', 'org.au', 'net.nz', 'org.nz', 'govt.nz', 'co.in',
                            'net.in', 'org.in', 'gov.in', 'co.kr', 'or.kr', 'go.kr',
                            'ne.jp', 'or.jp', 'go.jp', 'ac.jp', 'co.il', 'org.il',
                            'gov.il', 'com.sg', 'gov.sg', 'edu.sg', 'com.hk', 'gov.hk',
-                           'edu.hk', 'com.tw', 'gov.tw', 'org.tw', 'com.cn', 'gov. cn',
+                           'edu.hk', 'com.tw', 'gov.tw', 'org.tw', 'com.cn', 'gov.cn',
                            'net.cn', 'org.cn', 'com.ru', 'org.ru', 'gov.ru', 'com.ua',
                            'gov.ua', 'org.ua', 'com.pl', 'gov.pl', 'org.pl', 'com.tr',
-                           'gov. tr', 'org.tr', 'com.ar', 'gov. ar', 'org.ar', 'com.co',
+                           'gov.tr', 'org.tr', 'com.ar', 'gov.ar', 'org.ar', 'com.co',
                            'gov.co', 'org.co', 'gob.mx', 'org.mx', 'net.mx', 'gob.es',
                            'org.es', 'com.es', 'co.th', 'go.th', 'or.th', 'ac.th',
-                           'com.my', 'gov.my', 'org.my', 'com.ph', 'gov. ph', 'org.ph',
+                           'com.my', 'gov.my', 'org.my', 'com.ph', 'gov.ph', 'org.ph',
                            'com.vn', 'gov.vn', 'org.vn', 'co.id', 'go.id', 'or.id']
             
             if len(parts) >= 2:
                 potential_compound = f"{parts[-2]}.{parts[-1]}"
-                if potential_compound. lower() in compound_tlds:
+                if potential_compound.lower() in compound_tlds:
                     tld = potential_compound
                     main_domain = '.'.join(parts[:-2])
                 else:
@@ -34807,7 +35142,7 @@ def main():
                     main_domain = '.'.join(parts[:-1])
         
         # If main_domain still has subdomains, extract just the registrable part
-        main_parts = main_domain. split('.')
+        main_parts = main_domain.split('.')
         registrable_domain = main_parts[-1] if main_parts else main_domain
         full_main_domain = main_domain
         
@@ -34906,7 +35241,7 @@ def main():
         if dga_score >= 40:
             recommendations.append("Add to watchlist for monitoring")
             recommendations.append("Correlate with threat intelligence feeds")
-        if results. get('dga_family_matches'):
+        if results.get('dga_family_matches'):
             family = results['dga_family_matches'][0]['family']
             recommendations.append(f"Research {family} malware family for IoCs")
         if results.get('punycode_analysis', {}).get('homograph_risk') == 'high':
@@ -34922,11 +35257,11 @@ def main():
             'bigram_common_ratio': results['bigram_analysis'].get('common_ratio', 0),
             'trigram_common_ratio': results['trigram_analysis'].get('common_ratio', 0),
             'markov_probability': results['markov_probability'],
-            'pronounceability_score': results['pronounceability']. get('score', 0),
+            'pronounceability_score': results['pronounceability'].get('score', 0),
             'vowel_ratio': results['lexical_features'].get('vowel_ratio', 0),
             'consonant_ratio': results['lexical_features'].get('consonant_ratio', 0),
-            'digit_ratio': results['lexical_features']. get('digit_ratio', 0),
-            'cv_ratio': results['lexical_features']. get('cv_ratio', 0),
+            'digit_ratio': results['lexical_features'].get('digit_ratio', 0),
+            'cv_ratio': results['lexical_features'].get('cv_ratio', 0),
             'char_diversity': results['lexical_features'].get('char_diversity', 0),
             'max_consonant_run': results['lexical_features'].get('max_consonant_run', 0),
             'chi_square':  results['character_distribution'].get('chi_square_vs_english', 0),
@@ -34940,6 +35275,9 @@ def main():
         
         print(json.dumps(results, indent=2))
         
+        # Explicit garbage collection to free memory
+        gc.collect()
+        
     except Exception as e:
         import traceback
         print(json.dumps({
@@ -34947,6 +35285,9 @@ def main():
             "traceback": traceback.format_exc()
         }), file=sys.stderr)
         sys.exit(1)
+    finally:
+        # Final cleanup
+        gc.collect()
 
 if __name__ == "__main__":
     main()
@@ -34956,18 +35297,22 @@ EOF
     chmod 600 "$dga_script"
     register_temp_file "$dga_script"
     
-    # Execute the Python script
-    dga_analysis=$(printf '%s' "$domain" | python3 "$dga_script" 2>&1)
+    # Create temporary file for Python output (avoids command substitution memory limits)
+    local dga_output_file="${TEMP_DIR}/dga_output_$$.json"
+    register_temp_file "$dga_output_file"
+    
+    # Execute the Python script - write output to file instead of variable
+    printf '%s' "$domain" | python3 "$dga_script" > "$dga_output_file" 2>&1
     
     # Capture Python exit code
     local python_exit_code=$?
     
     # Check if we got valid JSON output
-    if [ -n "$dga_analysis" ] && printf '%s' "$dga_analysis" | grep -q '"domain"'; then
+    if [ -s "$dga_output_file" ] && grep -q '"domain"' "$dga_output_file"; then
         echo "DGA Analysis Results:" >> "$dga_report"
-        echo "$dga_analysis" >> "$dga_report"
+        cat "$dga_output_file" >> "$dga_report"
         
-        # Parse results
+        # Parse results - read from file instead of variable
         local verdict
         local score
         local entropy
@@ -34975,66 +35320,71 @@ EOF
         local family_match
         local recommendations
         
-        verdict=$(json_extract_string "$dga_analysis" "verdict")
-        score=$(json_extract_int "$dga_analysis" "dga_score")
-        entropy=$(json_extract_number "$dga_analysis" "entropy")
-        threat_level=$(json_extract_string "$dga_analysis" "threat_level")
+        verdict=$(json_extract_string "$(cat "$dga_output_file")" "verdict")
+        score=$(json_extract_int "$(cat "$dga_output_file")" "dga_score")
+        entropy=$(json_extract_number "$(cat "$dga_output_file")" "entropy")
+        threat_level=$(json_extract_string "$(cat "$dga_output_file")" "threat_level")
         
         # Extract family match if present
-        family_match=$(printf '%s' "$dga_analysis" | python3 -c '
+        family_match=$(python3 -c '
 import json, sys
 try:
-    data = json.load(sys.stdin)
-    matches = data.get('dga_family_matches', [])
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    matches = data.get("dga_family_matches", [])
     if matches:
-        print(f\"{matches[0]['family']} ({matches[0]['confidence']}%)\")
+        print(f\"{matches[0][\"family\"]} ({matches[0][\"confidence\"]}%)\")
     else:
-        print('None')
+        print("None")
 except:
-    print('None')
-' 2>/dev/null || echo "None")
+    print("None")
+' "$dga_output_file" 2>/dev/null || echo "None")
         
         # Extract contributing factors
         local factors_list
-        factors_list=$(printf '%s' "$dga_analysis" | python3 -c '
+        factors_list=$(python3 -c '
 import json, sys
 try:
-    data = json.load(sys.stdin)
-    factors = data.get('contributing_factors', [])
-    for f in factors[: 5]:
-        print(f'    • {f}')
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    factors = data.get("contributing_factors", [])
+    for f in factors[:5]:
+        print(f"    • {f}")
 except:
     pass
-' 2>/dev/null)
+' "$dga_output_file" 2>/dev/null)
         
         # Extract additional metrics
         local markov_prob bigram_ratio pronounce_score tld_risk
-        markov_prob=$(json_extract_number "$dga_analysis" "markov_probability")
-        pronounce_score=$(printf '%s' "$dga_analysis" | python3 -c '
+        markov_prob=$(json_extract_number "$(cat "$dga_output_file")" "markov_probability")
+        pronounce_score=$(python3 -c '
 import json, sys
 try:
-    data = json. load(sys.stdin)
-    print(data.get('pronounceability', {}).get('score', 'N/A'))
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    print(data.get("pronounceability", {}).get("score", "N/A"))
 except:
-    print('N/A')
-' 2>/dev/null)
-        bigram_ratio=$(printf '%s' "$dga_analysis" | python3 -c '
+    print("N/A")
+' "$dga_output_file" 2>/dev/null)
+        bigram_ratio=$(python3 -c '
 import json, sys
 try:
-    data = json. load(sys.stdin)
-    print(data.get('bigram_analysis', {}).get('common_ratio', 'N/A'))
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    print(data.get("bigram_analysis", {}).get("common_ratio", "N/A"))
 except:
-    print('N/A')
-' 2>/dev/null)
-        tld_risk=$(printf '%s' "$dga_analysis" | python3 -c '
+    print("N/A")
+' "$dga_output_file" 2>/dev/null)
+        tld_risk=$(python3 -c '
 import json, sys
 try:
-    data = json.load(sys. stdin)
-    tld_data = data.get('tld_analysis', {})
-    print(f\"{tld_data.get('risk_level', 'unknown')} ({tld_data.get('risk_score', 0):. 2f})\")
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    tld_data = data.get("tld_analysis", {})
+    print(f\"{tld_data.get(\"risk_level\", \"unknown\")} ({tld_data.get(\"risk_score\", 0):.2f})\")
 except:
-    print('N/A')
-' 2>/dev/null)
+    print("N/A")
+' "$dga_output_file" 2>/dev/null)
         
         # Determine colors based on threat level
         local threat_color="${WHITE}"
@@ -35080,16 +35430,17 @@ except:
         # Display recommendations if score is significant
         if [ "${score:-0}" -ge 25 ]; then
             echo -e "${CYAN}║${NC} ${WHITE}RECOMMENDATIONS${NC}"
-            printf '%s' "$dga_analysis" | python3 -c '
+            python3 -c '
 import json, sys
 try:
-    data = json. load(sys.stdin)
-    recs = data.get('recommendations', [])
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    recs = data.get("recommendations", [])
     for r in recs[:4]:
-        print(f'    → {r}')
+        print(f"    → {r}")
 except:
     pass
-' 2>/dev/null | while IFS= read -r rec; do
+' "$dga_output_file" 2>/dev/null | while IFS= read -r rec; do
                 printf "${CYAN}║${NC} %s\n" "$rec"
             done
             echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════════════════════╣${NC}"
@@ -35137,17 +35488,18 @@ except:
         # Export ML feature vector to separate file for research/training purposes
         if [ "${EXPORT_ML_FEATURES:-false}" = true ]; then
             local ml_export_file="${OUTPUT_DIR}/dga_ml_features.json"
-            printf '%s' "$dga_analysis" | python3 -c '
+            python3 -c '
 import json, sys
 try:
-    data = json. load(sys.stdin)
-    features = data.get('ml_feature_vector', {})
-    features['domain'] = data.get('domain', '')
-    features['label'] = 1 if data.get('dga_score', 0) >= 55 else 0
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    features = data.get("ml_feature_vector", {})
+    features["domain"] = data.get("domain", "")
+    features["label"] = 1 if data.get("dga_score", 0) >= 55 else 0
     print(json.dumps(features))
 except Exception as e:
-    print(json.dumps({'error': str(e)}))
-' 2>/dev/null > "$ml_export_file"
+    print(json.dumps({"error": str(e)}))
+' "$dga_output_file" 2>/dev/null > "$ml_export_file"
             log_info "ML feature vector exported to:  $ml_export_file"
         fi
         
@@ -35157,14 +35509,14 @@ except Exception as e:
             log_error "Python DGA analysis exited with code:  $python_exit_code"
         fi
         
-        if [ -n "$dga_analysis" ]; then
+        if [ -s "$dga_output_file" ]; then
             # Check if it's a JSON error message
-            if printf '%s' "$dga_analysis" | grep -q '"error"'; then
-                local error_msg=$(json_extract_string "$dga_analysis" "error" 2>/dev/null || echo "$dga_analysis")
+            if grep -q '"error"' "$dga_output_file"; then
+                local error_msg=$(json_extract_string "$(cat "$dga_output_file")" "error" 2>/dev/null || cat "$dga_output_file")
                 log_error "DGA analysis error: $error_msg"
                 analysis_error "DGA-ANALYSIS" "Python error: ${error_msg:0:100}"
             else
-                log_debug "DGA Python output: ${dga_analysis:0:200}"
+                log_debug "DGA Python output: $(head -c 200 "$dga_output_file")"
                 analysis_error "DGA-ANALYSIS" "Python analysis failed (invalid output)"
             fi
         else
@@ -35178,7 +35530,9 @@ except Exception as e:
 # ============================================================================
 
 analyze_dga_batch() {
-    local domains_file="$1"
+    set +u
+    local domains_file="${1:-}"
+    set -u
     local output_file="${2:-${OUTPUT_DIR}/dga_batch_results.json}"
     
     if [ ! -f "$domains_file" ]; then
@@ -35200,7 +35554,7 @@ analyze_dga_batch() {
         
         # Run analysis (suppress normal output)
         local result
-        result=$(printf '%s' "$domain" | python3 << 'BATCHEOF' 2>/dev/null
+        result=$(printf '%s' "$domain" | python3 <<'BATCHEOF' 2>/dev/null
 # ...  (same Python code as above, abbreviated for space)
 import json, sys
 domain = sys.stdin.read().strip()
@@ -35273,8 +35627,10 @@ declare -A HOMOGLYPH_MAP=(
 )
 
 analyze_unicode_deception() {
-    local content="$1"
-    local url="$2"
+    set +u
+    local content="${1:-}"
+    local url="${2:-}"
+    set -u
     
     if [ "$UNICODE_DECEPTION_DETECTION" = false ]; then
         analysis_success_none "UNICODE-DECEPTION"
@@ -35522,8 +35878,10 @@ declare -a SOCIAL_THREAT_SOURCES=(
 )
 
 analyze_social_threat_tracking() {
-    local url="$1"
-    local domain="$2"
+    set +u
+    local url="${1:-}"
+    local domain="${2:-}"
+    set -u
     
     if [ "$SOCIAL_THREAT_TRACKING" = false ]; then
         analysis_success_none "SOCIAL-THREATS"
@@ -35672,7 +36030,9 @@ declare -a KNOWN_SCAM_WALLETS=(
 )
 
 analyze_blockchain_scams() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$BLOCKCHAIN_SCAM_ANALYSIS" = false ]; then
         analysis_success_none "BLOCKCHAIN-SCAMS"
@@ -35832,7 +36192,9 @@ declare -a SUSPICIOUS_ICAL_PATTERNS=(
 )
 
 analyze_contact_events() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$CONTACT_EVENT_ANALYSIS" = false ]; then
         analysis_success_none "CONTACT-EVENTS"
@@ -36011,8 +36373,10 @@ declare -a MALWARE_HOTSPOT_ASNS=(
 )
 
 analyze_geo_hotspots() {
-    local content="$1"
-    local url="$2"
+    set +u
+    local content="${1:-}"
+    local url="${2:-}"
+    set -u
     
     if [ "$GEO_HOTSPOT_DETECTION" = false ]; then
         analysis_success_none "GEO-HOTSPOTS"
@@ -36237,7 +36601,9 @@ declare -a EMERGING_PROTOCOL_PATTERNS=(
 )
 
 analyze_emerging_protocols() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$EMERGING_PROTOCOL_DETECTION" = false ]; then
         analysis_success_none "EMERGING-PROTOCOLS"
@@ -36878,7 +37244,9 @@ check_domain_age() {
 
 # SSL certificate analysis
 analyze_ssl_certificate() {
-    local domain="$1"
+    set +u
+    local domain="${1:-}"
+    set -u
     
     if [ -z "$domain" ]; then
         return
@@ -37144,7 +37512,9 @@ declare -a BLE_PATTERNS=(
 )
 
 analyze_emerging_protocols() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$EMERGING_PROTOCOL_DETECTION" = false ]; then
         analysis_success_none "EMERGING-PROTOCOLS"
@@ -37791,7 +38161,9 @@ declare -A IOT_EXPLOIT_PATTERNS=(
 
 # Engine Functions
 analyze_polyglot_files() {
-    local file="$1"
+    set +u
+    local file="${1:-}"
+    set -u
     [ "$POLYGLOT_DETECTION" != true ] && return 0
     
     local polyglot_score=0
@@ -37819,7 +38191,9 @@ analyze_polyglot_files() {
 }
 
 analyze_perceptual_hash() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     [ "$PERCEPTUAL_HASH_ANALYSIS" != true ] && return
     
     # Validate image path
@@ -37841,7 +38215,9 @@ PYTHON_SCRIPT
 }
 
 analyze_ai_phishing() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     [ "$AI_PHISHING_DETECTION" != true ] && return
     
     # Validate content
@@ -37868,7 +38244,9 @@ PYTHON_SCRIPT
 }
 
 analyze_c2_frameworks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local c2_score=0
     
     # Validate content
@@ -37908,7 +38286,9 @@ analyze_c2_frameworks() {
 }
 
 analyze_defi_nft_scams() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local scam_score=0
     
     # Validate content
@@ -37953,7 +38333,9 @@ analyze_defi_nft_scams() {
 }
 
 analyze_nfc_iot_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local attack_score=0
     
     # Validate content
@@ -37981,7 +38363,9 @@ analyze_nfc_iot_attacks() {
 }
 
 analyze_adversarial_qr_variance() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     [ "$ADVERSARIAL_QR_DETECTION" != true ] && return 0
     
     local python_cmd="${DISCOVERED_PATHS[python3]:-python3}"
@@ -37989,7 +38373,7 @@ analyze_adversarial_qr_variance() {
     # Run in isolated subshell to prevent crashes
     (
         exec 2>/dev/null
-        timeout 60 "$python_cmd" - "$image" << 'PYADVERSARIAL' 2>/dev/null
+        timeout 60 "$python_cmd" - "$image" <<'PYADVERSARIAL' 2>/dev/null
 import sys
 import os
 import signal
@@ -38042,7 +38426,9 @@ PYADVERSARIAL
 }
 
 analyze_evil_twin_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     [ "$EVIL_TWIN_DETECTION" != true ] && return 0
     local wifi_score=0
     
@@ -38064,7 +38450,9 @@ analyze_evil_twin_attacks() {
 }
 
 analyze_third_order_homograph() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     [ "$THIRD_ORDER_HOMOGRAPH" != true ] && return
     
     # Validate content
@@ -39524,7 +39912,7 @@ detect_xor_encoding() {
     
     log_info "Detecting XOR encoding patterns..."
     
-    python3 2>/dev/null << 'EOF'
+    python3 2>/dev/null <<'EOF'
 import sys
 
 content = sys.stdin.read()
@@ -39561,7 +39949,9 @@ EOF
 
 # Encryption indicators analysis
 analyze_encryption_indicators() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing encryption indicators..."
     
@@ -39585,9 +39975,11 @@ analyze_encryption_indicators() {
 
 # Byte distribution analysis
 analyze_byte_distribution() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
-    echo "$content" | python3 2>/dev/null << 'EOF'
+    echo "$content" | python3 2>/dev/null <<'EOF'
 import sys
 from collections import Counter
 import math
@@ -39802,7 +40194,7 @@ ml_style_heuristics() {
     
     log_info "Running ML-style heuristic analysis..."
     
-    echo "$content" | python3 2>/dev/null << 'EOF'
+    echo "$content" | python3 2>/dev/null <<'EOF'
 import sys
 import re
 import math
@@ -39858,7 +40250,9 @@ EOF
 
 # Deep link analysis
 analyze_deep_links() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing deep links and app URL schemes..."
     
@@ -39921,7 +40315,9 @@ check_ethereum_address() {
 
 # WiFi payload analysis
 analyze_wifi_payload() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if ! echo "$content" | grep -qE "^WIFI:"; then
         return
@@ -39952,7 +40348,9 @@ analyze_wifi_payload() {
 
 # Mobile config profile analysis
 analyze_mobile_config() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Checking for mobile configuration profiles..."
     
@@ -39978,7 +40376,9 @@ analyze_mobile_config() {
 
 # iOS Universal Links Abuse Detection
 analyze_universal_links() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/universal_links_analysis.txt"
     
     log_info "Analyzing for iOS Universal Links abuse..."
@@ -40041,7 +40441,9 @@ analyze_universal_links() {
 
 # Android App Links Abuse Detection
 analyze_app_links() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/app_links_analysis.txt"
     
     log_info "Analyzing for Android App Links abuse..."
@@ -40104,7 +40506,9 @@ analyze_app_links() {
 
 # Custom URI Scheme Hijacking Detection
 analyze_custom_scheme_hijack() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/scheme_hijack_analysis.txt"
     
     log_info "Analyzing for custom URI scheme hijacking..."
@@ -40168,7 +40572,9 @@ analyze_custom_scheme_hijack() {
 
 # Mobile Clipboard Hijacking Detection
 analyze_clipboard_hijack() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/clipboard_hijack_analysis.txt"
     
     log_info "Analyzing for mobile clipboard hijacking..."
@@ -40224,7 +40630,9 @@ analyze_clipboard_hijack() {
 
 # Screen Overlay Attack Detection
 analyze_overlay_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/overlay_attack_analysis.txt"
     
     log_info "Analyzing for screen overlay attacks..."
@@ -40287,7 +40695,9 @@ analyze_overlay_attacks() {
 
 # Accessibility Service Abuse Detection
 analyze_accessibility_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/accessibility_abuse_analysis.txt"
     
     log_info "Analyzing for accessibility service abuse..."
@@ -40350,7 +40760,9 @@ analyze_accessibility_abuse() {
 
 # MDM Enrollment Attack Detection
 analyze_mdm_enrollment() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/mdm_enrollment_analysis.txt"
     
     log_info "Analyzing for malicious MDM enrollment..."
@@ -40421,7 +40833,9 @@ analyze_mdm_enrollment() {
 
 # eSIM QR Provisioning Attack Detection
 analyze_esim_attacks() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/esim_attack_analysis.txt"
     
     log_info "Analyzing for eSIM provisioning attacks..."
@@ -40493,7 +40907,9 @@ analyze_esim_attacks() {
 
 # OAuth Consent Phishing Detection
 analyze_oauth_phishing() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/oauth_phishing_analysis.txt"
     
     log_info "Analyzing for OAuth consent phishing..."
@@ -40567,7 +40983,9 @@ analyze_oauth_phishing() {
 
 # Device Code Flow Phishing Detection
 analyze_device_code_phishing() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/device_code_phishing_analysis.txt"
     
     log_info "Analyzing for device code flow phishing..."
@@ -40631,7 +41049,9 @@ analyze_device_code_phishing() {
 
 # MFA Fatigue/Bombing Attack Detection
 analyze_mfa_fatigue() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/mfa_fatigue_analysis.txt"
     
     log_info "Analyzing for MFA fatigue attack indicators..."
@@ -40687,7 +41107,9 @@ analyze_mfa_fatigue() {
 
 # WebAuthn/Passkey Phishing Detection
 analyze_passkey_phishing() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/passkey_phishing_analysis.txt"
     
     log_info "Analyzing for WebAuthn/Passkey phishing..."
@@ -40750,7 +41172,9 @@ analyze_passkey_phishing() {
 
 # Session Fixation Attack Detection
 analyze_session_fixation() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/session_fixation_analysis.txt"
     
     log_info "Analyzing for session fixation attacks..."
@@ -40806,7 +41230,9 @@ analyze_session_fixation() {
 
 # SSO Token Relay Attack Detection
 analyze_sso_relay() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/sso_relay_analysis.txt"
     
     log_info "Analyzing for SSO token relay attacks..."
@@ -40868,7 +41294,9 @@ analyze_sso_relay() {
 
 # Kerberos Attack Detection
 analyze_kerberos_abuse() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/kerberos_abuse_analysis.txt"
     
     log_info "Analyzing for Kerberos attack indicators..."
@@ -40935,7 +41363,9 @@ analyze_kerberos_abuse() {
 
 # Timestamp Anomaly Detection
 analyze_timestamp_anomalies() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/timestamp_anomaly_analysis.txt"
     
     log_info "Analyzing for timestamp anomalies..."
@@ -41007,7 +41437,9 @@ analyze_timestamp_anomalies() {
 
 # Camera Sensor Fingerprinting
 analyze_camera_fingerprint() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/camera_fingerprint_analysis.txt"
     
     log_info "Analyzing camera sensor fingerprint..."
@@ -41065,7 +41497,9 @@ analyze_camera_fingerprint() {
 
 # Machine Identification Code (Printer Dots) Detection
 analyze_printer_dots() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/printer_dots_analysis.txt"
     
     log_info "Analyzing for Machine Identification Codes (printer dots)..."
@@ -41117,7 +41551,9 @@ analyze_printer_dots() {
 
 # Screenshot Artifact Detection
 analyze_screenshot_artifacts() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/screenshot_artifact_analysis.txt"
     
     log_info "Analyzing for screenshot artifacts..."
@@ -41181,7 +41617,9 @@ analyze_screenshot_artifacts() {
 
 # Compression Artifact Detection
 analyze_compression_artifacts() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/compression_artifact_analysis.txt"
     
     log_info "Analyzing for compression/recompression artifacts..."
@@ -41237,7 +41675,9 @@ analyze_compression_artifacts() {
 
 # Image Cropping History Analysis
 analyze_crop_history() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/crop_history_analysis.txt"
     
     log_info "Analyzing for image cropping history..."
@@ -41286,7 +41726,9 @@ analyze_crop_history() {
 
 # AI-Generated Image Detection
 analyze_ai_generated_images() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/ai_generated_analysis.txt"
     
     log_info "Analyzing for AI-generated image indicators..."
@@ -41349,7 +41791,9 @@ analyze_ai_generated_images() {
 
 # Deepfake Indicator Detection
 analyze_deepfake_indicators() {
-    local image="$1"
+    set +u
+    local image="${1:-}"
+    set -u
     local report="${OUTPUT_DIR}/deepfake_analysis.txt"
     
     log_info "Analyzing for deepfake indicators..."
@@ -41414,7 +41858,9 @@ analyze_deepfake_indicators() {
 
 # Script injection detection
 analyze_script_injection() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Scanning for script injection..."
     
@@ -41498,8 +41944,10 @@ detect_stegdetect() {
 
 # Image entropy analysis
 analyze_image_entropy() {
-    local image="$1"
-    local base_name="$2"
+    set +u
+    local image="${1:-}"
+    local base_name="${2:-}"
+    set -u
     
     log_info "Analyzing image entropy..."
     
@@ -41553,8 +42001,10 @@ detect_multiple_qr_codes() {
 
 # OCR analysis
 analyze_with_ocr() {
-    local image="$1"
-    local base_name="$2"
+    set +u
+    local image="${1:-}"
+    local base_name="${2:-}"
+    set -u
     
     if ! command -v tesseract &> /dev/null; then
         return
@@ -41573,8 +42023,10 @@ analyze_with_ocr() {
 
 # Metadata analysis
 analyze_metadata() {
-    local image="$1"
-    local base_name="$2"
+    set +u
+    local image="${1:-}"
+    local base_name="${2:-}"
+    set -u
     
     log_info "Extracting and analyzing metadata..."
     
@@ -41710,7 +42162,9 @@ check_alienvault_otx_domain() {
 
 # URL content type analysis
 analyze_url_content_type() {
-    local url="$1"
+    set +u
+    local url="${1:-}"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -41767,7 +42221,9 @@ download_and_analyze_file() {
 
 # API key detection
 analyze_api_keys() {
-    local content_source="$1"
+    set +u
+    local content_source="${1:-}"
+    set -u
     
     log_info "Scanning for API keys and secrets..."
     
@@ -41802,7 +42258,7 @@ analyze_api_keys() {
 calculate_entropy() {
     local content="$1"
     
-    echo "$content" | python3 2>/dev/null << 'EOF'
+    echo "$content" | python3 2>/dev/null <<'EOF'
 import math
 from collections import Counter
 import sys
@@ -41820,7 +42276,9 @@ EOF
 
 # Entropy analysis
 analyze_entropy() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     local entropy=$(calculate_entropy "$content")
     
@@ -41833,7 +42291,9 @@ analyze_entropy() {
 
 # QR behavior analysis
 analyze_qr_behavior() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Performing behavioral analysis..."
     
@@ -41919,8 +42379,10 @@ detect_obfuscation() {
 
 # QR structure analysis
 analyze_qr_structure() {
-    local image="$1"
-    local base_name="$2"
+    set +u
+    local image="${1:-}"
+    local base_name="${2:-}"
+    set -u
     
     log_info "Analyzing QR code structure..."
     
@@ -41988,7 +42450,9 @@ comprehensive_payload_analysis() {
 
 # Character set analysis
 analyze_charset() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_info "Analyzing character set..."
     
@@ -42012,7 +42476,9 @@ analyze_charset() {
 
 # Network indicators analysis
 analyze_network_indicators() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     log_forensic "Performing advanced network analysis..."
     
@@ -42103,7 +42569,9 @@ check_ip_reputation() {
 
 # Email address analysis
 analyze_email_address() {
-    local email="$1"
+    set +u
+    local email="${1:-}"
+    set -u
     local domain=$(echo "$email" | awk -F@ '{print $2}')
     
     log_info "Analyzing email address: $email"
