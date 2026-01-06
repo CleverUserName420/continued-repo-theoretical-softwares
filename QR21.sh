@@ -9489,8 +9489,10 @@ decode_with_boofcv() {
 
 # AUDIT: Additional decoder - libdmtx for DataMatrix codes
 decode_with_dmtx() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     
     # HARDENING: validate input image file
     if [ -z "$image" ] || [ ! -f "$image" ] || [ ! -r "$image" ]; then
@@ -9534,8 +9536,10 @@ decode_with_dmtx() {
 
 # AUDIT: Additional decoder - segno for QR validation
 decode_with_segno() {
-    local image="$1"
-    local output_file="$2"
+    set +u
+    local image="${1:-}"
+    local output_file="${2:-}"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # HARDEN: ensure image provided and readable
@@ -9556,7 +9560,7 @@ decode_with_segno() {
     fi
 
     # HARDEN: segno and pyzbar installed check
-    "$python_cmd" - << 'PYCHECK' 2>/dev/null
+    "$python_cmd" - <<'PYCHECK' 2>/dev/null
 try:
     import segno
     import pyzbar
@@ -9574,7 +9578,7 @@ PYCHECK
     rm -f "$output_file"
 
     # ORIGINAL LOGIC: run in isolated environment with sig protection
-    run_isolated 30 "$python_cmd" - "$image" "$output_file" << 'PYSEGNO' 2>/dev/null
+    run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYSEGNO' 2>/dev/null
 import sys
 import signal
 
