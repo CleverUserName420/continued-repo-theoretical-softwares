@@ -3,8 +3,53 @@
 Screenshot Metadata Stripper
 Drag and drop images or place this script in a folder with images.  
 Automatically strips all EXIF/metadata from PNG, JPG, and HEIC files.  
-Run  mdls ~/desktop/(Path/to/file.jpg) before and after.
+Run  mdls ~/desktop/(Path/to/file.jpg) before and after.# Install exiftool if needed
+Can be done with brew install exiftool
+# Check the cleaned file
+exiftool ~/Desktop/original_image_clean. png
 ~/venv/bin/python3 ~/Desktop/strippers.py ~/Desktop/Path/to/file.jpg
+exfiltool with show the yt details.
+e.g
+<redacted> ~ % mdls ~/desktop/0_clean.png             
+kMDItemFSContentChangeDate = (null)
+kMDItemFSCreationDate      = (null)
+kMDItemFSCreatorCode       = ""
+kMDItemFSFinderFlags       = (null)
+kMDItemFSHasCustomIcon     = (null)
+kMDItemFSInvisible         = 0
+kMDItemFSIsExtensionHidden = (null)
+kMDItemFSIsStationery      = (null)
+kMDItemFSLabel             = (null)
+kMDItemFSName              = (null)
+kMDItemFSNodeCount         = (null)
+kMDItemFSOwnerGroupID      = (null)
+kMDItemFSOwnerUserID       = (null)
+kMDItemFSSize              = (null)
+kMDItemFSTypeCode          = ""
+<redacted> ~ % exiftool ~/Desktop/0_clean.png               
+ExifTool Version Number         : 13.44
+File Name                       : 0_clean.png
+Directory                       : /Users/<redacted>/Desktop
+File Size                       : 1588 kB
+File Modification Date/Time     : <redacted>
+File Access Date/Time           : <redacted>
+File Inode Change Date/Time     : <redacted>
+File Permissions                : -rw-r--r--
+File Type                       : PNG
+File Type Extension             : png
+MIME Type                       : image/png
+Image Width                     : 1072
+Image Height                    : 1430
+Bit Depth                       : 8
+Color Type                      : RGB
+Compression                     : Deflate/Inflate
+Filter                          : Adaptive
+Interlace                       : Noninterlaced
+Source                          : https://www.youtube.com/watch?v=fogKzeeVXDw&list=RDfogKzeeVXDw&start_radio=1
+Comment                         : Hello, what is it that you are looking for exactly?
+Description                     : What you are hoping to find is not here.
+Image Size                      : 1072x1430
+Megapixels                      : 1.5
 """
 
 import os
