@@ -51,7 +51,7 @@ def main():
         files = [Path(f) for f in sys.argv[1:] if Path(f).suffix.lower() in extensions]
     else:
         # Process current directory
-        files = [f for f in Path('. ').iterdir() if f.suffix.lower() in extensions and '_clean' not in f.stem]
+        files = [f for f in Path('.').iterdir() if f.suffix.lower() in extensions and '_clean' not in f.stem]
     
     if not files:
         print("No images found.  Place this script in a folder with images or drag images onto it.")
