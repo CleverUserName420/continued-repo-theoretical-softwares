@@ -38,8 +38,8 @@ sudo mdutil -a -s
 
 # Trigger re-indexing of your home directory
 sudo mdutil -E /System/Volumes/Data
-
-Can be done with brew install exiftool
+--------------------------------------
+Checking can be done with exiftool: brew install exiftool
 # Check the cleaned file
 exiftool ~/Desktop/original_image_clean. png
 ~/venv/bin/python3 ~/Desktop/strippers.py ~/Desktop/Path/to/file.jpg
