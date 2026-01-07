@@ -85,7 +85,7 @@ def strip_metadata(file_path:  Path) -> bool:
             
             # Add custom metadata
             metadata = PngImagePlugin.PngInfo()
-            metadata.add_text("Source", "NGGUPNGLYDNGRAADYNGMYCNGSGNGTALAHY)
+            metadata.add_text("Source", "NGGUPNGLYDNGRAADYNGMYCNGSGNGTALAHY")
             metadata.add_text("Comment", "Hello, what is it that you are looking for exactly? https://www.youtube.com/watch?v=fogKzeeVXDw&list=RDfogKzeeVXDw&start_radio=1")
             metadata.add_text("Description", "What you are hoping to find is not here. https://www.google.com/search?sca_esv=7ad34c0762c8b01c&udm=2&fbs=AIIjpHw2KGh6wpocn18KLjPMw8n5Yp8-1M0n6BD6JoVBP_K3fXXvA3S3XGyupmJLMg20um-mJAeO36stiqcDeSp1syInqJqhSijxtY18VJnNswqZEIqIPXL38MAteWnp4wS6uPmuMpOhUlhdP9rbJwptoX38hedzCJMh4q4oNw2kfdRn5MHw26aduF_c8rKmrLVGeF2Q5T_7&q=spongegar&sa=X&ved=2ahUKEwiYhre71viRAxXv1wIHHbxuBXEQtKgLegQIEhAB&biw=1440&bih=714&dpr=2#sv=CAMSVhoyKhBlLUtkejF4TVhRWl81X05NMg5LZHoxeE1YUVpfNV9OTToOQUl3TEtsbGx6enFjLU0gBCocCgZtb3NhaWMSEGUtS2R6MXhNWFFaXzVfTk0YADABGAcg9cWVxQUwAkoKCAIQAhgCIAIoAg")
             
