@@ -12923,6 +12923,116 @@ PYMICROQR
     [[ -s "$output_file" ]]
 }
 
+# Decoder 43: HTML-Generated QR Code Detection (Fraud Detection)
+# Detects QR codes generated via HTML5 Canvas, SVG, or JavaScript libraries
+# Common in phishing and fraudulent QR campaigns
+decode_with_html_qr_detector() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_html_qr_detector"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    # Check for PIL and pyzbar - required for this decoder
+    if ! safe_check_python_module "PIL"; then
+        return 2
+    fi
+    
+    # Note: pyzbar is also required but checked inline via try/except for graceful fallback
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 25 "$python_cmd" <<PYHTMLQR > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    from PIL import Image
+    import numpy as np
+    from pyzbar.pyzbar import decode
+    
+    img = Image.open('$image')
+    
+    # Decode the QR code first
+    qr_data = None
+    try:
+        decoded_objs = decode(img)
+        if decoded_objs:
+            qr_data = decoded_objs[0].data.decode('utf-8', errors='ignore')
+    except:
+        pass
+    
+    # Analyze image characteristics for HTML generation patterns
+    img_array = np.array(img)
+    findings = []
+    
+    # 1. Check for perfect pixel-aligned edges (HTML canvas signature)
+    if img.mode in ['RGB', 'RGBA']:
+        # Check for sharp, unaliased edges typical of canvas rendering
+        if len(img_array.shape) >= 2:
+            # Look for binary color patterns (pure black/white)
+            unique_colors = len(np.unique(img_array.reshape(-1, img_array.shape[-1]), axis=0))
+            if unique_colors <= 3:
+                findings.append("BINARY_COLORS:canvas_render_signature")
+    
+    # 2. Check for SVG-to-raster conversion artifacts
+    if img.width == img.height and img.width % 8 == 0:
+        findings.append("PERFECT_SQUARE:svg_derived")
+    
+    # 3. Check for lack of JPEG artifacts (HTML canvas exports as PNG typically)
+    if hasattr(img, 'format') and img.format == 'PNG':
+        # Check for unnaturally clean edges
+        if img.mode == 'RGB' or img.mode == 'RGBA':
+            findings.append("PNG_NO_ARTIFACTS:html_export")
+    
+    # 4. Check for specific dimension patterns common in JS QR libraries
+    common_js_sizes = [256, 512, 1024, 200, 300, 400, 500]
+    if img.width in common_js_sizes or img.height in common_js_sizes:
+        findings.append(f"JS_LIBRARY_SIZE:{img.width}x{img.height}")
+    
+    # 5. Check for QRCode.js, qrcode-generator, or similar library patterns
+    # These often produce very specific module sizes
+    if img.width >= 200 and img.width <= 600:
+        # Calculate estimated module size
+        estimated_modules = img.width // 29  # Assuming QR version 3
+        if img.width % 29 < 3:  # Very precise module alignment
+            findings.append("PRECISE_MODULE_ALIGNMENT:js_library")
+    
+    # Output results
+    if qr_data:
+        print(f"HTML_QR:{qr_data}")
+    
+    if findings:
+        print(f"HTML_GENERATION_INDICATORS:{','.join(findings)}")
+    
+    # Additional forensic markers
+    if img.mode == 'P':  # Palette mode often used by web generators
+        print("FORENSIC:palette_mode_web_generator")
+    
+    # Check for missing EXIF data (common in programmatically generated images)
+    if not hasattr(img, '_getexif') or img._getexif() is None:
+        print("FORENSIC:no_exif_programmatic_generation")
+
+except ImportError:
+    sys.exit(2)
+except Exception as e:
+    sys.exit(1)
+PYHTMLQR
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
 multi_decoder_analysis() {
     local image="$1"
     local base_output="$2"
@@ -14178,13 +14288,59 @@ EOF
         log_info "  ✗ micro_qr: Python not available"
     fi
 
+    # --- DECODER 43: HTML QR FRAUD DETECTOR (Phishing/Fraud Detection) ---
+    local out_html_qr="${TEMP_DIR}_html_qr.txt"
+    log_info "  [43/43] Trying HTML-Generated QR Fraud Detector..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_html_qr_detector "$image" "$out_html_qr"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_html_qr" ]; then
+                log_success "  ✓ html_qr_detector: HTML-generated QR detected"
+                ((success_count++))
+                all_decoded+=$(cat "$out_html_qr" 2>/dev/null)$'\n'
+                decoder_results+=("html_qr_detector:$(head -1 "$out_html_qr" 2>/dev/null)")
+                
+                # Check for fraud indicators
+                if grep -q "HTML_GENERATION_INDICATORS" "$out_html_qr"; then
+                    log_forensic_detection 70 \
+                        "HTML-Generated QR Code - Potential Fraud" \
+                        "html_qr_generation:$(grep 'HTML_GENERATION_INDICATORS' "$out_html_qr" | cut -d: -f2-)" \
+                        "Image forensic analysis" \
+                        "QR generation method" \
+                        "Investigate QR origin - HTML-generated QRs common in phishing/fraud campaigns" \
+                        "MITRE ATT&CK T1566.002 - Phishing: Spearphishing Link"
+                fi
+                
+                # Check for missing EXIF (programmatic generation indicator)
+                if grep -q "FORENSIC:no_exif_programmatic_generation" "$out_html_qr"; then
+                    log_forensic "HTML QR lacks EXIF data - likely programmatically generated"
+                fi
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ html_qr_detector: decoder module not installed"
+            else
+                log_info "  ✗ html_qr_detector: no HTML QR patterns found"
+            fi
+        else
+            log_info "  ✗ html_qr_detector: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ html_qr_detector: Python not available"
+    fi
+
     echo ""
     echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
     echo -e "${CYAN}│                   DECODER SUMMARY                           │${NC}"
     echo -e "${CYAN}├─────────────────────────────────────────────────────────────┤${NC}"
 
     # Calculate total decoders attempted
-    local total_decoders=42  # Updated: 22 original + 16 extended + 4 new implementations
+    local total_decoders=43  # Updated: 22 original + 16 extended + 5 new implementations (including HTML fraud detector)
     
     echo -e "${CYAN}│${NC} Decoders Attempted:   ${WHITE}${total_decoders}${NC}"
     echo -e "${CYAN}│${NC} Successful Decodes:   ${WHITE}${success_count}${NC}"
@@ -14263,6 +14419,7 @@ run_single_decoder() {
         jabcode) decode_with_jabcode "$image" "$output" ;;
         hccb) decode_with_hccb "$image" "$output" ;;
         micro_qr) decode_with_micro_qr "$image" "$output" ;;
+        html_qr_detector) decode_with_html_qr_detector "$image" "$output" ;;
         *) return 1 ;;
     esac
 }
@@ -14285,7 +14442,7 @@ multi_decoder_analysis_parallel() {
     mkdir -p "$allowed_temp_dir" 2>/dev/null
     
     # Priority-based decoder groups
-    local priority_high=("zbar" "pyzbar" "opencv" "zxingcpp")
+    local priority_high=("zbar" "pyzbar" "opencv" "zxingcpp" "html_qr_detector")
     local priority_medium=("quirc" "dmtx" "pyzbar_enhanced" "multiscale" "inverse" "adaptive")
     local priority_low=("aztec" "pdf417" "code128" "code39" "ean" "itf" "code93")
     local priority_specialty=("tesseract" "imagemagick_zbar" "universal")
@@ -14487,6 +14644,18 @@ declare -A ANTI_ANALYSIS_SIGNATURES=(
     ["deepfake_visual_evasion"]="Computer vision deepfake to trick scanners"
     ["noise_pattern_surrogate"]="Injected surrogate module pattern"
     ["watermark_embedding"]="Covert watermark in scanning visual"
+    
+    # HTML/Web-Generated QR Fraud Signatures
+    ["html_canvas_generation"]="QR generated via HTML5 Canvas (common in phishing)"
+    ["javascript_qr_library"]="JavaScript QR library signature detected"
+    ["svg_to_raster_conversion"]="SVG-to-raster conversion artifacts"
+    ["web_generator_signature"]="Online QR generator fingerprint"
+    ["programmatic_generation"]="Programmatically generated without camera/scanner"
+    ["missing_exif_fraud"]="Missing EXIF data indicating fake/fraudulent generation"
+    ["canvas_render_signature"]="HTML Canvas rendering signature (binary colors)"
+    ["js_library_dimensions"]="Dimensions matching common JS QR libraries"
+    ["perfect_pixel_alignment"]="Perfect pixel alignment indicating HTML generation"
+    ["png_export_pattern"]="PNG export pattern from web tools"
 )
 
 # Anti-analysis IOC patterns
@@ -14529,6 +14698,17 @@ declare -a ANTI_ANALYSIS_IOC_PATTERNS=(
     "frame_or_animation_bypass"
     "font_hack_payload"
     "nonvisible_spectrum_anomaly"
+    
+    # HTML/JavaScript QR Fraud IOCs
+    "html_canvas_detected"
+    "js_qr_library_detected"
+    "web_generator_fingerprint"
+    "programmatic_no_exif"
+    "canvas_binary_colors"
+    "svg_derived_pattern"
+    "js_library_size_match"
+    "perfect_module_alignment"
+    "png_no_artifacts_web"
 )
 
 analyze_anti_analysis_techniques() {
@@ -14718,6 +14898,69 @@ analyze_anti_analysis_techniques() {
                 iocs_detected+=("steganographic_embedding:${binwalk_results}_objects")
                 total_score=$((total_score + 20))
             fi
+        fi
+    fi
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 5. HTML/WEB-GENERATED QR FRAUD DETECTION
+    # ═══════════════════════════════════════════════════════════════════════════
+    if [ -n "$decoder_results" ] && echo "$decoder_results" | grep -q "html_qr_detector:"; then
+        anti_analysis_findings+=("HTML/JavaScript-generated QR code detected")
+        iocs_detected+=("html_canvas_detected")
+        total_score=$((total_score + 40))
+        
+        # Check for specific HTML generation indicators
+        local html_indicators
+        html_indicators=$(echo "$decoder_results" | grep "html_qr_detector:" | grep -o "HTML_GENERATION_INDICATORS:[^:]*")
+        
+        if [ -n "$html_indicators" ]; then
+            if echo "$html_indicators" | grep -q "canvas_render_signature"; then
+                anti_analysis_findings+=("HTML Canvas binary color signature - programmatic generation")
+                iocs_detected+=("canvas_binary_colors")
+                total_score=$((total_score + 15))
+            fi
+            
+            if echo "$html_indicators" | grep -q "svg_derived"; then
+                anti_analysis_findings+=("SVG-derived QR code - web generator signature")
+                iocs_detected+=("svg_derived_pattern")
+                total_score=$((total_score + 10))
+            fi
+            
+            if echo "$html_indicators" | grep -q "JS_LIBRARY_SIZE"; then
+                anti_analysis_findings+=("JavaScript QR library dimension signature detected")
+                iocs_detected+=("js_library_size_match")
+                total_score=$((total_score + 15))
+            fi
+            
+            if echo "$html_indicators" | grep -q "PRECISE_MODULE_ALIGNMENT"; then
+                anti_analysis_findings+=("Perfect module alignment - JavaScript library generation")
+                iocs_detected+=("perfect_module_alignment")
+                total_score=$((total_score + 10))
+            fi
+            
+            if echo "$html_indicators" | grep -q "PNG_NO_ARTIFACTS"; then
+                anti_analysis_findings+=("PNG without JPEG artifacts - HTML Canvas export")
+                iocs_detected+=("png_no_artifacts_web")
+                total_score=$((total_score + 10))
+            fi
+        fi
+        
+        # Check for programmatic generation (no EXIF)
+        if echo "$decoder_results" | grep -q "FORENSIC:no_exif_programmatic_generation"; then
+            anti_analysis_findings+=("No EXIF data - programmatic generation confirmed")
+            iocs_detected+=("programmatic_no_exif")
+            total_score=$((total_score + 20))
+        fi
+        
+        # High threat score indicates likely phishing/fraud QR
+        if [ "$total_score" -ge 70 ]; then
+            log_forensic_detection 90 \
+                "HIGH RISK: HTML-Generated QR Code - Likely Phishing/Fraud" \
+                "html_fraud:$(echo "$html_indicators" | cut -d: -f2-)" \
+                "HTML QR fraud detector + forensic analysis" \
+                "QR generation method and image characteristics" \
+                "CRITICAL: HTML-generated QRs with missing EXIF are common in phishing campaigns. Verify QR destination URL before scanning." \
+                "MITRE ATT&CK T1566.002 - Phishing: Spearphishing Link, T1204.001 - User Execution: Malicious Link"
         fi
     fi
     
