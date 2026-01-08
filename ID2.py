@@ -156,6 +156,21 @@ class FreeIPInvestigator:
         """Get geolocation from freegeoip.app"""
         url = f"https://freegeoip.app/json/{ip}"
         return self.fetch_json_url(url)
+        
+    def ipgeolocation_io(self, ip: str) -> Optional[Dict]:
+        """IPGeolocation.io - 1000 free requests/day, no key"""
+        url = f"https://api.ipgeolocation.io/ipgeo?ip={ip}"
+        return self.fetch_json_url(url)
+    
+    def abstractapi_free(self, ip: str) -> Optional[Dict]:
+        """AbstractAPI - 20,000 free requests/month, no key for basic"""
+        url = f"https://ipgeolocation.abstractapi.com/v1/? ip_address={ip}"
+        return self.fetch_json_url(url)
+    
+    def shodan_internetdb(self, ip: str) -> Optional[Dict]:
+        """Shodan InternetDB - Completely free, no key, shows open ports"""
+        url = f"https://internetdb.shodan.io/{ip}"
+        return self.fetch_json_url(url)
     
     # ============= ASN/BGP INFORMATION =============
     
@@ -199,6 +214,34 @@ class FreeIPInvestigator:
         """RDAP (modern WHOIS replacement) - ARIN"""
         url = f"https://rdap.arin.net/registry/ip/{ip}"
         return self.fetch_json_url(url)
+        
+    def team_cymru_asn(self, ip: str) -> Optional[str]:
+        """Team Cymru IP to ASN - DNS-based query (free, reliable)"""
+        try:
+            reversed_ip = '.'.join(reversed(ip.split('.')))
+            query = f"{reversed_ip}.origin.asn.cymru.com"
+            # Use DNS TXT record lookup
+            result = self.run_command(['dig', '+short', query, 'TXT'], timeout=10)
+            return result.strip().replace('"', '') if result else None
+        except:
+            return None
+    
+    def hurricane_bgp_lookup(self, asn: str) -> Optional[str]:
+        """Hurricane Electric BGP Toolkit - Free BGP data"""
+        if not asn:
+            return None
+        asn_clean = asn.replace('AS', '').strip()
+        url = f"https://bgp.he.net/AS{asn_clean}"
+        # Note: This returns HTML, would need parsing.  Placeholder for now.
+        return f"View at: {url}"
+    
+    def peeringdb_lookup(self, asn: str) -> Optional[Dict]:
+        """PeeringDB - Free network/peering info"""
+        if not asn:
+            return None
+        asn_clean = asn.replace('AS', '').strip()
+        url = f"https://www.peeringdb.com/api/net? asn={asn_clean}"
+        return self.fetch_json_url(url)
     
     # ============= DNS LOOKUPS =============
     
@@ -231,6 +274,48 @@ class FreeIPInvestigator:
         """Passive DNS from ThreatCrowd"""
         url = f"https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={domain}"
         return self.fetch_json_url(url)
+        
+    def dnsdumpster_check(self, domain: str) -> Optional[str]:
+        """DNSDumpster - Free subdomain enumeration (returns web URL)"""
+        # API requires CSRF token, return web interface URL
+        return f"https://dnsdumpster.com/?url={domain}"
+    
+    def securitytrails_free(self, domain: str) -> Optional[str]:
+        """SecurityTrails - Limited free lookups (requires free account)"""
+        # Free tier requires API key from account
+        return f"https://securitytrails.com/domain/{domain}/dns"
+    
+    def urlscan_lookup(self, target: str) -> Optional[Dict]:
+        """URLScan.io - Free scanning and API"""
+        url = f"https://urlscan.io/api/v1/search/?q=ip:{target}"
+        return self.fetch_json_url(url)
+    
+    def google_safebrowsing_check(self, url_to_check: str, api_key: str = None) -> Optional[Dict]:
+        """Google Safe Browsing - Free with API key"""
+        if not api_key:
+            return {"error": "API key required (free from Google Cloud Console)"}
+        
+        endpoint = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={api_key}"
+        payload = {
+            "client": {"clientId": "ip-investigator", "clientVersion": "1.0"},
+            "threatInfo": {
+                "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING"],
+                "platformTypes": ["ANY_PLATFORM"],
+                "threatEntryTypes": ["URL"],
+                "threatEntries": [{"url": url_to_check}]
+            }
+        }
+        
+        try:
+            req = urllib.request.Request(
+                endpoint,
+                data=json.dumps(payload).encode(),
+                headers={'Content-Type': 'application/json'}
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return json.loads(response.read().decode())
+        except:
+            return {"error": "Request failed"}
     
     # ============= NETWORK ANALYSIS =============
     
@@ -246,79 +331,79 @@ class FreeIPInvestigator:
         output = self.run_command(['traceroute', '-m', '10', ip], timeout=30)
         return output if output else "Traceroute unavailable"
     
-    def port_scan_check(self, ip: str) -> Dict[int, bool]:
-        """Check common ports"""
+    def port_scan_check(self, ip: str) -> Tuple[Dict[int, bool], int]:
+        """Check common ports and return risk score"""
+        # Port:  (Service, Risk Score)
         common_ports = {
-            53: 'DNS',
-            80: 'HTTP',
-            443: 'HTTPS',
-            8080: 'HTTP-Proxy',
-            8443: 'HTTPS-Alt',
-            8000: 'HTTP-Alt',
+            53: ('DNS', 2),
+            80: ('HTTP', 1),
+            443: ('HTTPS', 1),
+            8080: ('HTTP-Proxy', 3),
+            8443: ('HTTPS-Alt', 3),
+            8000: ('HTTP-Alt', 2),
             
             # Remote Access (HIGH RISK)
-            22: 'SSH',
-            23: 'Telnet',
-            3389: 'RDP',
-            5900: 'VNC',
-            5901: 'VNC-1',
+            22: ('SSH', 5),
+            23: ('Telnet', 10),
+            3389: ('RDP', 8),
+            5900: ('VNC', 8),
+            5901: ('VNC-1', 8),
             
             # Email
-            25: 'SMTP',
-            110: 'POP3',
-            143: 'IMAP',
-            465: 'SMTPS',
-            587: 'SMTP-Submission',
-            993: 'IMAPS',
-            995: 'POP3S',
+            25: ('SMTP', 3),
+            110: ('POP3', 2),
+            143: ('IMAP', 2),
+            465: ('SMTPS', 2),
+            587: ('SMTP-Submission', 2),
+            993: ('IMAPS', 2),
+            995: ('POP3S', 2),
             
             # File Transfer
-            21: 'FTP',
-            22: 'SFTP/SSH',
-            69: 'TFTP',
-            445: 'SMB',
-            139: 'NetBIOS',
+            21: ('FTP', 6),
+            69: ('TFTP', 7),
+            445: ('SMB', 9),
+            139: ('NetBIOS', 7),
             
             # Databases (HIGH RISK if exposed)
-            1433: 'MSSQL',
-            3306: 'MySQL',
-            5432: 'PostgreSQL',
-            27017: 'MongoDB',
-            6379: 'Redis',
-            9200: 'Elasticsearch',
-            5984: 'CouchDB',
+            1433: ('MSSQL', 10),
+            3306: ('MySQL', 10),
+            5432: ('PostgreSQL', 10),
+            27017: ('MongoDB', 10),
+            6379: ('Redis', 10),
+            9200: ('Elasticsearch', 9),
+            5984: ('CouchDB', 9),
             
             # Network Services
-            161: 'SNMP',
-            162: 'SNMP-Trap',
-            389: 'LDAP',
-            636: 'LDAPS',
+            161: ('SNMP', 7),
+            162: ('SNMP-Trap', 6),
+            389: ('LDAP', 6),
+            636: ('LDAPS', 5),
             
             # VPN & Proxy
-            1194: 'OpenVPN',
-            1723: 'PPTP',
-            4500: 'IPSec-NAT',
-            500: 'IKE',
+            1194: ('OpenVPN', 4),
+            1723: ('PPTP', 5),
+            4500: ('IPSec-NAT', 4),
+            500: ('IKE', 4),
             
             # Web Frameworks & Services
-            3000: 'Node.js',
-            5000: 'Flask/Python',
-            8888: 'Jupyter/Alt-HTTP',
-            9000: 'PHP-FPM',
+            3000: ('Node.js', 5),
+            5000: ('Flask/Python', 5),
+            8888: ('Jupyter/Alt-HTTP', 7),
+            9000: ('PHP-FPM', 6),
             
             # Other Important
-            111: 'RPC',
-            135: 'MS-RPC',
-            514: 'Syslog',
-            2049: 'NFS',
-            3128: 'Squid-Proxy',
-            6666: 'IRC',
+            111: ('RPC', 7),
+            135: ('MS-RPC', 7),
+            514: ('Syslog', 4),
+            2049: ('NFS', 8),
+            3128: ('Squid-Proxy', 4),
+            6666: ('IRC', 5),
             
             # Containerization & Orchestration
-            2375: 'Docker',
-            2376: 'Docker-TLS',
-            6443: 'Kubernetes',
-            10250: 'Kubelet',
+            2375: ('Docker', 10),
+            2376: ('Docker-TLS', 8),
+            6443: ('Kubernetes', 9),
+            10250: ('Kubelet', 9),
         }
         
         open_ports = {}
@@ -453,6 +538,139 @@ class FreeIPInvestigator:
                 return response.read().decode().strip()
         except:
             return None
+            
+    def abuseipdb_check(self, ip: str, api_key: str = None) -> Optional[Dict]:
+        """AbuseIPDB - 1000 free checks/day (requires free API key)"""
+        if not api_key:
+            return {"error": "Free API key required from abuseipdb.com"}
+        
+        url = f"https://api.abuseipdb.com/api/v2/check?ipAddress={ip}"
+        headers = {'Key': api_key, 'Accept': 'application/json'}
+        return self.fetch_json_url(url, headers=headers)
+    
+    def ibm_xforce(self, ip: str) -> Optional[Dict]:
+        """IBM X-Force Exchange - Free tier (requires free account)"""
+        url = f"https://exchange.xforce.ibmcloud. com/api/ipr/{ip}"
+        # Requires API key/password from free account
+        return {"info": f"View at https://exchange.xforce.ibmcloud.com/ip/{ip}"}
+    
+    def maltiverse_lookup(self, ip: str) -> Optional[Dict]:
+        """Maltiverse - Free threat intelligence API"""
+        url = f"https://api.maltiverse.com/ip/{ip}"
+        return self.fetch_json_url(url)
+    
+    def phishtank_check(self, url_to_check: str) -> Optional[Dict]:
+        """Phishtank - Free phishing database"""
+        api_url = "http://checkurl.phishtank.com/checkurl/"
+        data = urlencode({
+            'url': url_to_check,
+            'format': 'json'
+        }).encode()
+        
+        try:
+            req = urllib.request. Request(api_url, data=data)
+            req.add_header('User-Agent', 'phishtank/ip-investigator')
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return json.loads(response.read().decode())
+        except:
+            return {"error": "Request failed"}
+            
+    def uceprotect_check(self, ip: str) -> bool:
+        """UCEPROTECT - Additional DNSBL"""
+        try:
+            reversed_ip = '.'.join(reversed(ip.split('.')))
+            socket.gethostbyname(f"{reversed_ip}.dnsbl-1.uceprotect.net")
+            return True
+        except socket.gaierror:
+            return False
+    
+    def barracuda_reputation(self, ip: str) -> Optional[Dict]:
+        """Barracuda Reputation - Free lookup"""
+        url = f"http://barracudacentral.org/rbl/list-check?ip_address={ip}"
+        # Returns HTML, would need scraping.  Return URL instead.
+        return {"lookup_url": url}
+    
+    def mxtoolbox_blacklist(self, ip: str) -> Optional[str]:
+        """MXToolbox - Multiple blacklist check"""
+        return f"https://mxtoolbox.com/SuperTool.aspx?action=blacklist%3a{ip}"
+    
+    def multirbl_check(self, ip: str) -> Optional[str]:
+        """MultiRBL - Aggregated blacklist checker"""
+        return f"http://multirbl.valli.org/lookup/{ip}.html"
+    
+    def emerging_threats_check(self, ip: str) -> Optional[bool]:
+        """Emerging Threats - Check against free blocklists"""
+        try:
+            # ET Compromise IPs list
+            url = "https://rules.emergingthreats.net/blockrules/compromised-ips.txt"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                blocklist = response.read().decode()
+                return ip in blocklist
+        except:
+            return None
+    
+    def spamhaus_drop_check(self, ip: str) -> Optional[bool]:
+        """Spamhaus DROP/EDROP lists - Free downloadable"""
+        try:
+            import ipaddress
+            ip_obj = ipaddress.ip_address(ip)
+            
+            # Check DROP list
+            url = "https://www.spamhaus.org/drop/drop.txt"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                drop_list = response.read().decode()
+                
+            for line in drop_list.split('\n'):
+                if line.startswith(';') or not line.strip():
+                    continue
+                cidr = line.split(';')[0].strip()
+                try:
+                    network = ipaddress.ip_network(cidr, strict=False)
+                    if ip_obj in network:
+                        return True
+                except:
+                    continue
+            return False
+        except:
+            return None
+            
+    def getipintel_check(self, ip: str, contact_email: str = "abuse@example.com") -> Optional[float]:
+        """GetIPIntel - Free proxy/VPN detection"""
+        url = f"http://check.getipintel.net/check. php?ip={ip}&contact={contact_email}"
+        try:
+            req = urllib.request. Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                score = float(response.read().decode().strip())
+                return score  # 0-1, higher = more likely proxy/VPN
+        except:
+            return None
+    
+    def ipqualityscore_free(self, ip: str) -> Optional[Dict]:
+        """IPQualityScore - Free tier available"""
+        # Free tier has limited features without key
+        url = f"https://www.ipqualityscore.com/api/json/ip/YOUR_KEY_HERE/{ip}"
+        return {"info": "Requires free API key from ipqualityscore.com"}
+    
+    def vpnapi_lookup(self, ip: str) -> Optional[Dict]:
+        """VPN API - Free VPN detection service"""
+        url = f"https://vpnapi.io/api/{ip}"
+        return self.fetch_json_url(url)
+        
+    def farsight_dnsdb_community(self, domain: str) -> Optional[str]:
+        """Farsight DNSDB - Limited free community edition"""
+        # Requires API key from free community account
+        return {"info": "Requires free community API key from dnsdb.info"}
+    
+    def virustotal_lookup(self, ip: str, api_key: str = None) -> Optional[Dict]:
+        """VirusTotal - Free API key, 4 requests/min"""
+        if not api_key:
+            return {"error": "Free API key required from virustotal.com"}
+        
+        url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
+        headers = {'x-apikey': api_key}
+        return self.fetch_json_url(url, headers=headers)
     
     # ============= THREAT ANALYSIS =============
     
@@ -613,6 +831,9 @@ class FreeIPInvestigator:
             'freegeoip': self.freegeoip_lookup(ip),
             'bigdatacloud': self. bigdatacloud_free(ip),
             'ipdata': self.ipdata_co_free(ip),
+            'ipgeolocation. io': self.ipgeolocation_io(ip),
+            'abstractapi':  self.abstractapi_free(ip),
+            'shodan':  self.shodan_internetdb(ip),
         }
         
         result['geolocation'] = {k: v for k, v in geolocation_sources.items() if v and 'error' not in v}
@@ -637,6 +858,7 @@ class FreeIPInvestigator:
             'rdap':  self.rdap_lookup(ip),
             'iptoasn': self.iptoasn_lookup(ip),
             'robtex': self.robtex_lookup(ip),
+            'team_cymru': self.team_cymru_asn(ip),
         }
         
         result['asn'] = {k: v for k, v in asn_sources.items() if v and 'error' not in v}
@@ -671,8 +893,9 @@ class FreeIPInvestigator:
         if verbose:
             print("\n[*] Checking open ports...")
         
-        open_ports = self.port_scan_check(ip)
+        open_ports, port_risk = self.port_scan_check(ip)
         result['connectivity']['open_ports'] = {k: v for k, v in open_ports.items() if v}
+        result['connectivity']['port_risk_score'] = port_risk
         
         if verbose:
             if result['connectivity']['open_ports']:
@@ -728,6 +951,81 @@ class FreeIPInvestigator:
                 votes = threatcrowd.get('votes', 0)
                 if votes < 0:
                     print(f"⚠️  ThreatCrowd: Negative reputation ({votes} votes)")
+                    
+        # Maltiverse threat intelligence
+        maltiverse = self.maltiverse_lookup(ip)
+        if maltiverse and 'error' not in maltiverse:
+            result['threat_analysis']['maltiverse'] = maltiverse
+            if verbose:
+                classification = maltiverse.get('classification', 'unknown')
+                if classification != 'unknown':
+                    print(f"⚠️  Maltiverse:  {classification}")
+        
+        # URLScan intelligence
+        urlscan = self.urlscan_lookup(ip)
+        if urlscan and 'error' not in urlscan:
+            result['threat_analysis']['urlscan'] = urlscan
+            if verbose:
+                total = urlscan.get('total', 0)
+                if total > 0:
+                    print(f"ℹ️  URLScan: {total} results found")
+        
+        # Emerging Threats check
+        et_listed = self.emerging_threats_check(ip)
+        if et_listed is not None:
+            result['threat_analysis']['emerging_threats'] = et_listed
+            if verbose and et_listed:
+                print(f"⚠️  Listed on Emerging Threats blocklist")
+        
+        # Spamhaus DROP check
+        drop_listed = self.spamhaus_drop_check(ip)
+        if drop_listed is not None:
+            result['threat_analysis']['spamhaus_drop'] = drop_listed
+            if verbose and drop_listed:
+                print(f"🚨 Listed on Spamhaus DROP list (hijacked/illegal)")
+        
+        # SSL Blacklist
+        sslbl = self.sslbl_abuse_ch(ip)
+        if sslbl:
+            result['threat_analysis']['ssl_blacklist'] = sslbl
+            if verbose and sslbl. get('listed'):
+                print(f"⚠️  SSL Blacklist:  Malicious SSL certificate detected")
+        
+        # GetIPIntel proxy detection
+        getipintel = self.getipintel_check(ip)
+        if getipintel is not None:
+            result['threat_analysis']['getipintel'] = getipintel
+            if verbose:
+                if getipintel > 0.99:
+                    print(f"🔀 GetIPIntel: VPN/Proxy CONFIRMED ({getipintel:. 2f})")
+                elif getipintel > 0.95:
+                    print(f"⚠️  GetIPIntel: Likely VPN/Proxy ({getipintel:.2f})")
+                else:
+                    print(f"✓ GetIPIntel: Clean ({getipintel:.2f})")
+        
+        # VPN API check
+        vpnapi = self.vpnapi_lookup(ip)
+        if vpnapi and 'error' not in vpnapi:
+            result['threat_analysis']['vpnapi'] = vpnapi
+            if verbose:
+                is_vpn = vpnapi.get('security', {}).get('vpn', False)
+                is_proxy = vpnapi.get('security', {}).get('proxy', False)
+                if is_vpn or is_proxy:
+                    print(f"🔀 VPN API: {'VPN' if is_vpn else 'Proxy'} detected")
+        
+        # UCEPROTECT additional DNSBL
+        uceprotect = self.uceprotect_check(ip)
+        if uceprotect:
+            result['threat_analysis']['uceprotect'] = True
+            if verbose:
+                print(f"⚠️  UCEPROTECT: Listed")
+        
+        # Team Cymru for additional verification
+        cymru_asn = self.team_cymru_asn(ip)
+        if cymru_asn:
+            result['asn']['team_cymru_txt'] = cymru_asn
+            if verbose:
+                print(f"✓ Team Cymru:  {cymru_asn.split('|')[0].strip() if '|' in cymru_asn else cymru_asn}")
         
         # Carrier detection
         carrier = self.carrier_lookup(ip)
@@ -739,7 +1037,7 @@ class FreeIPInvestigator:
                 print(f"🔀 Proxy detected")
                 
         # Proxy/VPN detection
-        proxycheck = self. proxycheck_io(ip)
+        proxycheck = self.proxycheck_io(ip)
         if proxycheck and 'error' not in proxycheck:
             result['threat_analysis']['proxycheck'] = proxycheck
             if verbose:
