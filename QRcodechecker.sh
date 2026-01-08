@@ -13549,7 +13549,7 @@ multi_decoder_analysis() {
     # --- DECODER 1: ZBAR (native command) ---
     local out_zbar="${TEMP_DIR}_zbar.txt"
     if command -v zbarimg &>/dev/null; then
-        log_info "  [1/22] Trying zbar decoder..."
+        log_info "  [1/50] Trying zbar decoder..."
         _safe_run 30 zbarimg -q --raw "$image" > "$out_zbar"
         if [ -s "$out_zbar" ]; then
             log_success "  ✓ zbar: decoded successfully"
@@ -13566,7 +13566,7 @@ multi_decoder_analysis() {
     # --- DECODER 2: PYZBAR (Python - crash-isolated) ---
     local out_pyzbar="${TEMP_DIR}_pyzbar.txt"
     if [ -n "$python_cmd" ]; then
-        log_info "  [2/22] Trying pyzbar decoder..."
+        log_info "  [2/50] Trying pyzbar decoder..."
         # Run Python in subshell with all crash output suppressed
         (
             exec 2>/dev/null
@@ -13605,7 +13605,7 @@ EOF
     # --- DECODER 3: OPENCV QR DETECTOR ---
     local out_opencv="${TEMP_DIR}_opencv.txt"
     if [ -n "$python_cmd" ]; then
-        log_info "  [3/22] Trying opencv decoder..."
+        log_info "  [3/50] Trying opencv decoder..."
         (
             exec 2>/dev/null
             timeout 30 "$python_cmd" 2>/dev/null <<EOF
@@ -13639,7 +13639,7 @@ EOF
 
     # --- DECODER 4: QUIRC (native command) ---
     local out_quirc="${TEMP_DIR}_quirc.txt"
-    log_info "  [4/22] Trying quirc decoder..."
+    log_info "  [4/50] Trying quirc decoder..."
     if command -v quirc &>/dev/null; then
         _safe_run 30 quirc "$image" > "$out_quirc"
         if [ -s "$out_quirc" ]; then
@@ -13656,7 +13656,7 @@ EOF
 
     # --- DECODER 5: DMTX (DataMatrix - native command) ---
     local out_dmtx="${TEMP_DIR}_dmtx.txt"
-    log_info "  [5/22] Trying dmtx decoder..."
+    log_info "  [5/50] Trying dmtx decoder..."
     if command -v dmtxread &>/dev/null; then
         _safe_run 30 dmtxread -n -N1 "$image" > "$out_dmtx"
         if [ -s "$out_dmtx" ]; then
@@ -13674,7 +13674,7 @@ EOF
       # --- DECODER 6: PYZBAR ENHANCED (multiple processing) ---
     local out_pyzbar_enh="${TEMP_DIR}_pyzbar_enhanced.txt"
     if [ -n "$python_cmd" ]; then
-        log_info "  [6/22] Trying pyzbar_enhanced decoder..."
+        log_info "  [6/50] Trying pyzbar_enhanced decoder..."
         (
             exec 2>/dev/null
             timeout 45 "$python_cmd" 2>/dev/null <<EOF
@@ -13721,7 +13721,7 @@ EOF
     # --- DECODER 7: MULTI-SCALE ---
     local out_multiscale="${TEMP_DIR}_multiscale.txt"
     if [ -n "$python_cmd" ]; then
-        log_info "  [7/22] Trying multiscale decoder..."
+        log_info "  [7/50] Trying multiscale decoder..."
         (
             exec 2>/dev/null
             timeout 45 "$python_cmd" 2>/dev/null <<EOF
@@ -13763,7 +13763,7 @@ EOF
     # --- DECODER 8: INVERSE/NEGATIVE ---
     local out_inverse="${TEMP_DIR}_inverse.txt"
     if [ -n "$python_cmd" ]; then
-        log_info "  [8/22] Trying inverse decoder..."
+        log_info "  [8/50] Trying inverse decoder..."
         (
             exec 2>/dev/null
             timeout 30 "$python_cmd" 2>/dev/null <<EOF
@@ -13803,7 +13803,7 @@ EOF
     # --- DECODER 9: IMAGEMAGICK + ZBAR (preprocessing) ---
     local out_imgzbar="${TEMP_DIR}_imgzbar.txt"
     if command -v convert &>/dev/null && command -v zbarimg &>/dev/null; then
-        log_info "  [9/22] Trying imagemagick+zbar decoder..."
+        log_info "  [9/50] Trying imagemagick+zbar decoder..."
         if decode_with_imagemagick_zbar "$image" "$out_imgzbar"; then
             log_success "  ✓ imagemagick+zbar: decoded successfully"
             ((success_count++))
@@ -13819,7 +13819,7 @@ EOF
     # --- DECODER 10: DMTXREAD (DataMatrix simple) ---
     local out_dmtxread="${TEMP_DIR}_dmtxread.txt"
     if command -v dmtxread &>/dev/null; then
-        log_info "  [10/22] Trying dmtxread decoder..."
+        log_info "  [10/50] Trying dmtxread decoder..."
         if decode_with_dmtxread "$image" "$out_dmtxread"; then
             log_success "  ✓ dmtxread: decoded successfully"
             ((success_count++))
@@ -13845,7 +13845,7 @@ EOF
         ) 2>/dev/null && qreader_available=true
         
         if [ "$qreader_available" = true ]; then
-            log_info "  [11/22] Trying qreader decoder..."
+            log_info "  [11/50] Trying qreader decoder..."
             (
                 trap 'exit 139' SEGV
                 trap 'exit 134' ABRT
@@ -13907,7 +13907,7 @@ EOF
         ) 2>/dev/null && pyzxing_available=true
         
         if [ "$pyzxing_available" = true ]; then
-            log_info "  [12/22] Trying pyzxing decoder..."
+            log_info "  [12/50] Trying pyzxing decoder..."
             (
                 trap 'exit 139' SEGV
                 trap 'exit 134' ABRT
@@ -13952,7 +13952,7 @@ EOF
 
     # --- DECODER 13: ZXING JAVA CLI (direct JAR execution) ---
     local out_zxing_java="${TEMP_DIR}_zxing_java.txt"
-    log_info "  [13/22] Trying ZXing Java CLI decoder..."
+    log_info "  [13/50] Trying ZXing Java CLI decoder..."
     if command -v java &>/dev/null; then
         if decode_with_zxing_java_cli "$image" "$out_zxing_java"; then
             log_success "  ✓ zxing_java: decoded successfully"
@@ -13968,7 +13968,7 @@ EOF
 
     # --- DECODER 14: LIBDECODEQR (C/C++ library) ---
     local out_libdecodeqr="${TEMP_DIR}_libdecodeqr.txt"
-    log_info "  [14/22] Trying libdecodeqr decoder..."
+    log_info "  [14/50] Trying libdecodeqr decoder..."
     if command -v decodeqr &>/dev/null || command -v qrdecoder &>/dev/null; then
         if decode_with_libdecodeqr "$image" "$out_libdecodeqr"; then
             log_success "  ✓ libdecodeqr: decoded successfully"
@@ -13984,7 +13984,7 @@ EOF
 
     # --- DECODER 15: TESSERACT OCR + LEPTONICA (degraded code recovery) ---
     local out_tesseract="${TEMP_DIR}_tesseract.txt"
-    log_info "  [15/22] Trying Tesseract OCR decoder..."
+    log_info "  [15/50] Trying Tesseract OCR decoder..."
     if command -v tesseract &>/dev/null; then
         if decode_with_tesseract_ocr "$image" "$out_tesseract"; then
             log_success "  ✓ tesseract: decoded successfully (OCR-based recovery)"
@@ -14000,7 +14000,7 @@ EOF
 
     # --- DECODER 16: BOOFCV (Java computer vision) ---
     local out_boofcv="${TEMP_DIR}_boofcv.txt"
-    log_info "  [16/22] Trying BoofCV decoder..."
+    log_info "  [16/50] Trying BoofCV decoder..."
     if command -v java &>/dev/null; then
         # Try original boofcv first, then extended version
         if decode_with_boofcv "$image" "$out_boofcv" 2>/dev/null || decode_with_boofcv_extended "$image" "$out_boofcv"; then
@@ -14017,7 +14017,7 @@ EOF
 
     # --- DECODER 17: BWIP-JS (Node.js barcode library) ---
     local out_bwipjs="${TEMP_DIR}_bwipjs.txt"
-    log_info "  [17/22] Trying bwip-js decoder..."
+    log_info "  [17/50] Trying bwip-js decoder..."
     if command -v node &>/dev/null || command -v nodejs &>/dev/null; then
         if decode_with_bwipjs "$image" "$out_bwipjs"; then
             log_success "  ✓ bwipjs: decoded successfully"
@@ -14033,7 +14033,7 @@ EOF
 
     # --- DECODER 18: JSQR (Node.js QR decoder) ---
     local out_jsqr="${TEMP_DIR}_jsqr.txt"
-    log_info "  [18/22] Trying jsQR decoder..."
+    log_info "  [18/50] Trying jsQR decoder..."
     if command -v node &>/dev/null || command -v nodejs &>/dev/null; then
         if decode_with_jsqr "$image" "$out_jsqr"; then
             log_success "  ✓ jsqr: decoded successfully"
@@ -14050,7 +14050,7 @@ EOF
     # --- DECODER 19: PYTHON-BARCODE (1D barcode types) ---
     local out_pybarcode="${TEMP_DIR}_pybarcode.txt"
     if [ -n "$python_cmd" ]; then
-        log_info "  [19/22] Trying python-barcode (1D types) decoder..."
+        log_info "  [19/50] Trying python-barcode (1D types) decoder..."
         if decode_with_python_barcode "$image" "$out_pybarcode"; then
             log_success "  ✓ python-barcode: decoded successfully (1D barcode)"
             ((success_count++))
@@ -14066,7 +14066,7 @@ EOF
     # --- DECODER 20: OPENCV ARUCO + MULTI-QR ---
     local out_aruco="${TEMP_DIR}_aruco.txt"
     if [ -n "$python_cmd" ]; then
-        log_info "  [20/22] Trying OpenCV ArUco/Multi-QR decoder..."
+        log_info "  [20/50] Trying OpenCV ArUco/Multi-QR decoder..."
         if decode_with_opencv_aruco "$image" "$out_aruco"; then
             log_success "  ✓ opencv_aruco: decoded successfully"
             ((success_count++))
@@ -14092,7 +14092,7 @@ EOF
         ) 2>/dev/null && dbr_available=true
         
         if [ "$dbr_available" = true ]; then
-            log_info "  [21/22] Trying Dynamsoft Barcode Reader..."
+            log_info "  [21/50] Trying Dynamsoft Barcode Reader..."
             if decode_with_dynamsoft "$image" "$out_dynamsoft"; then
                 log_success "  ✓ dynamsoft: decoded successfully"
                 ((success_count++))
@@ -14110,7 +14110,7 @@ EOF
 
     # --- DECODER 22: ZXING-CPP (C++ ZXing port) ---
     local out_zxingcpp="${TEMP_DIR}_zxingcpp.txt"
-    log_info "  [22/22] Trying zxing-cpp decoder..."
+    log_info "  [22/50] Trying zxing-cpp decoder..."
     # Check for command-line tool first (safer)
     if command -v zxing &>/dev/null; then
         if decode_with_zxingcpp "$image" "$out_zxingcpp"; then
@@ -14150,7 +14150,7 @@ EOF
     # --- DECODER 23: GOQR (Go-based QR decoder - fast, memory-safe) ---
     local out_goqr="${TEMP_DIR}_goqr.txt"
     if command -v gozxing &>/dev/null || command -v goqr &>/dev/null || command -v qrdecode &>/dev/null; then
-        log_info "  [23/38] Trying GoQR decoder..."
+        log_info "  [23/50] Trying GoQR decoder..."
         if decode_with_goqr "$image" "$out_goqr"; then
             log_success "  ✓ goqr: decoded successfully"
             ((success_count++))
@@ -14165,7 +14165,7 @@ EOF
 
     # --- DECODER 24: AZTEC (Transport tickets, boarding passes) ---
     local out_aztec="${TEMP_DIR}_aztec.txt"
-    log_info "  [24/38] Trying Aztec code decoder..."
+    log_info "  [24/50] Trying Aztec code decoder..."
     if [ -n "$python_cmd" ]; then
         # Run in isolated subshell to prevent segfaults from killing main process
         (
@@ -14197,7 +14197,7 @@ EOF
 
     # --- DECODER 25: PDF417 (IDs, driver's licenses, boarding passes) ---
     local out_pdf417="${TEMP_DIR}_pdf417.txt"
-    log_info "  [25/38] Trying PDF417 decoder..."
+    log_info "  [25/50] Trying PDF417 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14228,7 +14228,7 @@ EOF
 
     # --- DECODER 26: MAXICODE (UPS shipping labels) ---
     local out_maxicode="${TEMP_DIR}_maxicode.txt"
-    log_info "  [26/38] Trying MaxiCode decoder..."
+    log_info "  [26/50] Trying MaxiCode decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14259,7 +14259,7 @@ EOF
 
     # --- DECODER 27: CODABAR (Libraries, blood banks, FedEx) ---
     local out_codabar="${TEMP_DIR}_codabar.txt"
-    log_info "  [27/38] Trying Codabar decoder..."
+    log_info "  [27/50] Trying Codabar decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14290,7 +14290,7 @@ EOF
 
     # --- DECODER 28: CODE128 (High-density alphanumeric) ---
     local out_code128="${TEMP_DIR}_code128.txt"
-    log_info "  [28/38] Trying Code 128 decoder..."
+    log_info "  [28/50] Trying Code 128 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14321,7 +14321,7 @@ EOF
 
     # --- DECODER 29: CODE39 (Automotive VINs, defense LOGMARS) ---
     local out_code39="${TEMP_DIR}_code39.txt"
-    log_info "  [29/38] Trying Code 39 decoder..."
+    log_info "  [29/50] Trying Code 39 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14352,7 +14352,7 @@ EOF
 
     # --- DECODER 30: EAN/UPC (Retail barcodes) ---
     local out_ean="${TEMP_DIR}_ean.txt"
-    log_info "  [30/38] Trying EAN/UPC decoder..."
+    log_info "  [30/50] Trying EAN/UPC decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14383,7 +14383,7 @@ EOF
 
     # --- DECODER 31: RMQR (Rectangular Micro QR - ISO/IEC 23941) ---
     local out_rmqr="${TEMP_DIR}_rmqr.txt"
-    log_info "  [31/38] Trying rMQR decoder..."
+    log_info "  [31/50] Trying rMQR decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14414,7 +14414,7 @@ EOF
 
     # --- DECODER 32: HANXIN (Chinese GB/T 21049 standard) ---
     local out_hanxin="${TEMP_DIR}_hanxin.txt"
-    log_info "  [32/38] Trying Han Xin Code decoder..."
+    log_info "  [32/50] Trying Han Xin Code decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14445,7 +14445,7 @@ EOF
 
     # --- DECODER 33: DOTCODE (High-speed industrial printing) ---
     local out_dotcode="${TEMP_DIR}_dotcode.txt"
-    log_info "  [33/38] Trying DotCode decoder..."
+    log_info "  [33/50] Trying DotCode decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14476,7 +14476,7 @@ EOF
 
     # --- DECODER 34: GRIDMATRIX (Chinese standard) ---
     local out_gridmatrix="${TEMP_DIR}_gridmatrix.txt"
-    log_info "  [34/38] Trying Grid Matrix decoder..."
+    log_info "  [34/50] Trying Grid Matrix decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14507,7 +14507,7 @@ EOF
 
     # --- DECODER 35: COMPOSITE (GS1 Composite barcodes) ---
     local out_composite="${TEMP_DIR}_composite.txt"
-    log_info "  [35/38] Trying Composite barcode decoder..."
+    log_info "  [35/50] Trying Composite barcode decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14538,7 +14538,7 @@ EOF
 
     # --- DECODER 36: ITF (Interleaved 2 of 5) ---
     local out_itf="${TEMP_DIR}_itf.txt"
-    log_info "  [36/38] Trying ITF decoder..."
+    log_info "  [36/50] Trying ITF decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14569,7 +14569,7 @@ EOF
 
     # --- DECODER 37: CODE93 (Higher density Code 39 variant) ---
     local out_code93="${TEMP_DIR}_code93.txt"
-    log_info "  [37/38] Trying Code 93 decoder..."
+    log_info "  [37/50] Trying Code 93 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14600,7 +14600,7 @@ EOF
 
     # --- DECODER 38: UNIVERSAL (All formats with preprocessing) ---
     local out_universal="${TEMP_DIR}_universal.txt"
-    log_info "  [38/42] Trying Universal decoder (all formats)..."
+    log_info "  [38/50] Trying Universal decoder (all formats)..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14631,7 +14631,7 @@ EOF
 
     # --- DECODER 39: QR MODEL 1 (Legacy QR) ---
     local out_qr_model1="${TEMP_DIR}_qr_model1.txt"
-    log_info "  [39/42] Trying QR Model 1 decoder..."
+    log_info "  [39/50] Trying QR Model 1 decoder..."
     if [ -n "$python_cmd" ]; then
         (
             set +e
@@ -14661,7 +14661,7 @@ EOF
 
     # --- DECODER 40: JAB CODE (Colored 2D barcode) ---
     local out_jabcode="${TEMP_DIR}_jabcode.txt"
-    log_info "  [40/42] Trying JAB Code decoder..."
+    log_info "  [40/50] Trying JAB Code decoder..."
     if decode_with_jabcode "$image" "$out_jabcode"; then
         log_success "  ✓ jabcode: decoded successfully"
         ((success_count++))
@@ -14673,7 +14673,7 @@ EOF
 
     # --- DECODER 41: HCCB (Microsoft Tag) ---
     local out_hccb="${TEMP_DIR}_hccb.txt"
-    log_info "  [41/42] Trying HCCB decoder..."
+    log_info "  [41/50] Trying HCCB decoder..."
     if [ -n "$python_cmd" ]; then
         (
             set +e
@@ -14703,7 +14703,7 @@ EOF
 
     # --- DECODER 42: MICRO QR CODE ---
     local out_micro_qr="${TEMP_DIR}_micro_qr.txt"
-    log_info "  [42/42] Trying Micro QR Code decoder..."
+    log_info "  [42/50] Trying Micro QR Code decoder..."
     if [ -n "$python_cmd" ]; then
         (
             set +e
@@ -14733,7 +14733,7 @@ EOF
 
     # --- DECODER 43: HTML QR FRAUD DETECTOR (Phishing/Fraud Detection) ---
     local out_html_qr="${TEMP_DIR}_html_qr.txt"
-    log_info "  [43/43] Trying HTML-Generated QR Fraud Detector..."
+    log_info "  [43/50] Trying HTML-Generated QR Fraud Detector..."
     if [ -n "$python_cmd" ]; then
         (
             set +e
@@ -15103,8 +15103,8 @@ multi_decoder_analysis_parallel() {
     
     # Priority-based decoder groups
     local priority_high=("zbar" "pyzbar" "opencv" "zxingcpp" "html_qr_detector" "upc")
-    local priority_medium=("quirc" "dmtx" "pyzbar_enhanced" "multiscale" "inverse" "adaptive" "gs1_databar")
-    local priority_low=("aztec" "pdf417" "code128" "code39" "ean" "itf" "code93" "code11" "msi" "telepen")
+    local priority_medium=("quirc" "dmtx" "pyzbar_enhanced" "multiscale" "inverse" "adaptive" "gs1_databar" "qr_model1" "micro_qr")
+    local priority_low=("aztec" "pdf417" "code128" "code39" "ean" "itf" "code93" "code11" "msi" "telepen" "jabcode" "hccb")
     local priority_specialty=("tesseract" "imagemagick_zbar" "universal" "pharmacode" "dpd")
     
     local success_count=0
