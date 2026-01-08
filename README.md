@@ -5,6 +5,6 @@ If this software is free for the public to use. Why? cyber criminals (regardless
 There really isn't a limit of size an scale of what this software aims to do. Goes from petty cyber crime to whatever the highest you can conceptualize.
 It's all theoretical, and unless you are 100% certain of a result, don't act on it. For this reason be careful when using some of these detection softwares. They are research based and are not certified in any sense. 
 However, sometimes you may absolutely get a verifiable and admissible result, just double / infinity check first, consult a cyber security business about it etc.
-IP_ID_checker.py and NetCapAnalyzer.sh are pretty rock solid. Same with OMG4.sh.
+IP_ID_checker.py and NetCapAnalyzer.sh are pretty rock solid. Same with OMGcablechecker.sh .
 
 Given the state of things, it is best to ask for an NDA to be signed prior to approaching anyone external from law enforcement to verify these things. I have one for my research methods as I also do research and development for other things as well. 
