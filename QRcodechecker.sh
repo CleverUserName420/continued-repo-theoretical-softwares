@@ -14125,18 +14125,18 @@ EOF
         local decoder_pid=$!
         
         # Wait for decoder with timeout
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_aztec" ]; then
-                log_success "  ✓ aztec: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_aztec" 2>/dev/null)$'\n'
-                decoder_results+=("aztec:$(head -1 "$out_aztec" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ aztec: decoder module not installed"
-            else
-                log_info "  ✗ aztec: no Aztec code found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_aztec" ]; then
+            log_success "  ✓ aztec: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_aztec" 2>/dev/null)$'\n'
+            decoder_results+=("aztec:$(head -1 "$out_aztec" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ aztec: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ aztec: no Aztec code found"
         else
             log_info "  ✗ aztec: decoder crashed or timed out (skipped)"
         fi
@@ -14155,19 +14155,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_pdf417" ]; then
-                log_success "  ✓ pdf417: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_pdf417" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_pdf417" ]; then
+            log_success "  ✓ pdf417: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_pdf417" 2>/dev/null)$'
 '
-                decoder_results+=("pdf417:$(head -1 "$out_pdf417" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ pdf417: decoder module not installed"
-            else
-                log_info "  ✗ pdf417: no PDF417 found"
-            fi
+            decoder_results+=("pdf417:$(head -1 "$out_pdf417" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ pdf417: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ pdf417: no PDF417 found"
         else
             log_info "  ✗ pdf417: decoder crashed or timed out (skipped)"
         fi
@@ -14186,19 +14186,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_maxicode" ]; then
-                log_success "  ✓ maxicode: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_maxicode" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_maxicode" ]; then
+            log_success "  ✓ maxicode: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_maxicode" 2>/dev/null)$'
 '
-                decoder_results+=("maxicode:$(head -1 "$out_maxicode" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ maxicode: decoder module not installed"
-            else
-                log_info "  ✗ maxicode: no MaxiCode found"
-            fi
+            decoder_results+=("maxicode:$(head -1 "$out_maxicode" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ maxicode: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ maxicode: no MaxiCode found"
         else
             log_info "  ✗ maxicode: decoder crashed or timed out (skipped)"
         fi
@@ -14217,19 +14217,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_codabar" ]; then
-                log_success "  ✓ codabar: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_codabar" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_codabar" ]; then
+            log_success "  ✓ codabar: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_codabar" 2>/dev/null)$'
 '
-                decoder_results+=("codabar:$(head -1 "$out_codabar" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ codabar: decoder module not installed"
-            else
-                log_info "  ✗ codabar: no Codabar found"
-            fi
+            decoder_results+=("codabar:$(head -1 "$out_codabar" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ codabar: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ codabar: no Codabar found"
         else
             log_info "  ✗ codabar: decoder crashed or timed out (skipped)"
         fi
@@ -14248,19 +14248,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_code128" ]; then
-                log_success "  ✓ code128: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_code128" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_code128" ]; then
+            log_success "  ✓ code128: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_code128" 2>/dev/null)$'
 '
-                decoder_results+=("code128:$(head -1 "$out_code128" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ code128: decoder module not installed"
-            else
-                log_info "  ✗ code128: no Code 128 found"
-            fi
+            decoder_results+=("code128:$(head -1 "$out_code128" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ code128: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ code128: no Code 128 found"
         else
             log_info "  ✗ code128: decoder crashed or timed out (skipped)"
         fi
@@ -14279,19 +14279,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_code39" ]; then
-                log_success "  ✓ code39: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_code39" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_code39" ]; then
+            log_success "  ✓ code39: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_code39" 2>/dev/null)$'
 '
-                decoder_results+=("code39:$(head -1 "$out_code39" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ code39: decoder module not installed"
-            else
-                log_info "  ✗ code39: no Code 39 found"
-            fi
+            decoder_results+=("code39:$(head -1 "$out_code39" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ code39: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ code39: no Code 39 found"
         else
             log_info "  ✗ code39: decoder crashed or timed out (skipped)"
         fi
@@ -14310,19 +14310,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_ean" ]; then
-                log_success "  ✓ ean: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_ean" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_ean" ]; then
+            log_success "  ✓ ean: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_ean" 2>/dev/null)$'
 '
-                decoder_results+=("ean:$(head -1 "$out_ean" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ ean: decoder module not installed"
-            else
-                log_info "  ✗ ean: no EAN/UPC found"
-            fi
+            decoder_results+=("ean:$(head -1 "$out_ean" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ ean: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ ean: no EAN/UPC found"
         else
             log_info "  ✗ ean: decoder crashed or timed out (skipped)"
         fi
@@ -14341,19 +14341,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_rmqr" ]; then
-                log_success "  ✓ rmqr: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_rmqr" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_rmqr" ]; then
+            log_success "  ✓ rmqr: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_rmqr" 2>/dev/null)$'
 '
-                decoder_results+=("rmqr:$(head -1 "$out_rmqr" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ rmqr: decoder module not installed"
-            else
-                log_info "  ✗ rmqr: no rMQR found"
-            fi
+            decoder_results+=("rmqr:$(head -1 "$out_rmqr" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ rmqr: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ rmqr: no rMQR found"
         else
             log_info "  ✗ rmqr: decoder crashed or timed out (skipped)"
         fi
@@ -14372,19 +14372,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_hanxin" ]; then
-                log_success "  ✓ hanxin: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_hanxin" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_hanxin" ]; then
+            log_success "  ✓ hanxin: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_hanxin" 2>/dev/null)$'
 '
-                decoder_results+=("hanxin:$(head -1 "$out_hanxin" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ hanxin: decoder module not installed"
-            else
-                log_info "  ✗ hanxin: no Han Xin Code found"
-            fi
+            decoder_results+=("hanxin:$(head -1 "$out_hanxin" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ hanxin: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ hanxin: no Han Xin Code found"
         else
             log_info "  ✗ hanxin: decoder crashed or timed out (skipped)"
         fi
@@ -14403,19 +14403,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_dotcode" ]; then
-                log_success "  ✓ dotcode: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_dotcode" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_dotcode" ]; then
+            log_success "  ✓ dotcode: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_dotcode" 2>/dev/null)$'
 '
-                decoder_results+=("dotcode:$(head -1 "$out_dotcode" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ dotcode: decoder module not installed"
-            else
-                log_info "  ✗ dotcode: no DotCode found"
-            fi
+            decoder_results+=("dotcode:$(head -1 "$out_dotcode" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ dotcode: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ dotcode: no DotCode found"
         else
             log_info "  ✗ dotcode: decoder crashed or timed out (skipped)"
         fi
@@ -14434,19 +14434,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_gridmatrix" ]; then
-                log_success "  ✓ gridmatrix: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_gridmatrix" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_gridmatrix" ]; then
+            log_success "  ✓ gridmatrix: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_gridmatrix" 2>/dev/null)$'
 '
-                decoder_results+=("gridmatrix:$(head -1 "$out_gridmatrix" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ gridmatrix: decoder module not installed"
-            else
-                log_info "  ✗ gridmatrix: no Grid Matrix found"
-            fi
+            decoder_results+=("gridmatrix:$(head -1 "$out_gridmatrix" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ gridmatrix: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ gridmatrix: no Grid Matrix found"
         else
             log_info "  ✗ gridmatrix: decoder crashed or timed out (skipped)"
         fi
@@ -14465,19 +14465,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_composite" ]; then
-                log_success "  ✓ composite: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_composite" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_composite" ]; then
+            log_success "  ✓ composite: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_composite" 2>/dev/null)$'
 '
-                decoder_results+=("composite:$(head -1 "$out_composite" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ composite: decoder module not installed"
-            else
-                log_info "  ✗ composite: no Composite barcode found"
-            fi
+            decoder_results+=("composite:$(head -1 "$out_composite" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ composite: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ composite: no Composite barcode found"
         else
             log_info "  ✗ composite: decoder crashed or timed out (skipped)"
         fi
@@ -14496,19 +14496,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_itf" ]; then
-                log_success "  ✓ itf: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_itf" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_itf" ]; then
+            log_success "  ✓ itf: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_itf" 2>/dev/null)$'
 '
-                decoder_results+=("itf:$(head -1 "$out_itf" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ itf: decoder module not installed"
-            else
-                log_info "  ✗ itf: no ITF found"
-            fi
+            decoder_results+=("itf:$(head -1 "$out_itf" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ itf: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ itf: no ITF found"
         else
             log_info "  ✗ itf: decoder crashed or timed out (skipped)"
         fi
@@ -14527,19 +14527,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_code93" ]; then
-                log_success "  ✓ code93: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_code93" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_code93" ]; then
+            log_success "  ✓ code93: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_code93" 2>/dev/null)$'
 '
-                decoder_results+=("code93:$(head -1 "$out_code93" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ code93: decoder module not installed"
-            else
-                log_info "  ✗ code93: no Code 93 found"
-            fi
+            decoder_results+=("code93:$(head -1 "$out_code93" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ code93: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ code93: no Code 93 found"
         else
             log_info "  ✗ code93: decoder crashed or timed out (skipped)"
         fi
@@ -14558,19 +14558,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_universal" ]; then
-                log_success "  ✓ universal: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_universal" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_universal" ]; then
+            log_success "  ✓ universal: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_universal" 2>/dev/null)$'
 '
-                decoder_results+=("universal:$(head -1 "$out_universal" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ universal: decoder module not installed"
-            else
-                log_info "  ✗ universal: no Universal found"
-            fi
+            decoder_results+=("universal:$(head -1 "$out_universal" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ universal: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ universal: no Universal found"
         else
             log_info "  ✗ universal: decoder crashed or timed out (skipped)"
         fi
@@ -14589,18 +14589,18 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_qr_model1" ]; then
-                log_success "  ✓ qr_model1: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_qr_model1" 2>/dev/null)$'\n'
-                decoder_results+=("qr_model1:$(head -1 "$out_qr_model1" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ qr_model1: decoder module not installed"
-            else
-                log_info "  ✗ qr_model1: no QR Model 1 found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_qr_model1" ]; then
+            log_success "  ✓ qr_model1: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_qr_model1" 2>/dev/null)$'\n'
+            decoder_results+=("qr_model1:$(head -1 "$out_qr_model1" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ qr_model1: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ qr_model1: no QR Model 1 found"
         else
             log_info "  ✗ qr_model1: decoder crashed or timed out (skipped)"
         fi
@@ -14631,18 +14631,18 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_hccb" ]; then
-                log_success "  ✓ hccb: detected"
-                ((success_count++))
-                all_decoded+=$(cat "$out_hccb" 2>/dev/null)$'\n'
-                decoder_results+=("hccb:$(head -1 "$out_hccb" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ hccb: decoder module not installed"
-            else
-                log_info "  ✗ hccb: no HCCB found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_hccb" ]; then
+            log_success "  ✓ hccb: detected"
+            ((success_count++))
+            all_decoded+=$(cat "$out_hccb" 2>/dev/null)$'\n'
+            decoder_results+=("hccb:$(head -1 "$out_hccb" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ hccb: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ hccb: no HCCB found"
         else
             log_info "  ✗ hccb: decoder crashed or timed out (skipped)"
         fi
@@ -14661,18 +14661,18 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_micro_qr" ]; then
-                log_success "  ✓ micro_qr: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_micro_qr" 2>/dev/null)$'\n'
-                decoder_results+=("micro_qr:$(head -1 "$out_micro_qr" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ micro_qr: decoder module not installed"
-            else
-                log_info "  ✗ micro_qr: no Micro QR found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_micro_qr" ]; then
+            log_success "  ✓ micro_qr: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_micro_qr" 2>/dev/null)$'\n'
+            decoder_results+=("micro_qr:$(head -1 "$out_micro_qr" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ micro_qr: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ micro_qr: no Micro QR found"
         else
             log_info "  ✗ micro_qr: decoder crashed or timed out (skipped)"
         fi
@@ -14691,34 +14691,34 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_html_qr" ]; then
-                log_success "  ✓ html_qr_detector: HTML-generated QR detected"
-                ((success_count++))
-                all_decoded+=$(cat "$out_html_qr" 2>/dev/null)$'\n'
-                decoder_results+=("html_qr_detector:$(head -1 "$out_html_qr" 2>/dev/null)")
-                
-                # Check for fraud indicators
-                if grep -q "HTML_GENERATION_INDICATORS" "$out_html_qr"; then
-                    log_forensic_detection 70 \
-                        "HTML-Generated QR Code - Potential Fraud" \
-                        "html_qr_generation:$(grep 'HTML_GENERATION_INDICATORS' "$out_html_qr" | cut -d: -f2-)" \
-                        "Image forensic analysis" \
-                        "QR generation method" \
-                        "Investigate QR origin - HTML-generated QRs common in phishing/fraud campaigns" \
-                        "MITRE ATT&CK T1566.002 - Phishing: Spearphishing Link"
-                fi
-                
-                # Check for missing EXIF (programmatic generation indicator)
-                if grep -q "FORENSIC:no_exif_programmatic_generation" "$out_html_qr"; then
-                    log_forensic "HTML QR lacks EXIF data - likely programmatically generated"
-                fi
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ html_qr_detector: decoder module not installed"
-            else
-                log_info "  ✗ html_qr_detector: no HTML QR patterns found"
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_html_qr" ]; then
+            log_success "  ✓ html_qr_detector: HTML-generated QR detected"
+            ((success_count++))
+            all_decoded+=$(cat "$out_html_qr" 2>/dev/null)$'\n'
+            decoder_results+=("html_qr_detector:$(head -1 "$out_html_qr" 2>/dev/null)")
+            
+            # Check for fraud indicators
+            if grep -q "HTML_GENERATION_INDICATORS" "$out_html_qr"; then
+                log_forensic_detection 70 \
+                    "HTML-Generated QR Code - Potential Fraud" \
+                    "html_qr_generation:$(grep 'HTML_GENERATION_INDICATORS' "$out_html_qr" | cut -d: -f2-)" \
+                    "Image forensic analysis" \
+                    "QR generation method" \
+                    "Investigate QR origin - HTML-generated QRs common in phishing/fraud campaigns" \
+                    "MITRE ATT&CK T1566.002 - Phishing: Spearphishing Link"
             fi
+            
+            # Check for missing EXIF (programmatic generation indicator)
+            if grep -q "FORENSIC:no_exif_programmatic_generation" "$out_html_qr"; then
+                log_forensic "HTML QR lacks EXIF data - likely programmatically generated"
+            fi
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ html_qr_detector: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ html_qr_detector: no HTML QR patterns found"
         else
             log_info "  ✗ html_qr_detector: decoder crashed or timed out (skipped)"
         fi
@@ -14737,18 +14737,18 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_upc" ]; then
-                log_success "  ✓ upc: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_upc" 2>/dev/null)$'\n'
-                decoder_results+=("upc:$(head -1 "$out_upc" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ upc: decoder module not installed"
-            else
-                log_info "  ✗ upc: no UPC found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_upc" ]; then
+            log_success "  ✓ upc: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_upc" 2>/dev/null)$'\n'
+            decoder_results+=("upc:$(head -1 "$out_upc" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ upc: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ upc: no UPC found"
         else
             log_info "  ✗ upc: decoder crashed or timed out (skipped)"
         fi
@@ -14767,18 +14767,18 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_msi" ]; then
-                log_success "  ✓ msi: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_msi" 2>/dev/null)$'\n'
-                decoder_results+=("msi:$(head -1 "$out_msi" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ msi: decoder module not installed"
-            else
-                log_info "  ✗ msi: no MSI/Plessey found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_msi" ]; then
+            log_success "  ✓ msi: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_msi" 2>/dev/null)$'\n'
+            decoder_results+=("msi:$(head -1 "$out_msi" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ msi: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ msi: no MSI/Plessey found"
         else
             log_info "  ✗ msi: decoder crashed or timed out (skipped)"
         fi
@@ -14797,18 +14797,18 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_telepen" ]; then
-                log_success "  ✓ telepen: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_telepen" 2>/dev/null)$'\n'
-                decoder_results+=("telepen:$(head -1 "$out_telepen" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ telepen: decoder module not installed"
-            else
-                log_info "  ✗ telepen: no Telepen found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_telepen" ]; then
+            log_success "  ✓ telepen: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_telepen" 2>/dev/null)$'\n'
+            decoder_results+=("telepen:$(head -1 "$out_telepen" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ telepen: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ telepen: no Telepen found"
         else
             log_info "  ✗ telepen: decoder crashed or timed out (skipped)"
         fi
@@ -14827,18 +14827,18 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_gs1" ]; then
-                log_success "  ✓ gs1_databar: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_gs1" 2>/dev/null)$'\n'
-                decoder_results+=("gs1_databar:$(head -1 "$out_gs1" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ gs1_databar: decoder module not installed"
-            else
-                log_info "  ✗ gs1_databar: no GS1 DataBar found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_gs1" ]; then
+            log_success "  ✓ gs1_databar: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_gs1" 2>/dev/null)$'\n'
+            decoder_results+=("gs1_databar:$(head -1 "$out_gs1" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ gs1_databar: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ gs1_databar: no GS1 DataBar found"
         else
             log_info "  ✗ gs1_databar: decoder crashed or timed out (skipped)"
         fi
@@ -14857,18 +14857,18 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_pharmacode" ]; then
-                log_success "  ✓ pharmacode: detected"
-                ((success_count++))
-                all_decoded+=$(cat "$out_pharmacode" 2>/dev/null)$'\n'
-                decoder_results+=("pharmacode:$(head -1 "$out_pharmacode" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ pharmacode: decoder module not installed"
-            else
-                log_info "  ✗ pharmacode: no Pharmacode found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_pharmacode" ]; then
+            log_success "  ✓ pharmacode: detected"
+            ((success_count++))
+            all_decoded+=$(cat "$out_pharmacode" 2>/dev/null)$'\n'
+            decoder_results+=("pharmacode:$(head -1 "$out_pharmacode" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ pharmacode: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ pharmacode: no Pharmacode found"
         else
             log_info "  ✗ pharmacode: decoder crashed or timed out (skipped)"
         fi
@@ -14887,18 +14887,18 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_code11" ]; then
-                log_success "  ✓ code11: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_code11" 2>/dev/null)$'\n'
-                decoder_results+=("code11:$(head -1 "$out_code11" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ code11: decoder module not installed"
-            else
-                log_info "  ✗ code11: no Code 11 found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_code11" ]; then
+            log_success "  ✓ code11: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_code11" 2>/dev/null)$'\n'
+            decoder_results+=("code11:$(head -1 "$out_code11" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ code11: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ code11: no Code 11 found"
         else
             log_info "  ✗ code11: decoder crashed or timed out (skipped)"
         fi
@@ -14917,18 +14917,18 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_dpd" ]; then
-                log_success "  ✓ dpd: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_dpd" 2>/dev/null)$'\n'
-                decoder_results+=("dpd:$(head -1 "$out_dpd" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ dpd: decoder module not installed"
-            else
-                log_info "  ✗ dpd: no DPD barcode found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_dpd" ]; then
+            log_success "  ✓ dpd: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_dpd" 2>/dev/null)$'\n'
+            decoder_results+=("dpd:$(head -1 "$out_dpd" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ dpd: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ dpd: no DPD barcode found"
         else
             log_info "  ✗ dpd: decoder crashed or timed out (skipped)"
         fi
