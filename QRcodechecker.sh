@@ -28709,8 +28709,8 @@ analyze_dependency_confusion() {
     )
     
     for pattern in "${DEP_CONFUSION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | grep -qiE -e "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | grep -oiE -e "$pattern" 2>/dev/null | head -1)
             dc_findings+=("dep_confusion:$matched")
             ((dc_score += 25))
         fi
@@ -31390,7 +31390,7 @@ analyze_injection_attacks() {
     local polyglot_count=0
     
     for pattern in "${polyglot_patterns[@]}"; do
-        if echo "$content" | grep -qF "$pattern"; then
+        if echo "$content" | grep -qF -e "$pattern" 2>/dev/null; then
             ((polyglot_count++))
             ((injection_score += ${INJECTION_SEVERITY["polyglot"]}))
             log_threat 75 "CRITICAL: Polyglot injection detected: $pattern"
@@ -31510,7 +31510,7 @@ analyze_injection_attacks() {
     
     for pattern in "${formula_injection_patterns[@]}"; do
         # Use grep -F for fixed string matching (these are literal patterns, not regex)
-        if echo "$content" | grep -qF "$pattern"; then
+        if echo "$content" | grep -qF -e "$pattern" 2>/dev/null; then
             ((injection_score += 45))
             log_threat 45 "Formula/CSV injection pattern detected: $pattern"
             injection_findings+=("formula_injection:$pattern")
