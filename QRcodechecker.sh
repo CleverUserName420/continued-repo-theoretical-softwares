@@ -12858,8 +12858,21 @@ try:
     colors = arr.reshape(-1, 3)
     unique_colors = np.unique(colors, axis=0)
     
+    # HCCB uses 4 or 8 colors for encoding
     if len(unique_colors) in [4, 8]:
-        print("HCCB:DETECTED_BUT_NOT_DECODED")
+        # Calculate color distribution
+        height, width = arr.shape[:2]
+        color_counts = {}
+        for color in unique_colors:
+            mask = np.all(arr == color, axis=-1)
+            count = np.sum(mask)
+            color_hex = '#{:02x}{:02x}{:02x}'.format(color[0], color[1], color[2])
+            color_counts[color_hex] = count
+        
+        # Build info string
+        color_info = '_'.join([f"{c}:{cnt}" for c, cnt in sorted(color_counts.items(), key=lambda x: -x[1])[:4]])
+        dims = f"{width}x{height}"
+        print(f"HCCB:DETECTED_MICROSOFT_TAG_{len(unique_colors)}_COLORS_{dims}_{color_info}")
 except:
     pass
 PYHCCB
@@ -13292,8 +13305,8 @@ try:
     arr = np.array(img)
     
     # Pharmacode is a series of thick and thin bars
-    # Simple heuristic detection - look for bar pattern
-    # This is a basic implementation for detection purposes
+    # Each bar represents a power of 2, and the sum gives the value
+    # Pharmacode range: 3 to 131070 (2^0 + 2^1 + ... up to 2^16)
     
     # Check for vertical bar patterns
     height, width = arr.shape
@@ -13303,11 +13316,39 @@ try:
     threshold = np.mean(mid_row)
     binary = (mid_row < threshold).astype(int)
     transitions = np.diff(binary)
-    bar_count = np.sum(np.abs(transitions))
+    bar_positions = np.where(transitions != 0)[0]
     
-    # Pharmacode typically has 2-13 bars
-    if 4 <= bar_count <= 26:  # Account for both edges of bars
-        print(f"PHARMACODE:DETECTED_{bar_count//2}_BARS")
+    # Pharmacode has 2-13 bars, transitions are double (rising + falling edge)
+    num_bars = len(bar_positions) // 2
+    
+    if 2 <= num_bars <= 13:
+        # Decode: bars represent binary digits
+        # Thin bar = 0, Thick bar = 1 (or vice versa based on width)
+        # Calculate widths between transitions
+        bar_widths = []
+        for i in range(0, len(bar_positions) - 1, 2):
+            if i + 1 < len(bar_positions):
+                width = bar_positions[i + 1] - bar_positions[i]
+                bar_widths.append(width)
+        
+        if len(bar_widths) >= 2:
+            # Determine thin vs thick threshold
+            median_width = np.median(bar_widths)
+            
+            # Decode value: each bar position represents 2^n
+            value = 0
+            for i, width in enumerate(bar_widths):
+                if width > median_width:  # Thick bar
+                    value += 2 ** i
+            
+            # Pharmacode valid range is 3-131070
+            if 3 <= value <= 131070:
+                print(f"PHARMACODE:{value}")
+            else:
+                # Just report detection if value seems invalid
+                print(f"PHARMACODE:DETECTED_{num_bars}_BARS_VALUE_{value}")
+        else:
+            print(f"PHARMACODE:DETECTED_{num_bars}_BARS")
 except ImportError:
     sys.exit(2)
 except Exception:
