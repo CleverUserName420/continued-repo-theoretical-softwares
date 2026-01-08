@@ -9662,6 +9662,11 @@ decode_with_segno() {
         return 13
     fi
 
+    # Safe module check before execution
+    if ! safe_check_python_module "segno"; then
+        return 2
+    fi
+
     # HARDEN: segno and pyzbar installed check
     "$python_cmd" - <<'PYCHECK' 2>/dev/null
 try:
@@ -9845,6 +9850,11 @@ decode_with_perspective() {
         return 13
     fi
     
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
+    fi
+    
     # HARDEN: required python modules present
     "$python_cmd" - <<'PYREQCHECK' 2>/dev/null
 try:
@@ -9940,6 +9950,11 @@ decode_with_inverse() {
     if [ -z "$python_cmd" ] || ! command -v "$python_cmd" &> /dev/null; then
         echo "[decode_with_inverse] Python interpreter not found" >&2
         return 13
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "PIL"; then
+        return 2
     fi
     
     # HARDEN: required python modules present
@@ -10040,6 +10055,11 @@ decode_with_adaptive() {
         return 13
     fi
     
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
+    fi
+    
     # HARDEN: required python modules present
     "$python_cmd" - <<'PYREQCHECK' 2>/dev/null
 try:
@@ -10136,6 +10156,11 @@ decode_with_channels() {
     if [ -z "$python_cmd" ] || ! command -v "$python_cmd" &> /dev/null; then
         echo "[decode_with_channels] Python interpreter not found" >&2
         return 13
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "PIL"; then
+        return 2
     fi
     
     # HARDEN: required python modules present
@@ -10253,8 +10278,17 @@ decode_with_qreader() {
     set -u
     local python_cmd=$(get_python_cmd)
     
-    # Check if module exists first - skip entirely if not installed
-    if ! "$python_cmd" -c "import qreader" 2>/dev/null; then
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_qreader"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "qreader"; then
         return 2
     fi
     
@@ -10308,8 +10342,17 @@ decode_with_pyzxing() {
     set -u
     local python_cmd=$(get_python_cmd)
     
-    # Check if module exists first - skip entirely if not installed
-    if ! "$python_cmd" -c "import pyzxing" 2>/dev/null; then
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_pyzxing"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "pyzxing"; then
         return 2
     fi
     
@@ -10797,6 +10840,20 @@ decode_with_opencv_aruco() {
     
     [[ -z "$python_cmd" ]] && return 2
     
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_opencv_aruco"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
+    fi
+    
     (
         exec 2>/dev/null
         timeout 30 "$python_cmd" <<'PYARUCO_EOF' 2>/dev/null
@@ -10892,9 +10949,17 @@ decode_with_dynamsoft() {
     
     [[ -z "$python_cmd" ]] && return 2
     
-    # Check if dbr module exists BEFORE attempting to use it
-    # This prevents segfaults from the import itself
-    if ! "$python_cmd" -c "import dbr" 2>/dev/null; then
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_dynamsoft"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "dbr"; then
         return 2
     fi
     
@@ -10989,6 +11054,15 @@ decode_with_zxingcpp() {
     set -u
     local python_cmd=$(get_python_cmd)
     
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_zxingcpp"; then
+        return 1
+    fi
+    
     # Check for zxing-cpp command line tool first (safest option)
     if command -v zxing &>/dev/null; then
         (
@@ -11004,8 +11078,8 @@ decode_with_zxingcpp() {
     # Try Python binding with crash protection
     [[ -z "$python_cmd" ]] && return 2
     
-    # Pre-check if module exists
-    if ! "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
+    # Safe module check before execution
+    if ! safe_check_python_module "zxingcpp"; then
         return 2
     fi
     
