@@ -188,15 +188,9 @@ class FreeIPInvestigator:
         
         
     def ip2whois_lookup(self, ip: str, api_key: str) -> Optional[Dict]:
-        """Safe IP lookup using RDAP (official standard)"""
-        try:
-            # Try RDAP first (official, free, safe)
-            url = f"https://rdap.arin.net/registry/ip/{ip}"
-            return self.fetch_json_url(url)
-        except:
-            # Fallback to ipinfo.io
-            url = f"https://ipinfo.io/{ip}/json"
-            return self.fetch_json_url(url)
+        """IP2WHOIS - Free WHOIS API (500 queries/month)"""
+        url = f"https://api.ip2whois.com/v2?key={api_key}&ip={ip}"
+        return self.fetch_json_url(url)
         
     def whoisxmlapi_free(self, ip: str) -> Optional[Dict]:
         """WhoisXML API - Free tier (500 requests/month)"""
