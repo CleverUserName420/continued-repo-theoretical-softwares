@@ -2757,8 +2757,18 @@ find_executable() {
 # Auto-detect Python installation
 auto_detect_python() {
     local python_paths=(
+        # Priority 1: Activated virtual environment
+        "${VIRTUAL_ENV}/bin/python3"
+        "${VIRTUAL_ENV}/bin/python"
+        # Priority 2: Local .venv in current directory
+        ".venv/bin/python3"
+        ".venv/bin/python"
+        "venv/bin/python3"
+        "venv/bin/python"
+        # Priority 3: User home .venv
         "$HOME/.venv/bin/python3"
         "$HOME/.venv/bin/python"
+        # Priority 4: System Python
         "python3"
         "python"
         "$HOMEBREW_PREFIX/bin/python3"
