@@ -3070,6 +3070,42 @@ get_python_cmd() {
     echo "${DISCOVERED_PATHS[python3]:-python3}"
 }
 
+# Safe module pre-check with crash protection
+safe_check_python_module() {
+    local module="$1"
+    local python_cmd=$(get_python_cmd)
+    
+    [[ -z "$python_cmd" ]] && return 1
+    
+    # Isolated check with crash protection
+    (
+        trap 'exit 139' SEGV ABRT BUS FPE
+        ulimit -c 0 2>/dev/null
+        ulimit -t 5 2>/dev/null  # CPU time limit
+        ulimit -v $((512 * 1024)) 2>/dev/null  # 512MB memory limit
+        exec 2>/dev/null
+        
+        timeout 5 "$python_cmd" -c "
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import resource
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+except:
+    pass
+
+import ${module}
+" 2>/dev/null
+    ) 2>/dev/null
+    
+    local status=$?
+    [[ $status -eq 0 ]]
+}
+
 # Execute Python code with auto-detected Python
 run_python() {
     local python_cmd
@@ -9096,6 +9132,20 @@ decode_with_pyzbar() {
     local output_file="${2:-}"
     set -u
     
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_pyzbar"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "pyzbar"; then
+        return 2
+    fi
+    
     # Use safe wrapper with crash protection
     safe_python_decode "$image" "$output_file"
 }
@@ -9209,6 +9259,20 @@ decode_with_opencv() {
     set -u
     local python_cmd=$(get_python_cmd)
     
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_opencv"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
+    fi
+    
     run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYOPENCV' 2>/dev/null
 import sys
 import signal
@@ -9281,6 +9345,20 @@ decode_with_opencv_wechat() {
     set -u
     local python_cmd=$(get_python_cmd)
     
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_opencv_wechat"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
+    fi
+    
     run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYWECHAT' 2>/dev/null
 import sys
 import signal
@@ -9323,6 +9401,20 @@ decode_with_pyzbar_enhanced() {
     local output_file="${2:-}"
     set -u
     local python_cmd=$(get_python_cmd)
+    
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_pyzbar_enhanced"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "pyzbar"; then
+        return 2
+    fi
     
     run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYENHANCED' 2>/dev/null
 import sys
@@ -9648,6 +9740,11 @@ decode_with_multiscale() {
     if [ -z "$python_cmd" ] || ! command -v "$python_cmd" &> /dev/null; then
         echo "[decode_with_multiscale] Python interpreter not found" >&2
         return 13
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
     fi
     
     # HARDEN: required python modules present
@@ -12571,6 +12668,184 @@ PYUNIVERSAL_SCRIPT
     return 2
 }
 
+# Decoder 39: QR Code Model 1 (legacy QR format)
+decode_with_qr_model1() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_qr_model1"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYMODEL1 > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    results = zxingcpp.read_barcodes(
+        img, 
+        formats=zxingcpp.BarcodeFormat.QRCode,
+        try_harder=True,
+        try_rotate=True
+    )
+    
+    for r in results:
+        print(f"QR_MODEL1:{r.text}")
+except:
+    pass
+PYMODEL1
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 40: JAB Code (colored 2D barcode)
+decode_with_jabcode() {
+    local image="$1"
+    local output_file="$2"
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_jabcode"; then
+        return 1
+    fi
+    
+    if command -v jabcodeReader &>/dev/null; then
+        (
+            exec 2>/dev/null
+            timeout 20 jabcodeReader "$image" > "$output_file" 2>/dev/null
+        )
+        [[ -s "$output_file" ]] && return 0
+    fi
+    
+    return 2
+}
+
+# Decoder 41: HCCB (High Capacity Color Barcode - Microsoft Tag)
+decode_with_hccb() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_hccb"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "PIL"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYHCCB > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    from PIL import Image
+    import numpy as np
+    
+    img = Image.open('$image').convert('RGB')
+    arr = np.array(img)
+    
+    colors = arr.reshape(-1, 3)
+    unique_colors = np.unique(colors, axis=0)
+    
+    if len(unique_colors) in [4, 8]:
+        print("HCCB:DETECTED_BUT_NOT_DECODED")
+except:
+    pass
+PYHCCB
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 42: Micro QR Code (smaller QR variant)
+decode_with_micro_qr() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_micro_qr"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYMICROQR > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    try:
+        results = zxingcpp.read_barcodes(
+            img,
+            formats=zxingcpp.BarcodeFormat.MicroQRCode
+        )
+    except AttributeError:
+        results = zxingcpp.read_barcodes(img)
+        results = [r for r in results if 'MICRO' in r.format.name.upper()]
+    
+    for r in results:
+        print(f"MICRO_QR:{r.text}")
+except:
+    pass
+PYMICROQR
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
 multi_decoder_analysis() {
     local image="$1"
     local base_output="$2"
@@ -12597,6 +12872,13 @@ multi_decoder_analysis() {
     local all_decoded=""
     local decoder_results=()
     local python_cmd=$(get_python_cmd)
+
+    # Check if parallel mode is enabled via environment variable
+    if [[ "${QR_PARALLEL_DECODERS:-0}" == "1" ]]; then
+        log_info "Parallel decoder mode enabled (QR_PARALLEL_DECODERS=1)"
+        multi_decoder_analysis_parallel "$image" "$base_output" "${QR_MAX_PARALLEL:-4}" "${QR_EARLY_EXIT:-3}"
+        return $?
+    fi
 
     # Clean previous outputs
     rm -f "${TEMP_DIR}"_*.txt 2>/dev/null
@@ -13717,13 +13999,115 @@ EOF
         log_info "  ✗ universal: Python not available"
     fi
 
+    # --- DECODER 39: QR MODEL 1 (Legacy QR) ---
+    local out_qr_model1="${TEMP_DIR}_qr_model1.txt"
+    log_info "  [39/42] Trying QR Model 1 decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_qr_model1 "$image" "$out_qr_model1"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_qr_model1" ]; then
+                log_success "  ✓ qr_model1: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_qr_model1" 2>/dev/null)$'\n'
+                decoder_results+=("qr_model1:$(head -1 "$out_qr_model1" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ qr_model1: decoder module not installed"
+            else
+                log_info "  ✗ qr_model1: no QR Model 1 found"
+            fi
+        else
+            log_info "  ✗ qr_model1: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ qr_model1: Python not available"
+    fi
+
+    # --- DECODER 40: JAB CODE (Colored 2D barcode) ---
+    local out_jabcode="${TEMP_DIR}_jabcode.txt"
+    log_info "  [40/42] Trying JAB Code decoder..."
+    if decode_with_jabcode "$image" "$out_jabcode"; then
+        log_success "  ✓ jabcode: decoded successfully"
+        ((success_count++))
+        all_decoded+=$(cat "$out_jabcode" 2>/dev/null)$'\n'
+        decoder_results+=("jabcode:$(head -1 "$out_jabcode" 2>/dev/null)")
+    else
+        log_info "  ✗ jabcode: not installed or no code found"
+    fi
+
+    # --- DECODER 41: HCCB (Microsoft Tag) ---
+    local out_hccb="${TEMP_DIR}_hccb.txt"
+    log_info "  [41/42] Trying HCCB decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_hccb "$image" "$out_hccb"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_hccb" ]; then
+                log_success "  ✓ hccb: detected"
+                ((success_count++))
+                all_decoded+=$(cat "$out_hccb" 2>/dev/null)$'\n'
+                decoder_results+=("hccb:$(head -1 "$out_hccb" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ hccb: decoder module not installed"
+            else
+                log_info "  ✗ hccb: no HCCB found"
+            fi
+        else
+            log_info "  ✗ hccb: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ hccb: Python not available"
+    fi
+
+    # --- DECODER 42: MICRO QR CODE ---
+    local out_micro_qr="${TEMP_DIR}_micro_qr.txt"
+    log_info "  [42/42] Trying Micro QR Code decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_micro_qr "$image" "$out_micro_qr"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_micro_qr" ]; then
+                log_success "  ✓ micro_qr: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_micro_qr" 2>/dev/null)$'\n'
+                decoder_results+=("micro_qr:$(head -1 "$out_micro_qr" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ micro_qr: decoder module not installed"
+            else
+                log_info "  ✗ micro_qr: no Micro QR found"
+            fi
+        else
+            log_info "  ✗ micro_qr: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ micro_qr: Python not available"
+    fi
+
     echo ""
     echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
     echo -e "${CYAN}│                   DECODER SUMMARY                           │${NC}"
     echo -e "${CYAN}├─────────────────────────────────────────────────────────────┤${NC}"
 
     # Calculate total decoders attempted
-    local total_decoders=38  # Updated: 22 original + 16 new decoder implementations
+    local total_decoders=42  # Updated: 22 original + 16 extended + 4 new implementations
     
     echo -e "${CYAN}│${NC} Decoders Attempted:   ${WHITE}${total_decoders}${NC}"
     echo -e "${CYAN}│${NC} Successful Decodes:   ${WHITE}${success_count}${NC}"
@@ -13769,6 +14153,193 @@ EOF
 
     # Return 0 if any decoder succeeded
     [ $success_count -gt 0 ]
+}
+
+# Helper function to run a single decoder
+run_single_decoder() {
+    local decoder="$1"
+    local image="$2"
+    local output="$3"
+    
+    case "$decoder" in
+        zbar) decode_with_zbar "$image" "$output" ;;
+        pyzbar) decode_with_pyzbar "$image" "$output" ;;
+        opencv) decode_with_opencv "$image" "$output" ;;
+        zxingcpp) decode_with_zxingcpp "$image" "$output" ;;
+        quirc) decode_with_quirc "$image" "$output" ;;
+        dmtx) decode_with_dmtx "$image" "$output" ;;
+        pyzbar_enhanced) decode_with_pyzbar_enhanced "$image" "$output" ;;
+        multiscale) decode_with_multiscale "$image" "$output" ;;
+        inverse) decode_with_inverse "$image" "$output" ;;
+        adaptive) decode_with_adaptive "$image" "$output" ;;
+        aztec) decode_with_aztec "$image" "$output" ;;
+        pdf417) decode_with_pdf417 "$image" "$output" ;;
+        code128) decode_with_code128 "$image" "$output" ;;
+        code39) decode_with_code39 "$image" "$output" ;;
+        ean) decode_with_ean "$image" "$output" ;;
+        itf) decode_with_itf "$image" "$output" ;;
+        code93) decode_with_code93 "$image" "$output" ;;
+        tesseract) decode_with_tesseract_ocr "$image" "$output" ;;
+        imagemagick_zbar) decode_with_imagemagick_zbar "$image" "$output" ;;
+        universal) decode_with_universal "$image" "$output" ;;
+        *) return 1 ;;
+    esac
+}
+
+multi_decoder_analysis_parallel() {
+    local image="$1"
+    local base_output="$2"
+    local max_parallel="${3:-4}"
+    local early_exit_count="${4:-3}"
+    
+    log_info "Parallel multi-decoder analysis (max ${max_parallel} concurrent)..."
+    
+    # Validation
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        log_error "[multi_decoder_analysis_parallel] Image not found or unreadable: '$image'"
+        return 10
+    fi
+    
+    local allowed_temp_dir="${TEMP_DIR}/"
+    mkdir -p "$allowed_temp_dir" 2>/dev/null
+    
+    # Priority-based decoder groups
+    local priority_high=("zbar" "pyzbar" "opencv" "zxingcpp")
+    local priority_medium=("quirc" "dmtx" "pyzbar_enhanced" "multiscale" "inverse" "adaptive")
+    local priority_low=("aztec" "pdf417" "code128" "code39" "ean" "itf" "code93")
+    local priority_specialty=("tesseract" "imagemagick_zbar" "universal")
+    
+    local success_count=0
+    local all_decoded=""
+    local decoder_results=()
+    
+    # Shared aggregation files
+    local aggregate_output="${TEMP_DIR}/aggregate_$$.txt"
+    local aggregate_summary="${TEMP_DIR}/aggregate_$$_summary.txt"
+    local lock_file="${TEMP_DIR}/aggregate_$$.lock"
+    
+    : > "$aggregate_output"
+    : > "$aggregate_summary"
+    
+    register_temp_file "$aggregate_output"
+    register_temp_file "$aggregate_summary"
+    register_temp_file "$lock_file"
+    
+    # Run decoder group function
+    run_decoder_group() {
+        local group_name="$1"
+        shift
+        local decoders=("$@")
+        
+        log_info "  Running ${group_name} (${#decoders[@]} decoders, ${max_parallel} parallel)..."
+        
+        local pids=()
+        local decoder_names=()
+        
+        for decoder in "${decoders[@]}"; do
+            # Early exit check
+            success_count=$(wc -l < "$aggregate_summary" 2>/dev/null || echo 0)
+            if [[ $success_count -ge $early_exit_count ]]; then
+                log_info "  Early exit: $success_count successful decodes achieved"
+                break
+            fi
+            
+            # Wait for available slot
+            while [[ ${#pids[@]} -ge $max_parallel ]]; do
+                for i in "${!pids[@]}"; do
+                    if ! kill -0 "${pids[$i]}" 2>/dev/null; then
+                        wait "${pids[$i]}" 2>/dev/null
+                        unset pids[$i]
+                        unset decoder_names[$i]
+                    fi
+                done
+                pids=("${pids[@]}")
+                decoder_names=("${decoder_names[@]}")
+                sleep 0.1
+            done
+            
+            # Launch decoder in background
+            local out_file="${TEMP_DIR}/_${decoder}_$$.txt"
+            register_temp_file "$out_file"
+            
+            (
+                local start_time=$(date +%s.%N 2>/dev/null || date +%s)
+                run_single_decoder "$decoder" "$image" "$out_file"
+                local status=$?
+                local end_time=$(date +%s.%N 2>/dev/null || date +%s)
+                local duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "0")
+                
+                if [[ $status -eq 0 ]] && [[ -s "$out_file" ]]; then
+                    # Thread-safe aggregation using flock
+                    (
+                        flock -x 200 || exit 1
+                        cat "$out_file" >> "$aggregate_output"
+                        echo "${decoder}:$(head -1 "$out_file"):${duration}" >> "$aggregate_summary"
+                    ) 200>"$lock_file"
+                fi
+                
+                exit $status
+            ) &
+            
+            pids+=($!)
+            decoder_names+=("$decoder")
+        done
+        
+        # Wait for all in group
+        for pid in "${pids[@]}"; do
+            wait "$pid" 2>/dev/null
+        done
+    }
+    
+    # Execute decoder groups in priority order
+    run_decoder_group "high-priority" "${priority_high[@]}"
+    
+    success_count=$(wc -l < "$aggregate_summary" 2>/dev/null || echo 0)
+    if [[ $success_count -lt $early_exit_count ]]; then
+        run_decoder_group "medium-priority" "${priority_medium[@]}"
+    fi
+    
+    success_count=$(wc -l < "$aggregate_summary" 2>/dev/null || echo 0)
+    if [[ $success_count -lt $early_exit_count ]]; then
+        run_decoder_group "low-priority" "${priority_low[@]}"
+    fi
+    
+    # Specialty only if nothing worked
+    success_count=$(wc -l < "$aggregate_summary" 2>/dev/null || echo 0)
+    if [[ $success_count -eq 0 ]]; then
+        run_decoder_group "specialty" "${priority_specialty[@]}"
+    fi
+    
+    # Aggregate results
+    if [[ -f "$aggregate_output" ]] && [[ -s "$aggregate_output" ]]; then
+        sort -u "$aggregate_output" > "${base_output}_merged.txt"
+        all_decoded=$(cat "$aggregate_output")
+    fi
+    
+    if [[ -f "$aggregate_summary" ]] && [[ -s "$aggregate_summary" ]]; then
+        mapfile -t decoder_results < "$aggregate_summary"
+    fi
+    
+    success_count=${#decoder_results[@]}
+    
+    # Print summary
+    echo ""
+    echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│              PARALLEL DECODER SUMMARY                       │${NC}"
+    echo -e "${CYAN}├─────────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${CYAN}│${NC} Successful Decodes:   ${WHITE}${success_count}${NC}"
+    
+    if [[ ${#decoder_results[@]} -gt 0 ]]; then
+        echo -e "${CYAN}│${NC} Results:"
+        for result in "${decoder_results[@]}"; do
+            IFS=':' read -r decoder_name decoded_preview duration <<< "$result"
+            echo -e "${CYAN}│${NC}   ${GREEN}✓${NC} ${decoder_name} (${duration}s): ${decoded_preview:0:35}..."
+        done
+    fi
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
+    echo ""
+    
+    [[ $success_count -gt 0 ]]
 }
 
 ################################################################################
