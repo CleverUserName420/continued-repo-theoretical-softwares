@@ -182,10 +182,109 @@ class FreeIPInvestigator:
         return self.fetch_json_url(url)
         
     def iphub_lookup(self, ip: str) -> Optional[Dict]:
-        """IPHub - Free proxy/VPN detection"""
-        url = f"http://v2.api.iphub.info/ip/{ip}"
-        headers = {'X-Key': 'free'}  # Free tier
-        return self.fetch_json_url(url, headers=headers)
+        """IPHub.info - Free proxy/VPN detection"""
+        url = f"http://ip-api.io/json/{ip}"
+        return self.fetch_json_url(url)
+        
+        
+    def ip2whois_lookup(self, ip: str) -> Optional[Dict]:
+        """IP2WHOIS - Free WHOIS API (500 queries/month)"""
+        url = f"https://api.ip2whois.com/v2?ip={ip}"
+        return self.fetch_json_url(url)
+        
+        
+    def whoisxmlapi_free(self, ip: str) -> Optional[Dict]:
+        """WhoisXML API - Free tier (500 requests/month)"""
+        url = f"https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=at_00000000000000000000000000000&domainName={ip}&outputFormat=JSON"
+        return self.fetch_json_url(url)
+        
+        
+    def ipapi_batch(self, ips: List[str]) -> Optional[List[Dict]]:
+        """IP-API.com Batch lookup (up to 100 IPs, free)"""
+        if len(ips) > 100:
+            ips = ips[:100]
+        url = "http://ip-api.com/batch?fields=status,message,country,regionName,city,isp,org,as,query"
+        try:
+            data = json.dumps(ips).encode()
+            req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req, timeout=15) as response:
+                return json.loads(response.read().decode())
+        except:
+            return None
+            
+    def ipinfo_io_summary(self, ip: str) -> Optional[str]:
+        """IPInfo.io Summary - Quick one-line summary"""
+        url = f"https://ipinfo.io/widget/demo/{ip}"
+        return self.fetch_json_url(url)
+        
+        
+    def maxmind_geolite_info(self, ip: str) -> Optional[Dict]:
+        """MaxMind GeoLite2 Info Page (free, no key for basic)"""
+        return {
+            "info": "Download free GeoLite2 databases from maxmind.com",
+            "lookup_url": f"https://geoip.maxmind.com/geoip/v2.1/city/{ip}",
+            "note": "Requires account for download, but no API key for basic web lookup"
+        }
+        
+    def ripe_network_info(self, ip: str) -> Optional[Dict]:
+        """RIPE NCC Network Information Centre - Free geolocation"""
+        url = f"https://stat.ripe.net/data/geoloc/data.json?resource={ip}"
+        return self.fetch_json_url(url)
+        
+    def hurricane_electric_ip(self, ip: str) -> Optional[str]:
+        """Hurricane Electric BGP Toolkit - IP lookup"""
+        return f"https://bgp.he.net/ip/{ip}"
+
+    def arin_rest_api(self, ip: str) -> Optional[Dict]:
+        """ARIN REST API - Free IP information"""
+        url = f"https://whois.arin.net/rest/ip/{ip}.json"
+        return self.fetch_json_url(url)
+        
+    def neutrino_ip_info(self, ip: str) -> Optional[Dict]:
+        """NeutrinoAPI - Free IP info (limited)"""
+        url = f"https://neutrinoapi.net/ip-info?ip={ip}"
+        return self.fetch_json_url(url)
+        
+    def ipvoid_reputation(self, ip: str) -> Optional[str]:
+        """IPVoid - Free IP reputation checker (manual lookup)"""
+        return f"https://www.ipvoid.com/ip-blacklist-check/?ip={ip}"
+        
+    def scamalytics_check(self, ip: str) -> Optional[str]:
+        """Scamalytics - Free fraud score lookup"""
+        return f"https://scamalytics.com/ip/{ip}"
+        
+    def ipfingerprints_lookup(self, ip: str) -> Optional[str]:
+        """IPFingerprints - Free IP analysis"""
+        return f"https://www.ipfingerprints.com/scripts/getIPinfo.php?ip={ip}"
+        
+    def stopforumspam_check(self, ip: str) -> Optional[Dict]:
+        """StopForumSpam - Free spam database"""
+        url = f"https://api.stopforumspam.org/api?ip={ip}&json"
+        return self.fetch_json_url(url)
+        
+    def honeypot_http_bl_info(self, ip: str) -> Optional[Dict]:
+        """Project Honey Pot - HTTP:BL (requires free API key)"""
+        return {
+            "info": "Free API key available at projecthoneypot.org",
+            "note": "DNS-based blacklist for detecting malicious web traffic"
+        }
+        
+    def cleantalk_check(self, ip: str) -> Optional[Dict]:
+        """CleanTalk - Free spam IP checker"""
+        url = f"https://cleantalk.org/blacklists/{ip}"
+        return {
+            "lookup_url": url,
+            "note": "Manual lookup - checks spam databases"
+        }
+        
+    def iplogger_info(self, ip: str) -> Optional[Dict]:
+        """IPLogger - Free IP location and ISP info"""
+        url = f"https://iplogger.org/api/v1/{ip}"
+        return self.fetch_json_url(url)
+        
+    def ipscore_reputation(self, ip: str) -> Optional[str]:
+        """IP-Score.com - Free IP reputation checker"""
+        return f"https://ip-score.com/checkip/{ip}"
         
     def ipstack_free(self, ip: str) -> Optional[Dict]:
         """IPStack - Free tier available (100 requests/month no key)"""
@@ -231,6 +330,112 @@ class FreeIPInvestigator:
         """Shodan InternetDB - Completely free, no key, shows open ports"""
         url = f"https://internetdb.shodan.io/{ip}"
         return self.fetch_json_url(url)
+        
+    def ipsum_check(self, ip: str) -> Optional[bool]:
+        """IPSum - Aggregated threat feed"""
+        try:
+            url = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = response.read().decode()
+                return ip in data
+        except:
+            return None
+
+    def firehol_check(self, ip: str) -> Dict[str, bool]:
+        """Firehol IP Lists - Multiple threat categories"""
+        lists = {
+            'firehol_level1': 'https://raw.githubusercontent.com/ktsaou/blocklist-ipsets/master/firehol_level1.netset',
+            'firehol_level2': 'https://raw.githubusercontent.com/ktsaou/blocklist-ipsets/master/firehol_level2.netset',
+            'firehol_webclient': 'https://raw.githubusercontent.com/ktsaou/blocklist-ipsets/master/firehol_webclient.netset'
+        }
+        
+        results = {}
+        for name, url in lists.items():
+            try:
+                req = urllib.request.Request(url)
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = response.read().decode()
+                    results[name] = ip in data
+            except:
+                results[name] = None
+        
+        return results
+
+    def dshield_check(self, ip: str) -> Optional[Dict]:
+        """DShield (SANS ISC) - Attack data"""
+        url = f"https://isc.sans.edu/api/ip/{ip}?json"
+        return self.fetch_json_url(url)
+
+    def cinsscore_check(self, ip: str) -> Optional[bool]:
+        """CI Army Badguys list"""
+        try:
+            url = "http://cinsscore.com/list/ci-badguys.txt"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = response.read().decode()
+                return ip in data
+        except:
+            return None
+
+    def feodo_tracker_check(self, ip: str) -> Optional[bool]:
+        """Feodo Tracker - Banking trojan IPs (abuse.ch)"""
+        try:
+            url = "https://feodotracker.abuse.ch/downloads/ipblocklist.txt"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = response.read().decode()
+                return ip in data
+        except:
+            return None
+
+    def urlhaus_check(self, ip: str) -> Optional[Dict]:
+        """URLhaus - Malware distribution sites (abuse.ch)"""
+        url = f"https://urlhaus-api.abuse.ch/v1/host/"
+        data = {'host': ip}
+        try:
+            req = urllib.request.Request(
+                url,
+                data=urlencode(data).encode(),
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return json.loads(response.read().decode())
+        except:
+            return None
+
+    def threatfox_check(self, ip: str) -> Optional[Dict]:
+        """ThreatFox IOC database (abuse.ch)"""
+        url = "https://threatfox-api.abuse.ch/api/v1/"
+        payload = {"query": "search_ioc", "search_term": ip}
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode(),
+                headers={'Content-Type': 'application/json'}
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return json.loads(response.read().decode())
+        except:
+            return None
+
+    def viewdns_reverse_ip(self, ip: str) -> Optional[str]:
+        """ViewDNS.info - Reverse IP lookup (returns URL)"""
+        return f"https://viewdns.info/reverseip/? host={ip}&t=1"
+
+    def circl_passive_dns(self, ip: str) -> Optional[Dict]:
+        """CIRCL Passive DNS - Free passive DNS"""
+        url = f"https://www.circl.lu/pdns/query/{ip}"
+        return self.fetch_json_url(url)
+
+    def mtr_traceroute(self, ip: str) -> Optional[str]:
+        """MTR - Enhanced traceroute with packet loss"""
+        output = self.run_command(['mtr', '-r', '-c', '5', ip], timeout=60)
+        return output if output else "MTR unavailable"
+
+    def check_wayback_machine(self, ip: str) -> Optional[str]:
+        """Internet Archive Wayback Machine - Historical data"""
+        return f"https://web.archive.org/web/*/{ip}"
     
     # ============= ASN/BGP INFORMATION =============
     
@@ -281,7 +486,7 @@ class FreeIPInvestigator:
         
     def criminalip_free(self, ip: str) -> Optional[Dict]:
         """Criminal IP - Free tier threat intelligence"""
-        url = f"https://api.criminalip.io/v1/ip/data? ip={ip}"
+        url = f"https://api.criminalip.io/v1/ip/data?ip={ip}"
         return self.fetch_json_url(url)
         
     def team_cymru_asn(self, ip: str) -> Optional[str]:
@@ -376,7 +581,7 @@ class FreeIPInvestigator:
         
     def certspotter_lookup(self, domain: str) -> Optional[Dict]:
         """Cert Spotter - Free certificate transparency"""
-        url = f"https://api.certspotter.com/v1/issuances? domain={domain}&include_subdomains=true&expand=dns_names"
+        url = f"https://api.certspotter.com/v1/issuances?domain={domain}&include_subdomains=true&expand=dns_names"
         return self.fetch_json_url(url)
 
     def censys_cert_search(self, domain: str) -> Optional[str]:
@@ -533,6 +738,31 @@ class FreeIPInvestigator:
                 open_ports[port] = False
         
         return open_ports, total_risk
+        
+    def service_banner_grab(self, ip: str, port: int) -> Optional[str]:
+        """Grab service banner from open port"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3)
+            sock.connect((ip, port))
+            
+            # Try to get banner - different approaches for different services
+            if port in [80, 8080, 8000, 8443]:   # HTTP ports
+                sock.send(b'HEAD / HTTP/1.0\r\n\r\n')
+            elif port == 21:  # FTP
+                pass  # FTP sends banner immediately
+            elif port == 22:  # SSH
+                pass  # SSH sends banner immediately
+            elif port == 25:  # SMTP
+                pass  # SMTP sends banner immediately
+            else:
+                sock.send(b'\r\n')  # Generic probe
+            
+            banner = sock.recv(1024).decode('utf-8', errors='ignore').strip()
+            sock.close()
+            return banner if banner else None
+        except:
+            return None
         
     def check_dnsbl(self, ip: str) -> Dict[str, bool]:
         """Check if IP is on DNS-based blacklists"""
@@ -1177,6 +1407,12 @@ class FreeIPInvestigator:
             'ipstack': self.ipstack_free(ip),
             'ipregistry': self.ipregistry_free(ip),
             'fraudguard': self.fraudguard_lookup(ip),
+            'ip2whois': self.ip2whois_lookup(ip),
+            'whoisxml': self.whoisxmlapi_free(ip),
+            'ipinfo_summary': self.ipinfo_io_summary(ip),
+            'ripe_network': self.ripe_network_info(ip),
+            'neutrino': self.neutrino_ip_info(ip),
+            'iplogger': self.iplogger_info(ip),
         }
         
         result['geolocation'] = {k: v for k, v in geolocation_sources.items() if v and 'error' not in v}
@@ -1202,6 +1438,8 @@ class FreeIPInvestigator:
             'iptoasn': self.iptoasn_lookup(ip),
             'robtex': self.robtex_lookup(ip),
             'team_cymru': self.team_cymru_asn(ip),
+            'arin_rest': self.arin_rest_api(ip),
+            'hurricane_electric': self.hurricane_electric_ip(ip),
         }
         
         result['asn'] = {k: v for k, v in asn_sources.items() if v and 'error' not in str(v).lower()}
@@ -1339,7 +1577,15 @@ class FreeIPInvestigator:
         for port, is_open in open_ports.items():
             if is_open:
                 service, risk = common_ports.get(port, ('Unknown', 0))
-                port_info[port] = {'service': service, 'risk': risk}
+                
+                # Grab service banner for open ports
+                banner = self.service_banner_grab(ip, port)
+                
+                port_info[port] = {
+                    'service': service,
+                    'risk': risk,
+                    'banner': banner if banner else 'No banner'
+                }
 
         result['connectivity']['open_ports'] = port_info
         result['connectivity']['port_risk_score'] = port_risk
@@ -1353,6 +1599,7 @@ class FreeIPInvestigator:
                 for port, info in sorted_ports:
                     service = info['service']
                     risk = info['risk']
+                    banner = info. get('banner', 'No banner')
                     
                     # Color-code by risk level
                     if risk >= 9:
@@ -1365,6 +1612,14 @@ class FreeIPInvestigator:
                         risk_indicator = "🟢 LOW"
                     
                     print(f"    • Port {port: >5} | {service:<20} | Risk: {risk: >2}/10 {risk_indicator}")
+                    
+                    # Display banner if available
+                    if banner and banner != 'No banner':
+                        # Truncate long banners
+                        banner_display = banner[:100] + '...' if len(banner) > 100 else banner
+                        # Replace newlines with spaces for clean display
+                        banner_display = banner_display.replace('\n', ' ').replace('\r', '')
+                        print(f"      └─ Banner: {banner_display}")
                 
                 # Display total risk score
                 if port_risk >= 30:
@@ -1396,7 +1651,7 @@ class FreeIPInvestigator:
             listed_count = sum(1 for v in dnsbl_results.values() if v)
             if listed_count > 0:
                 listed_on = [bl for bl, listed in dnsbl_results.items() if listed]
-                print(f"⚠️  Listed on {listed_count}/{len(dnsbl_results)} blacklists:  {', '.join(listed_on)}")
+                print(f"⚠️  Listed on {listed_count}/{len(dnsbl_results)} blacklists: {', '.join(listed_on)}")
             else:
                 print(f"✓ Not listed on any blacklists")
         
@@ -1436,7 +1691,7 @@ class FreeIPInvestigator:
             if verbose:
                 classification = maltiverse.get('classification', 'unknown')
                 if classification != 'unknown':
-                    print(f"⚠️  Maltiverse:  {classification}")
+                    print(f"⚠️  Maltiverse: {classification}")
         
         # URLScan intelligence
         urlscan = self.urlscan_lookup(ip)
@@ -1636,6 +1891,17 @@ class FreeIPInvestigator:
             result['threat_analysis']['blocklistde'] = blocklistde
             if verbose and blocklistde:
                 print(f"⚠️  Blocklist.de: Listed (attack source)")
+                    
+        # StopForumSpam check
+        stopforumspam = self.stopforumspam_check(ip)
+        if stopforumspam and 'error' not in stopforumspam:
+            result['threat_analysis']['stopforumspam'] = stopforumspam
+            if verbose:
+                appears = stopforumspam.get('appears', 0)
+                if appears > 0:
+                    print(f"⚠️  StopForumSpam: Listed ({appears} reports)")
+                else:
+                    print(f"✓ StopForumSpam: Clean")
 
         # Fraudguard fraud detection
         fraudguard_result = result['geolocation'].get('fraudguard', {})
@@ -1644,6 +1910,70 @@ class FreeIPInvestigator:
                 threat_level = fraudguard_result.get('threat', 'unknown')
                 if threat_level != 'low':
                     print(f"⚠️  Fraudguard: Threat level {threat_level}")
+                    
+        # IPSum aggregated threat feed
+        ipsum = self.ipsum_check(ip)
+        if ipsum is not None:
+            result['threat_analysis']['ipsum'] = ipsum
+            if verbose and ipsum:
+                print(f"⚠️  IPSum: Listed in aggregated threat feed")
+        
+        # Firehol IP lists
+        firehol = self.firehol_check(ip)
+        if firehol:
+            result['threat_analysis']['firehol'] = firehol
+            if verbose:
+                listed = [k for k, v in firehol.items() if v]
+                if listed:
+                    print(f"⚠️  Firehol: Listed in {', '.join(listed)}")
+        
+        # DShield (SANS ISC)
+        dshield = self.dshield_check(ip)
+        if dshield and 'error' not in dshield:
+            result['threat_analysis']['dshield'] = dshield
+            if verbose:
+                attacks = dshield.get('attacks', 0)
+                if attacks > 0:
+                    print(f"⚠️  DShield: {attacks} attacks recorded")
+        
+        # CI Army Badguys
+        cinsscore = self.cinsscore_check(ip)
+        if cinsscore is not None:
+            result['threat_analysis']['cinsscore'] = cinsscore
+            if verbose and cinsscore:
+                print(f"⚠️  CI Army: Listed as badguy")
+        
+        # Feodo Tracker (banking trojans)
+        feodo = self.feodo_tracker_check(ip)
+        if feodo is not None:
+            result['threat_analysis']['feodo'] = feodo
+            if verbose and feodo:
+                print(f"🚨 Feodo Tracker: Banking trojan detected")
+        
+        # URLhaus malware distribution
+        urlhaus = self.urlhaus_check(ip)
+        if urlhaus and urlhaus.get('query_status') == 'ok':
+            result['threat_analysis']['urlhaus'] = urlhaus
+            if verbose:
+                url_count = len(urlhaus.get('urls', []))
+                if url_count > 0:
+                    print(f"⚠️  URLhaus: {url_count} malware URLs found")
+        
+        # ThreatFox IOCs
+        threatfox = self.threatfox_check(ip)
+        if threatfox and threatfox.get('query_status') == 'ok':
+            result['threat_analysis']['threatfox'] = threatfox
+            if verbose:
+                ioc_count = len(threatfox.get('data', []))
+                if ioc_count > 0:
+                    print(f"⚠️  ThreatFox: {ioc_count} IOCs found")
+        
+        # CIRCL Passive DNS
+        circl_dns = self.circl_passive_dns(ip)
+        if circl_dns and 'error' not in circl_dns:
+            result['threat_analysis']['circl_passive_dns'] = circl_dns
+            if verbose:
+                print(f"✓ CIRCL Passive DNS: Historical DNS data available")
         
         # ===== MILITARY/DEFENSE CHECK =====
         combined_info = {
@@ -1689,6 +2019,15 @@ class FreeIPInvestigator:
             'mxtoolbox': self.mxtoolbox_blacklist(ip),
             'multirbl': self.multirbl_check(ip),
             'barracuda': self.barracuda_reputation(ip),
+            'ipvoid': self.ipvoid_reputation(ip),
+            'scamalytics': self.scamalytics_check(ip),
+            'ipfingerprints': self.ipfingerprints_lookup(ip),
+            'honeypot': self.honeypot_http_bl_info(ip),
+            'cleantalk': self.cleantalk_check(ip),
+            'ipscore': self.ipscore_reputation(ip),
+            'maxmind': self.maxmind_geolite_info(ip),
+            'viewdns': self.viewdns_reverse_ip(ip),
+            'wayback': self.check_wayback_machine(ip),
         }
 
         result['manual_lookups'] = manual_lookups
@@ -1792,17 +2131,7 @@ def main():
                 break
             targets.append(line)
     elif choice == '2':
-        targets = [
-            "201.253.240.121",
-            "134.108.202.218",
-            "35.137.206.133",
-            "212.148.173.136",
-            "171.78.186.241",
-            "223.37.253.44",
-            "155.136.159.245",
-            "223.132.90.111",
-            "89.56.231.210",
-            "191.49.0.37"
+        targets = ["255.255.255.255"
         ]
     else:
         sys.exit(0)
