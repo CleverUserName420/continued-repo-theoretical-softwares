@@ -4,5 +4,5 @@ All are drafts, all are pretty straight forward. The aim is a theme related "Eve
 If this software is free for the public to use. Why? cyber criminals (regardless of the legitimacy of the institution, corporation etc) will be less likely to engage in unlawful cyber activity if everyone has stuff like this at their disposal. 
 There really isn't a limit of size an scale of what this software aims to do. Goes from petty cyber crime to whatever the highest you can conceptualize.
 It's all theoretical, and unless you are 100% certain of a result, don't act on it. For this reason be careful when using some of these detection softwares. They are research based and are not certified in any sense. 
-However, sometimes you may absolutely get a verifiable and admissible result, just double/ infinity check first, consult a cyber security business about it etc.
-IP_ID_cheker.py and netcapanalyzer.sh are pretty rock solid.
+However, sometimes you may absolutely get a verifiable and admissible result, just double / infinity check first, consult a cyber security business about it etc.
+IP_ID_cheker.py and NetCapAnalyzer.sh are pretty rock solid. Same with OMG4.sh.
