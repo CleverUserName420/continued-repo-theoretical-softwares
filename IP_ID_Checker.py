@@ -187,10 +187,10 @@ class FreeIPInvestigator:
         return self.fetch_json_url(url)
         
         
-    def ip2whois_lookup(self, ip: str, api_key: str) -> Optional[Dict]:
-        """IP2WHOIS - Free WHOIS API (500 queries/month)"""
-        url = f"https://api.ip2whois.com/v2?key={api_key}&ip={ip}"
-        return self.fetch_json_url(url)
+    #def ip2whois_lookup(self, ip: str, api_key: str) -> Optional[Dict]:
+    #   """IP2WHOIS - Free WHOIS API (500 queries/month)"""
+    #   url = f"https://api.ip2whois.com/v2?key={api_key}&ip={ip}"
+    #   return self.fetch_json_url(url)
         
     def whoisxmlapi_free(self, ip: str) -> Optional[Dict]:
         """WhoisXML API - Free tier (500 requests/month)"""
@@ -1405,7 +1405,7 @@ class FreeIPInvestigator:
             'ipstack': self.ipstack_free(ip),
             'ipregistry': self.ipregistry_free(ip),
             'fraudguard': self.fraudguard_lookup(ip),
-            'ip2whois': self.ip2whois_lookup(ip),
+           #'ip2whois': self.ip2whois_lookup(ip),
             'whoisxml': self.whoisxmlapi_free(ip),
             'ipinfo_summary': self.ipinfo_io_summary(ip),
             'ripe_network': self.ripe_network_info(ip),
