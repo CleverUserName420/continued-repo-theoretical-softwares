@@ -187,17 +187,21 @@ class FreeIPInvestigator:
         return self.fetch_json_url(url)
         
         
-    def ip2whois_lookup(self, ip: str) -> Optional[Dict]:
-        """IP2WHOIS - Free WHOIS API (500 queries/month)"""
-        url = f"https://api.ip2whois.com/v2?ip={ip}"
+    def ip2whois_lookup(self, ip: str, api_key: str) -> Optional[Dict]:
+        """Safe IP lookup using RDAP (official standard)"""
+    try:
+        # Try RDAP first (official, free, safe)
+        url = f"https://rdap.arin.net/registry/ip/{ip}"
         return self.fetch_json_url(url)
-        
+    except:
+        # Fallback to ipinfo.io
+        url = f"https://ipinfo.io/{ip}/json"
+        return self.fetch_json_url(url)
         
     def whoisxmlapi_free(self, ip: str) -> Optional[Dict]:
         """WhoisXML API - Free tier (500 requests/month)"""
         url = f"https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=at_00000000000000000000000000000&domainName={ip}&outputFormat=JSON"
         return self.fetch_json_url(url)
-        
         
     def ipapi_batch(self, ips: List[str]) -> Optional[List[Dict]]:
         """IP-API.com Batch lookup (up to 100 IPs, free)"""
