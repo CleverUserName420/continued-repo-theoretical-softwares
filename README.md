@@ -1,0 +1,2 @@
+All are drafts, all are pretty straight forward. The aim is a theme related "Everything in everything" per detection software. Could I earn from this? Sure but this is a hobby, I have other things I want to do to earn a living.
+If this software is free for the public to use, cyber criminals (regardless of the legitimacy of the institution, corporation etc) will be less likely to engage in unlawful cyber activity.
