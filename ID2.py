@@ -322,17 +322,24 @@ class FreeIPInvestigator:
         }
         
         open_ports = {}
-        for port, service in common_ports.items():
+        total_risk = 0
+        
+        for port, (service, risk) in common_ports.items():
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(0.5)
                 result = sock.connect_ex((ip, port))
                 sock.close()
-                open_ports[port] = (result == 0)
+                
+                is_open = (result == 0)
+                open_ports[port] = is_open
+                
+                if is_open:
+                    total_risk += risk
             except:
                 open_ports[port] = False
         
-        return open_ports
+        return open_ports, total_risk
         
     def check_dnsbl(self, ip: str) -> Dict[str, bool]:
         """Check if IP is on DNS-based blacklists"""
@@ -390,6 +397,62 @@ class FreeIPInvestigator:
                 'isp': data.get('isp', 'N/A')
             }
         return None
+        
+    def proxycheck_io(self, ip: str) -> Optional[Dict]:
+        """ProxyCheck.io free tier (1000/day, no key)"""
+        url = f"http://proxycheck.io/v2/{ip}? vpn=1&asn=1"
+        return self.fetch_json_url(url)
+    
+    def iptoasn_lookup(self, ip: str) -> Optional[Dict]:
+        """IP to ASN mapping (free database)"""
+        url = f"https://api.iptoasn.com/v1/as/ip/{ip}"
+        return self.fetch_json_url(url)
+    
+    def bigdatacloud_free(self, ip: str) -> Optional[Dict]:
+        """BigDataCloud free geolocation (unlimited)"""
+        url = f"https://api.bigdatacloud.net/data/ip-geolocation?ip={ip}&localityLanguage=en"
+        return self.fetch_json_url(url)
+    
+    def ipdata_co_free(self, ip: str) -> Optional[Dict]:
+        """IPData.co free tier (1500/day, no key)"""
+        url = f"https://api.ipdata.co/{ip}?api-key=test"
+        return self.fetch_json_url(url)
+    
+    def tor_exit_check(self, ip: str) -> bool:
+        """Check if IP is Tor exit node"""
+        try:
+            reversed_ip = '.'.join(reversed(ip.split('.')))
+            query = f"{reversed_ip}.80.ip-port.exitlist. torproject.org"
+            socket.gethostbyname(query)
+            return True
+        except socket.gaierror:
+            return False
+    
+    def spur_us_free(self, ip: str) -> Optional[Dict]:
+        """Spur. us Context API (free tier)"""
+        url = f"https://api.spur.us/v1/context/{ip}"
+        return self.fetch_json_url(url)
+    
+    def ipinfo_abuse(self, ip: str) -> Optional[Dict]:
+        """IPInfo.io Abuse Contact DB (free)"""
+        url = f"https://ipinfo.io/{ip}/abuse"
+        return self.fetch_json_url(url)
+    
+    def robtex_lookup(self, ip: str) -> Optional[Dict]:
+        """Robtex free API"""
+        url = f"https://freeapi.robtex.com/ipquery/{ip}"
+        return self.fetch_json_url(url)
+    
+    def hackertarget_asn(self, ip: str) -> Optional[str]:
+        """HackerTarget ASN lookup (free, no key)"""
+        url = f"https://api.hackertarget.com/aslookup/? q={ip}"
+        try:
+            req = urllib.request. Request(url)
+            req.add_header('User-Agent', 'Mozilla/5.0')
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return response.read().decode().strip()
+        except:
+            return None
     
     # ============= THREAT ANALYSIS =============
     
@@ -449,6 +512,30 @@ class FreeIPInvestigator:
         if not info.get('reachable'):
             threat_indicators.append("Unreachable/filtered (secured network)")
             score -= 5
+            
+        # Tor exit node
+        if info.get('tor_exit'):
+            threat_indicators. append("Tor exit node detected")
+            score += 25
+        
+        # Proxy/VPN detection
+        proxycheck = info.get('proxycheck', {})
+        if proxycheck and proxycheck.get('proxy') == 'yes':
+            threat_indicators.append("Proxy/VPN service (ProxyCheck)")
+            score += 15
+        
+        # Spur.us anonymization
+        spur = info.get('spur', {})
+        if spur.get('anonymous'):
+            threat_indicators.append("Anonymization service (Spur.us)")
+            score += 15
+        
+        # DNSBL listings
+        dnsbl = info.get('dnsbl', {})
+        listed_count = sum(1 for v in dnsbl.values() if v)
+        if listed_count > 0:
+            threat_indicators.append(f"Listed on {listed_count} DNS blacklist(s)")
+            score += listed_count * 5
         
         # Determine threat level
         if score >= 40:
@@ -521,9 +608,11 @@ class FreeIPInvestigator:
             'ip-api': self.ip_api_lookup(ip),
             'geojs': self.geojs_lookup(ip),
             'ipwhois': self.ipwhois_lookup(ip),
-            'db-ip': self.db_ip_lookup(ip),
-            'ipapi.co': self.ipapi_co_lookup(ip),
+            'db-ip': self. db_ip_lookup(ip),
+            'ipapi.co':  self.ipapi_co_lookup(ip),
             'freegeoip': self.freegeoip_lookup(ip),
+            'bigdatacloud': self. bigdatacloud_free(ip),
+            'ipdata': self.ipdata_co_free(ip),
         }
         
         result['geolocation'] = {k: v for k, v in geolocation_sources.items() if v and 'error' not in v}
@@ -545,7 +634,9 @@ class FreeIPInvestigator:
             'ipwhois': self.bgp_lookup(ip),
             'bgpview': self.bgpview_lookup(ip),
             'ripe': self.ripe_stat_lookup(ip),
-            'rdap': self.rdap_lookup(ip),
+            'rdap':  self.rdap_lookup(ip),
+            'iptoasn': self.iptoasn_lookup(ip),
+            'robtex': self.robtex_lookup(ip),
         }
         
         result['asn'] = {k: v for k, v in asn_sources.items() if v and 'error' not in v}
@@ -646,6 +737,56 @@ class FreeIPInvestigator:
                 print(f"📱 Mobile/Cellular IP detected")
             if verbose and carrier.get('is_proxy'):
                 print(f"🔀 Proxy detected")
+                
+        # Proxy/VPN detection
+        proxycheck = self. proxycheck_io(ip)
+        if proxycheck and 'error' not in proxycheck:
+            result['threat_analysis']['proxycheck'] = proxycheck
+            if verbose:
+                ip_data = proxycheck.get(ip, {})
+                is_proxy = ip_data.get('proxy', 'no')
+                proxy_type = ip_data.get('type', 'N/A')
+                if is_proxy == 'yes':
+                    print(f"🔀 ProxyCheck: Proxy/VPN detected (Type: {proxy_type})")
+                else:
+                    print(f"✓ ProxyCheck: Not a proxy")
+        
+        # Tor exit node check
+        is_tor = self.tor_exit_check(ip)
+        if is_tor:
+            result['threat_analysis']['tor_exit'] = True
+            if verbose:
+                print(f"🧅 TOR EXIT NODE DETECTED")
+        elif verbose:
+            print(f"✓ Not a Tor exit node")
+        
+        # Spur.us intelligence
+        spur = self.spur_us_free(ip)
+        if spur and 'error' not in spur:
+            result['threat_analysis']['spur'] = spur
+            if verbose:
+                if spur.get('anonymous'):
+                    print(f"⚠️  Spur.us: Anonymous/VPN detected")
+                if spur.get('vpn'):
+                    print(f"⚠️  Spur.us: VPN service detected")
+                if not spur.get('anonymous') and not spur.get('vpn'):
+                    print(f"✓ Spur.us: Clean IP")
+        
+        # Abuse contact information
+        abuse = self.ipinfo_abuse(ip)
+        if abuse and 'error' not in abuse:
+            result['threat_analysis']['abuse_contact'] = abuse
+            if verbose:
+                abuse_email = abuse.get('email', 'N/A')
+                abuse_name = abuse.get('name', 'N/A')
+                print(f"ℹ️  Abuse Contact: {abuse_name} ({abuse_email})")
+        
+        # HackerTarget ASN lookup (additional verification)
+        hackertarget = self.hackertarget_asn(ip)
+        if hackertarget and '[ERROR]' not in hackertarget:
+            result['asn']['hackertarget'] = hackertarget
+            if verbose:
+                print(f"✓ HackerTarget ASN: {hackertarget. split()[0] if hackertarget else 'N/A'}")
         
         # ===== MILITARY/DEFENSE CHECK =====
         combined_info = {
@@ -654,6 +795,10 @@ class FreeIPInvestigator:
             **result['asn'].get('ipinfo', {}),
             'open_ports': result['connectivity']['open_ports'],
             'reachable': result['connectivity']['reachable'],
+            'tor_exit': result['threat_analysis'].get('tor_exit', False),
+            'proxycheck': result['threat_analysis'].get('proxycheck', {}),
+            'spur': result['threat_analysis'].get('spur', {}),
+            'dnsbl': result['threat_analysis'].get('dnsbl', {}),
         }
         
         result['military_network'] = self.check_military_networks(combined_info)
