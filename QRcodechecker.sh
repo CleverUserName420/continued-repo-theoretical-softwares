@@ -2757,8 +2757,18 @@ find_executable() {
 # Auto-detect Python installation
 auto_detect_python() {
     local python_paths=(
+        # Priority 1: Activated virtual environment
+        "${VIRTUAL_ENV}/bin/python3"
+        "${VIRTUAL_ENV}/bin/python"
+        # Priority 2: Local .venv in current directory
+        ".venv/bin/python3"
+        ".venv/bin/python"
+        "venv/bin/python3"
+        "venv/bin/python"
+        # Priority 3: User home .venv
         "$HOME/.venv/bin/python3"
         "$HOME/.venv/bin/python"
+        # Priority 4: System Python
         "python3"
         "python"
         "$HOMEBREW_PREFIX/bin/python3"
@@ -3068,6 +3078,42 @@ get_dep_path() {
 # Get Python command - returns the auto-detected path or fallback
 get_python_cmd() {
     echo "${DISCOVERED_PATHS[python3]:-python3}"
+}
+
+# Safe module pre-check with crash protection
+safe_check_python_module() {
+    local module="$1"
+    local python_cmd=$(get_python_cmd)
+    
+    [[ -z "$python_cmd" ]] && return 1
+    
+    # Isolated check with crash protection
+    (
+        trap 'exit 139' SEGV ABRT BUS FPE
+        ulimit -c 0 2>/dev/null
+        ulimit -t 5 2>/dev/null  # CPU time limit
+        ulimit -v $((512 * 1024)) 2>/dev/null  # 512MB memory limit
+        exec 2>/dev/null
+        
+        timeout 5 "$python_cmd" -c "
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import resource
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+except:
+    pass
+
+import ${module}
+" 2>/dev/null
+    ) 2>/dev/null
+    
+    local status=$?
+    [[ $status -eq 0 ]]
 }
 
 # Execute Python code with auto-detected Python
@@ -9096,6 +9142,20 @@ decode_with_pyzbar() {
     local output_file="${2:-}"
     set -u
     
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_pyzbar"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "pyzbar"; then
+        return 2
+    fi
+    
     # Use safe wrapper with crash protection
     safe_python_decode "$image" "$output_file"
 }
@@ -9209,6 +9269,20 @@ decode_with_opencv() {
     set -u
     local python_cmd=$(get_python_cmd)
     
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_opencv"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
+    fi
+    
     run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYOPENCV' 2>/dev/null
 import sys
 import signal
@@ -9281,6 +9355,20 @@ decode_with_opencv_wechat() {
     set -u
     local python_cmd=$(get_python_cmd)
     
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_opencv_wechat"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
+    fi
+    
     run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYWECHAT' 2>/dev/null
 import sys
 import signal
@@ -9323,6 +9411,20 @@ decode_with_pyzbar_enhanced() {
     local output_file="${2:-}"
     set -u
     local python_cmd=$(get_python_cmd)
+    
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_pyzbar_enhanced"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "pyzbar"; then
+        return 2
+    fi
     
     run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYENHANCED' 2>/dev/null
 import sys
@@ -9570,6 +9672,11 @@ decode_with_segno() {
         return 13
     fi
 
+    # Safe module check before execution
+    if ! safe_check_python_module "segno"; then
+        return 2
+    fi
+
     # HARDEN: segno and pyzbar installed check
     "$python_cmd" - <<'PYCHECK' 2>/dev/null
 try:
@@ -9648,6 +9755,11 @@ decode_with_multiscale() {
     if [ -z "$python_cmd" ] || ! command -v "$python_cmd" &> /dev/null; then
         echo "[decode_with_multiscale] Python interpreter not found" >&2
         return 13
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
     fi
     
     # HARDEN: required python modules present
@@ -9748,6 +9860,11 @@ decode_with_perspective() {
         return 13
     fi
     
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
+    fi
+    
     # HARDEN: required python modules present
     "$python_cmd" - <<'PYREQCHECK' 2>/dev/null
 try:
@@ -9843,6 +9960,11 @@ decode_with_inverse() {
     if [ -z "$python_cmd" ] || ! command -v "$python_cmd" &> /dev/null; then
         echo "[decode_with_inverse] Python interpreter not found" >&2
         return 13
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "PIL"; then
+        return 2
     fi
     
     # HARDEN: required python modules present
@@ -9943,6 +10065,11 @@ decode_with_adaptive() {
         return 13
     fi
     
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
+    fi
+    
     # HARDEN: required python modules present
     "$python_cmd" - <<'PYREQCHECK' 2>/dev/null
 try:
@@ -10039,6 +10166,11 @@ decode_with_channels() {
     if [ -z "$python_cmd" ] || ! command -v "$python_cmd" &> /dev/null; then
         echo "[decode_with_channels] Python interpreter not found" >&2
         return 13
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "PIL"; then
+        return 2
     fi
     
     # HARDEN: required python modules present
@@ -10156,8 +10288,17 @@ decode_with_qreader() {
     set -u
     local python_cmd=$(get_python_cmd)
     
-    # Check if module exists first - skip entirely if not installed
-    if ! "$python_cmd" -c "import qreader" 2>/dev/null; then
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_qreader"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "qreader"; then
         return 2
     fi
     
@@ -10211,8 +10352,17 @@ decode_with_pyzxing() {
     set -u
     local python_cmd=$(get_python_cmd)
     
-    # Check if module exists first - skip entirely if not installed
-    if ! "$python_cmd" -c "import pyzxing" 2>/dev/null; then
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_pyzxing"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "pyzxing"; then
         return 2
     fi
     
@@ -10700,6 +10850,20 @@ decode_with_opencv_aruco() {
     
     [[ -z "$python_cmd" ]] && return 2
     
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_opencv_aruco"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "cv2"; then
+        return 2
+    fi
+    
     (
         exec 2>/dev/null
         timeout 30 "$python_cmd" <<'PYARUCO_EOF' 2>/dev/null
@@ -10795,9 +10959,17 @@ decode_with_dynamsoft() {
     
     [[ -z "$python_cmd" ]] && return 2
     
-    # Check if dbr module exists BEFORE attempting to use it
-    # This prevents segfaults from the import itself
-    if ! "$python_cmd" -c "import dbr" 2>/dev/null; then
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_dynamsoft"; then
+        return 1
+    fi
+    
+    # Safe module check before execution
+    if ! safe_check_python_module "dbr"; then
         return 2
     fi
     
@@ -10892,6 +11064,15 @@ decode_with_zxingcpp() {
     set -u
     local python_cmd=$(get_python_cmd)
     
+    # Validate inputs
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_zxingcpp"; then
+        return 1
+    fi
+    
     # Check for zxing-cpp command line tool first (safest option)
     if command -v zxing &>/dev/null; then
         (
@@ -10907,8 +11088,8 @@ decode_with_zxingcpp() {
     # Try Python binding with crash protection
     [[ -z "$python_cmd" ]] && return 2
     
-    # Pre-check if module exists
-    if ! "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
+    # Safe module check before execution
+    if ! safe_check_python_module "zxingcpp"; then
         return 2
     fi
     
@@ -12571,6 +12752,730 @@ PYUNIVERSAL_SCRIPT
     return 2
 }
 
+# Decoder 39: QR Code Model 1 (legacy QR format)
+decode_with_qr_model1() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_qr_model1"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    # Note: PIL is also required but checked inline via try/except for graceful fallback
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYMODEL1 > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    results = zxingcpp.read_barcodes(
+        img, 
+        formats=zxingcpp.BarcodeFormat.QRCode,
+        try_harder=True,
+        try_rotate=True
+    )
+    
+    for r in results:
+        print(f"QR_MODEL1:{r.text}")
+except:
+    pass
+PYMODEL1
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 40: JAB Code (colored 2D barcode)
+decode_with_jabcode() {
+    local image="$1"
+    local output_file="$2"
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_jabcode"; then
+        return 1
+    fi
+    
+    if command -v jabcodeReader &>/dev/null; then
+        (
+            exec 2>/dev/null
+            timeout 20 jabcodeReader "$image" > "$output_file" 2>/dev/null
+        )
+        [[ -s "$output_file" ]] && return 0
+    fi
+    
+    return 2
+}
+
+# Decoder 41: HCCB (High Capacity Color Barcode - Microsoft Tag)
+decode_with_hccb() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_hccb"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "PIL"; then
+        return 2
+    fi
+    
+    # Note: numpy is also required but checked inline via try/except for graceful fallback
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYHCCB > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    from PIL import Image
+    import numpy as np
+    
+    img = Image.open('$image').convert('RGB')
+    arr = np.array(img)
+    
+    colors = arr.reshape(-1, 3)
+    unique_colors = np.unique(colors, axis=0)
+    
+    # HCCB uses 4 or 8 colors for encoding
+    if len(unique_colors) in [4, 8]:
+        # Calculate color distribution
+        height, width = arr.shape[:2]
+        color_counts = {}
+        for color in unique_colors:
+            mask = np.all(arr == color, axis=-1)
+            count = np.sum(mask)
+            color_hex = '#{:02x}{:02x}{:02x}'.format(color[0], color[1], color[2])
+            color_counts[color_hex] = count
+        
+        # Build info string
+        color_info = '_'.join([f"{c}:{cnt}" for c, cnt in sorted(color_counts.items(), key=lambda x: -x[1])[:4]])
+        dims = f"{width}x{height}"
+        print(f"HCCB:DETECTED_MICROSOFT_TAG_{len(unique_colors)}_COLORS_{dims}_{color_info}")
+except:
+    pass
+PYHCCB
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 42: Micro QR Code (smaller QR variant)
+decode_with_micro_qr() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_micro_qr"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    # Note: PIL is also required but checked inline via try/except for graceful fallback
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYMICROQR > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    try:
+        results = zxingcpp.read_barcodes(
+            img,
+            formats=zxingcpp.BarcodeFormat.MicroQRCode
+        )
+    except AttributeError:
+        results = zxingcpp.read_barcodes(img)
+        results = [r for r in results if 'MICRO' in r.format.name.upper()]
+    
+    for r in results:
+        print(f"MICRO_QR:{r.text}")
+except:
+    pass
+PYMICROQR
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 43: HTML-Generated QR Code Detection (Fraud Detection)
+# Detects QR codes generated via HTML5 Canvas, SVG, or JavaScript libraries
+# Common in phishing and fraudulent QR campaigns
+decode_with_html_qr_detector() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_html_qr_detector"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    # Check for PIL and pyzbar - required for this decoder
+    if ! safe_check_python_module "PIL"; then
+        return 2
+    fi
+    
+    # Note: pyzbar is also required but checked inline via try/except for graceful fallback
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 25 "$python_cmd" <<PYHTMLQR > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    from PIL import Image
+    import numpy as np
+    from pyzbar.pyzbar import decode
+    
+    img = Image.open('$image')
+    
+    # Decode the QR code first
+    qr_data = None
+    try:
+        decoded_objs = decode(img)
+        if decoded_objs:
+            qr_data = decoded_objs[0].data.decode('utf-8', errors='ignore')
+    except:
+        pass
+    
+    # Analyze image characteristics for HTML generation patterns
+    img_array = np.array(img)
+    findings = []
+    
+    # 1. Check for perfect pixel-aligned edges (HTML canvas signature)
+    if img.mode in ['RGB', 'RGBA']:
+        # Check for sharp, unaliased edges typical of canvas rendering
+        if len(img_array.shape) >= 2:
+            # Look for binary color patterns (pure black/white)
+            unique_colors = len(np.unique(img_array.reshape(-1, img_array.shape[-1]), axis=0))
+            if unique_colors <= 3:
+                findings.append("BINARY_COLORS:canvas_render_signature")
+    
+    # 2. Check for SVG-to-raster conversion artifacts
+    if img.width == img.height and img.width % 8 == 0:
+        findings.append("PERFECT_SQUARE:svg_derived")
+    
+    # 3. Check for lack of JPEG artifacts (HTML canvas exports as PNG typically)
+    if hasattr(img, 'format') and img.format == 'PNG':
+        # Check for unnaturally clean edges
+        if img.mode == 'RGB' or img.mode == 'RGBA':
+            findings.append("PNG_NO_ARTIFACTS:html_export")
+    
+    # 4. Check for specific dimension patterns common in JS QR libraries
+    common_js_sizes = [256, 512, 1024, 200, 300, 400, 500]
+    if img.width in common_js_sizes or img.height in common_js_sizes:
+        findings.append(f"JS_LIBRARY_SIZE:{img.width}x{img.height}")
+    
+    # 5. Check for QRCode.js, qrcode-generator, or similar library patterns
+    # These often produce very specific module sizes
+    if img.width >= 200 and img.width <= 600:
+        # Calculate estimated module size
+        estimated_modules = img.width // 29  # Assuming QR version 3
+        if img.width % 29 < 3:  # Very precise module alignment
+            findings.append("PRECISE_MODULE_ALIGNMENT:js_library")
+    
+    # Output results
+    if qr_data:
+        print(f"HTML_QR:{qr_data}")
+    
+    if findings:
+        print(f"HTML_GENERATION_INDICATORS:{','.join(findings)}")
+    
+    # Additional forensic markers
+    if img.mode == 'P':  # Palette mode often used by web generators
+        print("FORENSIC:palette_mode_web_generator")
+    
+    # Check for missing EXIF data (common in programmatically generated images)
+    if not hasattr(img, '_getexif') or img._getexif() is None:
+        print("FORENSIC:no_exif_programmatic_generation")
+
+except ImportError:
+    sys.exit(2)
+except Exception as e:
+    sys.exit(1)
+PYHTMLQR
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 44: UPC (Universal Product Code) - UPC-A and UPC-E
+decode_with_upc() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_upc"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "pyzbar"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYUPC > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    from pyzbar.pyzbar import decode, ZBarSymbol
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    # Decode UPC-A and UPC-E
+    results = decode(img, symbols=[ZBarSymbol.UPCA, ZBarSymbol.UPCE])
+    
+    if results:
+        for result in results:
+            barcode_type = result.type
+            data = result.data.decode('utf-8', errors='ignore')
+            print(f"{barcode_type}:{data}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYUPC
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 45: MSI/Plessey - Inventory control barcode
+decode_with_msi() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_msi"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYMSI > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    # Try to decode with MSI format if available
+    try:
+        results = zxingcpp.read_barcodes(img, formats=zxingcpp.BarcodeFormat.MSI)
+    except AttributeError:
+        # MSI might not be available, try generic decode
+        results = zxingcpp.read_barcodes(img)
+        results = [r for r in results if 'MSI' in str(r.format)]
+    
+    for r in results:
+        print(f"MSI:{r.text}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYMSI
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 46: Telepen - Pharmacy/Library barcode
+decode_with_telepen() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_telepen"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYTELEPEN > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    # Try Telepen format
+    try:
+        results = zxingcpp.read_barcodes(img, formats=zxingcpp.BarcodeFormat.Telepen)
+    except AttributeError:
+        # Telepen might not be available
+        results = zxingcpp.read_barcodes(img)
+        results = [r for r in results if 'TELEPEN' in str(r.format).upper()]
+    
+    for r in results:
+        print(f"TELEPEN:{r.text}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYTELEPEN
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 47: GS1 DataBar (RSS) - Retail and coupons
+decode_with_gs1_databar() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_gs1_databar"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYGS1 > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    # Try GS1 DataBar formats (Expanded, Limited, etc.)
+    results = []
+    try:
+        for fmt in [zxingcpp.BarcodeFormat.DataBarExpanded, 
+                    zxingcpp.BarcodeFormat.DataBarLimited]:
+            r = zxingcpp.read_barcodes(img, formats=fmt)
+            results.extend(r)
+    except AttributeError:
+        # Try generic decode and filter
+        results = zxingcpp.read_barcodes(img)
+        results = [r for r in results if 'DATABAR' in str(r.format).upper() or 'RSS' in str(r.format).upper()]
+    
+    for r in results:
+        print(f"GS1_DATABAR:{r.text}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYGS1
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 48: Pharmacode - Pharmaceutical packaging
+decode_with_pharmacode() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_pharmacode"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "PIL"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYPHARMA > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    from PIL import Image
+    import numpy as np
+    
+    img = Image.open('$image').convert('L')
+    arr = np.array(img)
+    
+    # Pharmacode is a series of thick and thin bars
+    # Each bar represents a power of 2, and the sum gives the value
+    # Pharmacode range: 3 to 131070 (2^0 + 2^1 + ... up to 2^16)
+    
+    # Check for vertical bar patterns
+    height, width = arr.shape
+    mid_row = arr[height // 2, :]
+    
+    # Detect bars (transitions between light and dark)
+    threshold = np.mean(mid_row)
+    binary = (mid_row < threshold).astype(int)
+    transitions = np.diff(binary)
+    bar_positions = np.where(transitions != 0)[0]
+    
+    # Pharmacode has 2-13 bars, transitions are double (rising + falling edge)
+    num_bars = len(bar_positions) // 2
+    
+    if 2 <= num_bars <= 13:
+        # Decode: bars represent binary digits
+        # Thin bar = 0, Thick bar = 1 (or vice versa based on width)
+        # Calculate widths between transitions
+        bar_widths = []
+        for i in range(0, len(bar_positions) - 1, 2):
+            if i + 1 < len(bar_positions):
+                width = bar_positions[i + 1] - bar_positions[i]
+                bar_widths.append(width)
+        
+        if len(bar_widths) >= 2:
+            # Determine thin vs thick threshold
+            median_width = np.median(bar_widths)
+            
+            # Decode value: each bar position represents 2^n
+            value = 0
+            for i, width in enumerate(bar_widths):
+                if width > median_width:  # Thick bar
+                    value += 2 ** i
+            
+            # Pharmacode valid range is 3-131070
+            if 3 <= value <= 131070:
+                print(f"PHARMACODE:{value}")
+            else:
+                # Just report detection if value seems invalid
+                print(f"PHARMACODE:DETECTED_{num_bars}_BARS_VALUE_{value}")
+        else:
+            print(f"PHARMACODE:DETECTED_{num_bars}_BARS")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYPHARMA
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 49: Code 11 - Telecommunications barcode
+decode_with_code11() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_code11"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYCODE11 > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    # Try Code 11 format
+    try:
+        results = zxingcpp.read_barcodes(img, formats=zxingcpp.BarcodeFormat.Code11)
+    except AttributeError:
+        # Code11 might not be in this version
+        results = zxingcpp.read_barcodes(img)
+        results = [r for r in results if 'CODE11' in str(r.format).upper() or 'CODE_11' in str(r.format).upper()]
+    
+    for r in results:
+        print(f"CODE11:{r.text}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYCODE11
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 50: DPD (Deutsche Post) Barcode
+decode_with_dpd() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_dpd"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "pyzbar"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYDPD > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    from pyzbar.pyzbar import decode
+    from PIL import Image
+    
+    img = Image.open('$image')
+    results = decode(img)
+    
+    # DPD uses Code 128 with specific format
+    for result in results:
+        data = result.data.decode('utf-8', errors='ignore')
+        # DPD barcodes typically start with specific patterns
+        if data.startswith('%') or len(data) == 32:
+            print(f"DPD:{data}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYDPD
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
 multi_decoder_analysis() {
     local image="$1"
     local base_output="$2"
@@ -12597,6 +13502,13 @@ multi_decoder_analysis() {
     local all_decoded=""
     local decoder_results=()
     local python_cmd=$(get_python_cmd)
+
+    # Check if parallel mode is enabled via environment variable
+    if [[ "${QR_PARALLEL_DECODERS:-0}" == "1" ]]; then
+        log_info "Parallel decoder mode enabled (QR_PARALLEL_DECODERS=1)"
+        multi_decoder_analysis_parallel "$image" "$base_output" "${QR_MAX_PARALLEL:-4}" "${QR_EARLY_EXIT:-3}"
+        return $?
+    fi
 
     # Clean previous outputs
     rm -f "${TEMP_DIR}"_*.txt 2>/dev/null
@@ -13264,18 +14176,18 @@ EOF
         local decoder_pid=$!
         
         # Wait for decoder with timeout
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_aztec" ]; then
-                log_success "  ✓ aztec: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_aztec" 2>/dev/null)$'\n'
-                decoder_results+=("aztec:$(head -1 "$out_aztec" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ aztec: decoder module not installed"
-            else
-                log_info "  ✗ aztec: no Aztec code found"
-            fi
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_aztec" ]; then
+            log_success "  ✓ aztec: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_aztec" 2>/dev/null)$'\n'
+            decoder_results+=("aztec:$(head -1 "$out_aztec" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ aztec: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ aztec: no Aztec code found"
         else
             log_info "  ✗ aztec: decoder crashed or timed out (skipped)"
         fi
@@ -13294,19 +14206,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_pdf417" ]; then
-                log_success "  ✓ pdf417: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_pdf417" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_pdf417" ]; then
+            log_success "  ✓ pdf417: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_pdf417" 2>/dev/null)$'
 '
-                decoder_results+=("pdf417:$(head -1 "$out_pdf417" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ pdf417: decoder module not installed"
-            else
-                log_info "  ✗ pdf417: no PDF417 found"
-            fi
+            decoder_results+=("pdf417:$(head -1 "$out_pdf417" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ pdf417: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ pdf417: no PDF417 found"
         else
             log_info "  ✗ pdf417: decoder crashed or timed out (skipped)"
         fi
@@ -13325,19 +14237,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_maxicode" ]; then
-                log_success "  ✓ maxicode: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_maxicode" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_maxicode" ]; then
+            log_success "  ✓ maxicode: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_maxicode" 2>/dev/null)$'
 '
-                decoder_results+=("maxicode:$(head -1 "$out_maxicode" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ maxicode: decoder module not installed"
-            else
-                log_info "  ✗ maxicode: no MaxiCode found"
-            fi
+            decoder_results+=("maxicode:$(head -1 "$out_maxicode" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ maxicode: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ maxicode: no MaxiCode found"
         else
             log_info "  ✗ maxicode: decoder crashed or timed out (skipped)"
         fi
@@ -13356,19 +14268,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_codabar" ]; then
-                log_success "  ✓ codabar: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_codabar" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_codabar" ]; then
+            log_success "  ✓ codabar: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_codabar" 2>/dev/null)$'
 '
-                decoder_results+=("codabar:$(head -1 "$out_codabar" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ codabar: decoder module not installed"
-            else
-                log_info "  ✗ codabar: no Codabar found"
-            fi
+            decoder_results+=("codabar:$(head -1 "$out_codabar" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ codabar: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ codabar: no Codabar found"
         else
             log_info "  ✗ codabar: decoder crashed or timed out (skipped)"
         fi
@@ -13387,19 +14299,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_code128" ]; then
-                log_success "  ✓ code128: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_code128" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_code128" ]; then
+            log_success "  ✓ code128: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_code128" 2>/dev/null)$'
 '
-                decoder_results+=("code128:$(head -1 "$out_code128" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ code128: decoder module not installed"
-            else
-                log_info "  ✗ code128: no Code 128 found"
-            fi
+            decoder_results+=("code128:$(head -1 "$out_code128" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ code128: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ code128: no Code 128 found"
         else
             log_info "  ✗ code128: decoder crashed or timed out (skipped)"
         fi
@@ -13418,19 +14330,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_code39" ]; then
-                log_success "  ✓ code39: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_code39" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_code39" ]; then
+            log_success "  ✓ code39: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_code39" 2>/dev/null)$'
 '
-                decoder_results+=("code39:$(head -1 "$out_code39" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ code39: decoder module not installed"
-            else
-                log_info "  ✗ code39: no Code 39 found"
-            fi
+            decoder_results+=("code39:$(head -1 "$out_code39" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ code39: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ code39: no Code 39 found"
         else
             log_info "  ✗ code39: decoder crashed or timed out (skipped)"
         fi
@@ -13449,19 +14361,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_ean" ]; then
-                log_success "  ✓ ean: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_ean" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_ean" ]; then
+            log_success "  ✓ ean: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_ean" 2>/dev/null)$'
 '
-                decoder_results+=("ean:$(head -1 "$out_ean" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ ean: decoder module not installed"
-            else
-                log_info "  ✗ ean: no EAN/UPC found"
-            fi
+            decoder_results+=("ean:$(head -1 "$out_ean" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ ean: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ ean: no EAN/UPC found"
         else
             log_info "  ✗ ean: decoder crashed or timed out (skipped)"
         fi
@@ -13480,19 +14392,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_rmqr" ]; then
-                log_success "  ✓ rmqr: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_rmqr" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_rmqr" ]; then
+            log_success "  ✓ rmqr: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_rmqr" 2>/dev/null)$'
 '
-                decoder_results+=("rmqr:$(head -1 "$out_rmqr" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ rmqr: decoder module not installed"
-            else
-                log_info "  ✗ rmqr: no rMQR found"
-            fi
+            decoder_results+=("rmqr:$(head -1 "$out_rmqr" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ rmqr: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ rmqr: no rMQR found"
         else
             log_info "  ✗ rmqr: decoder crashed or timed out (skipped)"
         fi
@@ -13511,19 +14423,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_hanxin" ]; then
-                log_success "  ✓ hanxin: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_hanxin" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_hanxin" ]; then
+            log_success "  ✓ hanxin: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_hanxin" 2>/dev/null)$'
 '
-                decoder_results+=("hanxin:$(head -1 "$out_hanxin" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ hanxin: decoder module not installed"
-            else
-                log_info "  ✗ hanxin: no Han Xin Code found"
-            fi
+            decoder_results+=("hanxin:$(head -1 "$out_hanxin" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ hanxin: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ hanxin: no Han Xin Code found"
         else
             log_info "  ✗ hanxin: decoder crashed or timed out (skipped)"
         fi
@@ -13542,19 +14454,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_dotcode" ]; then
-                log_success "  ✓ dotcode: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_dotcode" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_dotcode" ]; then
+            log_success "  ✓ dotcode: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_dotcode" 2>/dev/null)$'
 '
-                decoder_results+=("dotcode:$(head -1 "$out_dotcode" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ dotcode: decoder module not installed"
-            else
-                log_info "  ✗ dotcode: no DotCode found"
-            fi
+            decoder_results+=("dotcode:$(head -1 "$out_dotcode" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ dotcode: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ dotcode: no DotCode found"
         else
             log_info "  ✗ dotcode: decoder crashed or timed out (skipped)"
         fi
@@ -13573,19 +14485,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_gridmatrix" ]; then
-                log_success "  ✓ gridmatrix: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_gridmatrix" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_gridmatrix" ]; then
+            log_success "  ✓ gridmatrix: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_gridmatrix" 2>/dev/null)$'
 '
-                decoder_results+=("gridmatrix:$(head -1 "$out_gridmatrix" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ gridmatrix: decoder module not installed"
-            else
-                log_info "  ✗ gridmatrix: no Grid Matrix found"
-            fi
+            decoder_results+=("gridmatrix:$(head -1 "$out_gridmatrix" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ gridmatrix: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ gridmatrix: no Grid Matrix found"
         else
             log_info "  ✗ gridmatrix: decoder crashed or timed out (skipped)"
         fi
@@ -13604,19 +14516,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_composite" ]; then
-                log_success "  ✓ composite: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_composite" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_composite" ]; then
+            log_success "  ✓ composite: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_composite" 2>/dev/null)$'
 '
-                decoder_results+=("composite:$(head -1 "$out_composite" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ composite: decoder module not installed"
-            else
-                log_info "  ✗ composite: no Composite barcode found"
-            fi
+            decoder_results+=("composite:$(head -1 "$out_composite" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ composite: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ composite: no Composite barcode found"
         else
             log_info "  ✗ composite: decoder crashed or timed out (skipped)"
         fi
@@ -13635,19 +14547,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_itf" ]; then
-                log_success "  ✓ itf: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_itf" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_itf" ]; then
+            log_success "  ✓ itf: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_itf" 2>/dev/null)$'
 '
-                decoder_results+=("itf:$(head -1 "$out_itf" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ itf: decoder module not installed"
-            else
-                log_info "  ✗ itf: no ITF found"
-            fi
+            decoder_results+=("itf:$(head -1 "$out_itf" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ itf: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ itf: no ITF found"
         else
             log_info "  ✗ itf: decoder crashed or timed out (skipped)"
         fi
@@ -13666,19 +14578,19 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_code93" ]; then
-                log_success "  ✓ code93: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_code93" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_code93" ]; then
+            log_success "  ✓ code93: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_code93" 2>/dev/null)$'
 '
-                decoder_results+=("code93:$(head -1 "$out_code93" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ code93: decoder module not installed"
-            else
-                log_info "  ✗ code93: no Code 93 found"
-            fi
+            decoder_results+=("code93:$(head -1 "$out_code93" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ code93: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ code93: no Code 93 found"
         else
             log_info "  ✗ code93: decoder crashed or timed out (skipped)"
         fi
@@ -13688,7 +14600,7 @@ EOF
 
     # --- DECODER 38: UNIVERSAL (All formats with preprocessing) ---
     local out_universal="${TEMP_DIR}_universal.txt"
-    log_info "  [38/38] Trying Universal decoder (all formats)..."
+    log_info "  [38/42] Trying Universal decoder (all formats)..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -13697,24 +14609,382 @@ EOF
         ) &
         local decoder_pid=$!
         
-        if wait $decoder_pid 2>/dev/null; then
-            local exit_code=$?
-            if [ $exit_code -eq 0 ] && [ -s "$out_universal" ]; then
-                log_success "  ✓ universal: decoded successfully"
-                ((success_count++))
-                all_decoded+=$(cat "$out_universal" 2>/dev/null)$'
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_universal" ]; then
+            log_success "  ✓ universal: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_universal" 2>/dev/null)$'
 '
-                decoder_results+=("universal:$(head -1 "$out_universal" 2>/dev/null)")
-            elif [ $exit_code -eq 2 ]; then
-                log_info "  ✗ universal: decoder module not installed"
-            else
-                log_info "  ✗ universal: no Universal found"
-            fi
+            decoder_results+=("universal:$(head -1 "$out_universal" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ universal: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ universal: no Universal found"
         else
             log_info "  ✗ universal: decoder crashed or timed out (skipped)"
         fi
     else
         log_info "  ✗ universal: Python not available"
+    fi
+
+    # --- DECODER 39: QR MODEL 1 (Legacy QR) ---
+    local out_qr_model1="${TEMP_DIR}_qr_model1.txt"
+    log_info "  [39/42] Trying QR Model 1 decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_qr_model1 "$image" "$out_qr_model1"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_qr_model1" ]; then
+            log_success "  ✓ qr_model1: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_qr_model1" 2>/dev/null)$'\n'
+            decoder_results+=("qr_model1:$(head -1 "$out_qr_model1" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ qr_model1: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ qr_model1: no QR Model 1 found"
+        else
+            log_info "  ✗ qr_model1: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ qr_model1: Python not available"
+    fi
+
+    # --- DECODER 40: JAB CODE (Colored 2D barcode) ---
+    local out_jabcode="${TEMP_DIR}_jabcode.txt"
+    log_info "  [40/42] Trying JAB Code decoder..."
+    if decode_with_jabcode "$image" "$out_jabcode"; then
+        log_success "  ✓ jabcode: decoded successfully"
+        ((success_count++))
+        all_decoded+=$(cat "$out_jabcode" 2>/dev/null)$'\n'
+        decoder_results+=("jabcode:$(head -1 "$out_jabcode" 2>/dev/null)")
+    else
+        log_info "  ✗ jabcode: not installed or no code found"
+    fi
+
+    # --- DECODER 41: HCCB (Microsoft Tag) ---
+    local out_hccb="${TEMP_DIR}_hccb.txt"
+    log_info "  [41/42] Trying HCCB decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_hccb "$image" "$out_hccb"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_hccb" ]; then
+            log_success "  ✓ hccb: detected"
+            ((success_count++))
+            all_decoded+=$(cat "$out_hccb" 2>/dev/null)$'\n'
+            decoder_results+=("hccb:$(head -1 "$out_hccb" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ hccb: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ hccb: no HCCB found"
+        else
+            log_info "  ✗ hccb: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ hccb: Python not available"
+    fi
+
+    # --- DECODER 42: MICRO QR CODE ---
+    local out_micro_qr="${TEMP_DIR}_micro_qr.txt"
+    log_info "  [42/42] Trying Micro QR Code decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_micro_qr "$image" "$out_micro_qr"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_micro_qr" ]; then
+            log_success "  ✓ micro_qr: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_micro_qr" 2>/dev/null)$'\n'
+            decoder_results+=("micro_qr:$(head -1 "$out_micro_qr" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ micro_qr: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ micro_qr: no Micro QR found"
+        else
+            log_info "  ✗ micro_qr: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ micro_qr: Python not available"
+    fi
+
+    # --- DECODER 43: HTML QR FRAUD DETECTOR (Phishing/Fraud Detection) ---
+    local out_html_qr="${TEMP_DIR}_html_qr.txt"
+    log_info "  [43/43] Trying HTML-Generated QR Fraud Detector..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_html_qr_detector "$image" "$out_html_qr"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_html_qr" ]; then
+            log_success "  ✓ html_qr_detector: HTML-generated QR detected"
+            ((success_count++))
+            all_decoded+=$(cat "$out_html_qr" 2>/dev/null)$'\n'
+            decoder_results+=("html_qr_detector:$(head -1 "$out_html_qr" 2>/dev/null)")
+            
+            # Check for fraud indicators
+            if grep -q "HTML_GENERATION_INDICATORS" "$out_html_qr"; then
+                log_forensic_detection 70 \
+                    "HTML-Generated QR Code - Potential Fraud" \
+                    "html_qr_generation:$(grep 'HTML_GENERATION_INDICATORS' "$out_html_qr" | cut -d: -f2-)" \
+                    "Image forensic analysis" \
+                    "QR generation method" \
+                    "Investigate QR origin - HTML-generated QRs common in phishing/fraud campaigns" \
+                    "MITRE ATT&CK T1566.002 - Phishing: Spearphishing Link"
+            fi
+            
+            # Check for missing EXIF (programmatic generation indicator)
+            if grep -q "FORENSIC:no_exif_programmatic_generation" "$out_html_qr"; then
+                log_forensic "HTML QR lacks EXIF data - likely programmatically generated"
+            fi
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ html_qr_detector: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ html_qr_detector: no HTML QR patterns found"
+        else
+            log_info "  ✗ html_qr_detector: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ html_qr_detector: Python not available"
+    fi
+
+    # --- DECODER 44: UPC (Universal Product Code) ---
+    local out_upc="${TEMP_DIR}_upc.txt"
+    log_info "  [44/50] Trying UPC decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_upc "$image" "$out_upc"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_upc" ]; then
+            log_success "  ✓ upc: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_upc" 2>/dev/null)$'\n'
+            decoder_results+=("upc:$(head -1 "$out_upc" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ upc: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ upc: no UPC found"
+        else
+            log_info "  ✗ upc: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ upc: Python not available"
+    fi
+
+    # --- DECODER 45: MSI/Plessey ---
+    local out_msi="${TEMP_DIR}_msi.txt"
+    log_info "  [45/50] Trying MSI/Plessey decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_msi "$image" "$out_msi"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_msi" ]; then
+            log_success "  ✓ msi: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_msi" 2>/dev/null)$'\n'
+            decoder_results+=("msi:$(head -1 "$out_msi" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ msi: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ msi: no MSI/Plessey found"
+        else
+            log_info "  ✗ msi: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ msi: Python not available"
+    fi
+
+    # --- DECODER 46: Telepen ---
+    local out_telepen="${TEMP_DIR}_telepen.txt"
+    log_info "  [46/50] Trying Telepen decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_telepen "$image" "$out_telepen"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_telepen" ]; then
+            log_success "  ✓ telepen: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_telepen" 2>/dev/null)$'\n'
+            decoder_results+=("telepen:$(head -1 "$out_telepen" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ telepen: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ telepen: no Telepen found"
+        else
+            log_info "  ✗ telepen: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ telepen: Python not available"
+    fi
+
+    # --- DECODER 47: GS1 DataBar ---
+    local out_gs1="${TEMP_DIR}_gs1_databar.txt"
+    log_info "  [47/50] Trying GS1 DataBar decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_gs1_databar "$image" "$out_gs1"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_gs1" ]; then
+            log_success "  ✓ gs1_databar: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_gs1" 2>/dev/null)$'\n'
+            decoder_results+=("gs1_databar:$(head -1 "$out_gs1" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ gs1_databar: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ gs1_databar: no GS1 DataBar found"
+        else
+            log_info "  ✗ gs1_databar: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ gs1_databar: Python not available"
+    fi
+
+    # --- DECODER 48: Pharmacode ---
+    local out_pharmacode="${TEMP_DIR}_pharmacode.txt"
+    log_info "  [48/50] Trying Pharmacode decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_pharmacode "$image" "$out_pharmacode"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_pharmacode" ]; then
+            log_success "  ✓ pharmacode: detected"
+            ((success_count++))
+            all_decoded+=$(cat "$out_pharmacode" 2>/dev/null)$'\n'
+            decoder_results+=("pharmacode:$(head -1 "$out_pharmacode" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ pharmacode: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ pharmacode: no Pharmacode found"
+        else
+            log_info "  ✗ pharmacode: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ pharmacode: Python not available"
+    fi
+
+    # --- DECODER 49: Code 11 ---
+    local out_code11="${TEMP_DIR}_code11.txt"
+    log_info "  [49/50] Trying Code 11 decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_code11 "$image" "$out_code11"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_code11" ]; then
+            log_success "  ✓ code11: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_code11" 2>/dev/null)$'\n'
+            decoder_results+=("code11:$(head -1 "$out_code11" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ code11: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ code11: no Code 11 found"
+        else
+            log_info "  ✗ code11: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ code11: Python not available"
+    fi
+
+    # --- DECODER 50: DPD (Deutsche Post) Barcode ---
+    local out_dpd="${TEMP_DIR}_dpd.txt"
+    log_info "  [50/50] Trying DPD decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_dpd "$image" "$out_dpd"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        wait $decoder_pid 2>/dev/null
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ] && [ -s "$out_dpd" ]; then
+            log_success "  ✓ dpd: decoded successfully"
+            ((success_count++))
+            all_decoded+=$(cat "$out_dpd" 2>/dev/null)$'\n'
+            decoder_results+=("dpd:$(head -1 "$out_dpd" 2>/dev/null)")
+        elif [ $exit_code -eq 2 ]; then
+            log_info "  ✗ dpd: decoder module not installed"
+        elif [ $exit_code -eq 1 ]; then
+            log_info "  ✗ dpd: no DPD barcode found"
+        else
+            log_info "  ✗ dpd: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ dpd: Python not available"
     fi
 
     echo ""
@@ -13723,7 +14993,7 @@ EOF
     echo -e "${CYAN}├─────────────────────────────────────────────────────────────┤${NC}"
 
     # Calculate total decoders attempted
-    local total_decoders=38  # Updated: 22 original + 16 new decoder implementations
+    local total_decoders=50  # Updated: 22 original + 16 extended + 12 new implementations
     
     echo -e "${CYAN}│${NC} Decoders Attempted:   ${WHITE}${total_decoders}${NC}"
     echo -e "${CYAN}│${NC} Successful Decodes:   ${WHITE}${success_count}${NC}"
@@ -13769,6 +15039,205 @@ EOF
 
     # Return 0 if any decoder succeeded
     [ $success_count -gt 0 ]
+}
+
+# Helper function to run a single decoder
+run_single_decoder() {
+    local decoder="$1"
+    local image="$2"
+    local output="$3"
+    
+    case "$decoder" in
+        zbar) decode_with_zbar "$image" "$output" ;;
+        pyzbar) decode_with_pyzbar "$image" "$output" ;;
+        opencv) decode_with_opencv "$image" "$output" ;;
+        zxingcpp) decode_with_zxingcpp "$image" "$output" ;;
+        quirc) decode_with_quirc "$image" "$output" ;;
+        dmtx) decode_with_dmtx "$image" "$output" ;;
+        pyzbar_enhanced) decode_with_pyzbar_enhanced "$image" "$output" ;;
+        multiscale) decode_with_multiscale "$image" "$output" ;;
+        inverse) decode_with_inverse "$image" "$output" ;;
+        adaptive) decode_with_adaptive "$image" "$output" ;;
+        aztec) decode_with_aztec "$image" "$output" ;;
+        pdf417) decode_with_pdf417 "$image" "$output" ;;
+        code128) decode_with_code128 "$image" "$output" ;;
+        code39) decode_with_code39 "$image" "$output" ;;
+        ean) decode_with_ean "$image" "$output" ;;
+        itf) decode_with_itf "$image" "$output" ;;
+        code93) decode_with_code93 "$image" "$output" ;;
+        tesseract) decode_with_tesseract_ocr "$image" "$output" ;;
+        imagemagick_zbar) decode_with_imagemagick_zbar "$image" "$output" ;;
+        universal) decode_with_universal "$image" "$output" ;;
+        qr_model1) decode_with_qr_model1 "$image" "$output" ;;
+        jabcode) decode_with_jabcode "$image" "$output" ;;
+        hccb) decode_with_hccb "$image" "$output" ;;
+        micro_qr) decode_with_micro_qr "$image" "$output" ;;
+        html_qr_detector) decode_with_html_qr_detector "$image" "$output" ;;
+        upc) decode_with_upc "$image" "$output" ;;
+        msi) decode_with_msi "$image" "$output" ;;
+        telepen) decode_with_telepen "$image" "$output" ;;
+        gs1_databar) decode_with_gs1_databar "$image" "$output" ;;
+        pharmacode) decode_with_pharmacode "$image" "$output" ;;
+        code11) decode_with_code11 "$image" "$output" ;;
+        dpd) decode_with_dpd "$image" "$output" ;;
+        *) return 1 ;;
+    esac
+}
+
+multi_decoder_analysis_parallel() {
+    local image="$1"
+    local base_output="$2"
+    local max_parallel="${3:-4}"
+    local early_exit_count="${4:-3}"
+    
+    log_info "Parallel multi-decoder analysis (max ${max_parallel} concurrent)..."
+    
+    # Validation
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        log_error "[multi_decoder_analysis_parallel] Image not found or unreadable: '$image'"
+        return 10
+    fi
+    
+    local allowed_temp_dir="${TEMP_DIR}/"
+    mkdir -p "$allowed_temp_dir" 2>/dev/null
+    
+    # Priority-based decoder groups
+    local priority_high=("zbar" "pyzbar" "opencv" "zxingcpp" "html_qr_detector" "upc")
+    local priority_medium=("quirc" "dmtx" "pyzbar_enhanced" "multiscale" "inverse" "adaptive" "gs1_databar")
+    local priority_low=("aztec" "pdf417" "code128" "code39" "ean" "itf" "code93" "code11" "msi" "telepen")
+    local priority_specialty=("tesseract" "imagemagick_zbar" "universal" "pharmacode" "dpd")
+    
+    local success_count=0
+    local all_decoded=""
+    local decoder_results=()
+    
+    # Shared aggregation files
+    local aggregate_output="${TEMP_DIR}/aggregate_$$.txt"
+    local aggregate_summary="${TEMP_DIR}/aggregate_$$_summary.txt"
+    local lock_file="${TEMP_DIR}/aggregate_$$.lock"
+    
+    : > "$aggregate_output"
+    : > "$aggregate_summary"
+    
+    register_temp_file "$aggregate_output"
+    register_temp_file "$aggregate_summary"
+    register_temp_file "$lock_file"
+    
+    # Run decoder group function
+    run_decoder_group() {
+        local group_name="$1"
+        shift
+        local decoders=("$@")
+        
+        log_info "  Running ${group_name} (${#decoders[@]} decoders, ${max_parallel} parallel)..."
+        
+        local pids=()
+        local decoder_names=()
+        
+        for decoder in "${decoders[@]}"; do
+            # Early exit check
+            success_count=$(wc -l < "$aggregate_summary" 2>/dev/null || echo 0)
+            if [[ $success_count -ge $early_exit_count ]]; then
+                log_info "  Early exit: $success_count successful decodes achieved"
+                break
+            fi
+            
+            # Wait for available slot
+            while [[ ${#pids[@]} -ge $max_parallel ]]; do
+                for i in "${!pids[@]}"; do
+                    if ! kill -0 "${pids[$i]}" 2>/dev/null; then
+                        wait "${pids[$i]}" 2>/dev/null
+                        unset pids[$i]
+                        unset decoder_names[$i]
+                    fi
+                done
+                pids=("${pids[@]}")
+                decoder_names=("${decoder_names[@]}")
+                sleep 0.1
+            done
+            
+            # Launch decoder in background
+            local out_file="${TEMP_DIR}/_${decoder}_$$.txt"
+            register_temp_file "$out_file"
+            
+            (
+                local start_time=$(date +%s.%N 2>/dev/null || date +%s)
+                run_single_decoder "$decoder" "$image" "$out_file"
+                local status=$?
+                local end_time=$(date +%s.%N 2>/dev/null || date +%s)
+                local duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "0")
+                
+                if [[ $status -eq 0 ]] && [[ -s "$out_file" ]]; then
+                    # Thread-safe aggregation using flock
+                    (
+                        flock -x 200 || exit 1
+                        cat "$out_file" >> "$aggregate_output"
+                        echo "${decoder}:$(head -1 "$out_file"):${duration}" >> "$aggregate_summary"
+                    ) 200>"$lock_file"
+                fi
+                
+                exit $status
+            ) &
+            
+            pids+=($!)
+            decoder_names+=("$decoder")
+        done
+        
+        # Wait for all in group
+        for pid in "${pids[@]}"; do
+            wait "$pid" 2>/dev/null
+        done
+    }
+    
+    # Execute decoder groups in priority order
+    run_decoder_group "high-priority" "${priority_high[@]}"
+    
+    success_count=$(wc -l < "$aggregate_summary" 2>/dev/null || echo 0)
+    if [[ $success_count -lt $early_exit_count ]]; then
+        run_decoder_group "medium-priority" "${priority_medium[@]}"
+    fi
+    
+    success_count=$(wc -l < "$aggregate_summary" 2>/dev/null || echo 0)
+    if [[ $success_count -lt $early_exit_count ]]; then
+        run_decoder_group "low-priority" "${priority_low[@]}"
+    fi
+    
+    # Specialty only if nothing worked
+    success_count=$(wc -l < "$aggregate_summary" 2>/dev/null || echo 0)
+    if [[ $success_count -eq 0 ]]; then
+        run_decoder_group "specialty" "${priority_specialty[@]}"
+    fi
+    
+    # Aggregate results
+    if [[ -f "$aggregate_output" ]] && [[ -s "$aggregate_output" ]]; then
+        sort -u "$aggregate_output" > "${base_output}_merged.txt"
+        all_decoded=$(cat "$aggregate_output")
+    fi
+    
+    if [[ -f "$aggregate_summary" ]] && [[ -s "$aggregate_summary" ]]; then
+        mapfile -t decoder_results < "$aggregate_summary"
+    fi
+    
+    success_count=${#decoder_results[@]}
+    
+    # Print summary
+    echo ""
+    echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│              PARALLEL DECODER SUMMARY                       │${NC}"
+    echo -e "${CYAN}├─────────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${CYAN}│${NC} Successful Decodes:   ${WHITE}${success_count}${NC}"
+    
+    if [[ ${#decoder_results[@]} -gt 0 ]]; then
+        echo -e "${CYAN}│${NC} Results:"
+        for result in "${decoder_results[@]}"; do
+            IFS=':' read -r decoder_name decoded_preview duration <<< "$result"
+            echo -e "${CYAN}│${NC}   ${GREEN}✓${NC} ${decoder_name} (${duration}s): ${decoded_preview:0:35}..."
+        done
+    fi
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
+    echo ""
+    
+    [[ $success_count -gt 0 ]]
 }
 
 ################################################################################
@@ -13835,6 +15304,18 @@ declare -A ANTI_ANALYSIS_SIGNATURES=(
     ["deepfake_visual_evasion"]="Computer vision deepfake to trick scanners"
     ["noise_pattern_surrogate"]="Injected surrogate module pattern"
     ["watermark_embedding"]="Covert watermark in scanning visual"
+    
+    # HTML/Web-Generated QR Fraud Signatures
+    ["html_canvas_generation"]="QR generated via HTML5 Canvas (common in phishing)"
+    ["javascript_qr_library"]="JavaScript QR library signature detected"
+    ["svg_to_raster_conversion"]="SVG-to-raster conversion artifacts"
+    ["web_generator_signature"]="Online QR generator fingerprint"
+    ["programmatic_generation"]="Programmatically generated without camera/scanner"
+    ["missing_exif_fraud"]="Missing EXIF data indicating fake/fraudulent generation"
+    ["canvas_render_signature"]="HTML Canvas rendering signature (binary colors)"
+    ["js_library_dimensions"]="Dimensions matching common JS QR libraries"
+    ["perfect_pixel_alignment"]="Perfect pixel alignment indicating HTML generation"
+    ["png_export_pattern"]="PNG export pattern from web tools"
 )
 
 # Anti-analysis IOC patterns
@@ -13877,6 +15358,17 @@ declare -a ANTI_ANALYSIS_IOC_PATTERNS=(
     "frame_or_animation_bypass"
     "font_hack_payload"
     "nonvisible_spectrum_anomaly"
+    
+    # HTML/JavaScript QR Fraud IOCs
+    "html_canvas_detected"
+    "js_qr_library_detected"
+    "web_generator_fingerprint"
+    "programmatic_no_exif"
+    "canvas_binary_colors"
+    "svg_derived_pattern"
+    "js_library_size_match"
+    "perfect_module_alignment"
+    "png_no_artifacts_web"
 )
 
 analyze_anti_analysis_techniques() {
@@ -14066,6 +15558,69 @@ analyze_anti_analysis_techniques() {
                 iocs_detected+=("steganographic_embedding:${binwalk_results}_objects")
                 total_score=$((total_score + 20))
             fi
+        fi
+    fi
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 5. HTML/WEB-GENERATED QR FRAUD DETECTION
+    # ═══════════════════════════════════════════════════════════════════════════
+    if [ -n "$decoder_results" ] && echo "$decoder_results" | grep -q "html_qr_detector:"; then
+        anti_analysis_findings+=("HTML/JavaScript-generated QR code detected")
+        iocs_detected+=("html_canvas_detected")
+        total_score=$((total_score + 40))
+        
+        # Check for specific HTML generation indicators
+        local html_indicators
+        html_indicators=$(echo "$decoder_results" | grep "html_qr_detector:" | grep -o "HTML_GENERATION_INDICATORS:[^:]*")
+        
+        if [ -n "$html_indicators" ]; then
+            if echo "$html_indicators" | grep -q "canvas_render_signature"; then
+                anti_analysis_findings+=("HTML Canvas binary color signature - programmatic generation")
+                iocs_detected+=("canvas_binary_colors")
+                total_score=$((total_score + 15))
+            fi
+            
+            if echo "$html_indicators" | grep -q "svg_derived"; then
+                anti_analysis_findings+=("SVG-derived QR code - web generator signature")
+                iocs_detected+=("svg_derived_pattern")
+                total_score=$((total_score + 10))
+            fi
+            
+            if echo "$html_indicators" | grep -q "JS_LIBRARY_SIZE"; then
+                anti_analysis_findings+=("JavaScript QR library dimension signature detected")
+                iocs_detected+=("js_library_size_match")
+                total_score=$((total_score + 15))
+            fi
+            
+            if echo "$html_indicators" | grep -q "PRECISE_MODULE_ALIGNMENT"; then
+                anti_analysis_findings+=("Perfect module alignment - JavaScript library generation")
+                iocs_detected+=("perfect_module_alignment")
+                total_score=$((total_score + 10))
+            fi
+            
+            if echo "$html_indicators" | grep -q "PNG_NO_ARTIFACTS"; then
+                anti_analysis_findings+=("PNG without JPEG artifacts - HTML Canvas export")
+                iocs_detected+=("png_no_artifacts_web")
+                total_score=$((total_score + 10))
+            fi
+        fi
+        
+        # Check for programmatic generation (no EXIF)
+        if echo "$decoder_results" | grep -q "FORENSIC:no_exif_programmatic_generation"; then
+            anti_analysis_findings+=("No EXIF data - programmatic generation confirmed")
+            iocs_detected+=("programmatic_no_exif")
+            total_score=$((total_score + 20))
+        fi
+        
+        # High threat score indicates likely phishing/fraud QR
+        if [ "$total_score" -ge 70 ]; then
+            log_forensic_detection 90 \
+                "HIGH RISK: HTML-Generated QR Code - Likely Phishing/Fraud" \
+                "html_fraud:$(echo "$html_indicators" | cut -d: -f2-)" \
+                "HTML QR fraud detector + forensic analysis" \
+                "QR generation method and image characteristics" \
+                "CRITICAL: HTML-generated QRs with missing EXIF are common in phishing campaigns. Verify QR destination URL before scanning." \
+                "MITRE ATT&CK T1566.002 - Phishing: Spearphishing Link, T1204.001 - User Execution: Malicious Link"
         fi
     fi
     
