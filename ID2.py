@@ -164,7 +164,7 @@ class FreeIPInvestigator:
     
     def abstractapi_free(self, ip: str) -> Optional[Dict]:
         """AbstractAPI - 20,000 free requests/month, no key for basic"""
-        url = f"https://ipgeolocation.abstractapi.com/v1/? ip_address={ip}"
+        url = f"https://ipgeolocation.abstractapi.com/v1/?ip_address={ip}"
         return self.fetch_json_url(url)
     
     def shodan_internetdb(self, ip: str) -> Optional[Dict]:
@@ -240,7 +240,7 @@ class FreeIPInvestigator:
         if not asn:
             return None
         asn_clean = asn.replace('AS', '').strip()
-        url = f"https://www.peeringdb.com/api/net? asn={asn_clean}"
+        url = f"https://www.peeringdb.com/api/net?asn={asn_clean}"
         return self.fetch_json_url(url)
     
     # ============= DNS LOOKUPS =============
@@ -485,7 +485,7 @@ class FreeIPInvestigator:
         
     def proxycheck_io(self, ip: str) -> Optional[Dict]:
         """ProxyCheck.io free tier (1000/day, no key)"""
-        url = f"http://proxycheck.io/v2/{ip}? vpn=1&asn=1"
+        url = f"http://proxycheck.io/v2/{ip}?vpn=1&asn=1"
         return self.fetch_json_url(url)
     
     def iptoasn_lookup(self, ip: str) -> Optional[Dict]:
@@ -497,6 +497,18 @@ class FreeIPInvestigator:
         """BigDataCloud free geolocation (unlimited)"""
         url = f"https://api.bigdatacloud.net/data/ip-geolocation?ip={ip}&localityLanguage=en"
         return self.fetch_json_url(url)
+        
+    # Add missing method (around line 500):
+    def sslbl_abuse_ch(self, ip: str) -> Optional[Dict]:
+        """Check SSL Blacklist from abuse.ch"""
+        try:
+            url = f"https://sslbl.abuse.ch/blacklist/sslipblacklist.csv"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = response.read().decode()
+                return {'listed': ip in data}
+        except:
+            return None
     
     def ipdata_co_free(self, ip: str) -> Optional[Dict]:
         """IPData.co free tier (1500/day, no key)"""
@@ -507,14 +519,14 @@ class FreeIPInvestigator:
         """Check if IP is Tor exit node"""
         try:
             reversed_ip = '.'.join(reversed(ip.split('.')))
-            query = f"{reversed_ip}.80.ip-port.exitlist. torproject.org"
+            query = f"{reversed_ip}.80.ip-port.exitlist.torproject.org"
             socket.gethostbyname(query)
             return True
         except socket.gaierror:
             return False
     
     def spur_us_free(self, ip: str) -> Optional[Dict]:
-        """Spur. us Context API (free tier)"""
+        """Spur.us Context API (free tier)"""
         url = f"https://api.spur.us/v1/context/{ip}"
         return self.fetch_json_url(url)
     
@@ -530,9 +542,9 @@ class FreeIPInvestigator:
     
     def hackertarget_asn(self, ip: str) -> Optional[str]:
         """HackerTarget ASN lookup (free, no key)"""
-        url = f"https://api.hackertarget.com/aslookup/? q={ip}"
+        url = f"https://api.hackertarget.com/aslookup/?q={ip}"
         try:
-            req = urllib.request. Request(url)
+            req = urllib.request.Request(url)
             req.add_header('User-Agent', 'Mozilla/5.0')
             with urllib.request.urlopen(req, timeout=10) as response:
                 return response.read().decode().strip()
@@ -550,7 +562,7 @@ class FreeIPInvestigator:
     
     def ibm_xforce(self, ip: str) -> Optional[Dict]:
         """IBM X-Force Exchange - Free tier (requires free account)"""
-        url = f"https://exchange.xforce.ibmcloud. com/api/ipr/{ip}"
+        url = f"https://exchange.xforce.ibmcloud.com/api/ipr/{ip}"
         # Requires API key/password from free account
         return {"info": f"View at https://exchange.xforce.ibmcloud.com/ip/{ip}"}
     
@@ -568,7 +580,7 @@ class FreeIPInvestigator:
         }).encode()
         
         try:
-            req = urllib.request. Request(api_url, data=data)
+            req = urllib.request.Request(api_url, data=data)
             req.add_header('User-Agent', 'phishtank/ip-investigator')
             with urllib.request.urlopen(req, timeout=10) as response:
                 return json.loads(response.read().decode())
@@ -638,9 +650,9 @@ class FreeIPInvestigator:
             
     def getipintel_check(self, ip: str, contact_email: str = "abuse@example.com") -> Optional[float]:
         """GetIPIntel - Free proxy/VPN detection"""
-        url = f"http://check.getipintel.net/check. php?ip={ip}&contact={contact_email}"
+        url = f"http://check.getipintel.net/check.php?ip={ip}&contact={contact_email}"
         try:
-            req = urllib.request. Request(url)
+            req = urllib.request.Request(url)
             with urllib.request.urlopen(req, timeout=10) as response:
                 score = float(response.read().decode().strip())
                 return score  # 0-1, higher = more likely proxy/VPN
@@ -717,9 +729,75 @@ class FreeIPInvestigator:
         # Open ports
         open_ports = info.get('open_ports', {})
         suspicious_port_services = {
-            25: 'SMTP (spam/malware relay)',
             53: 'DNS (potential resolver abuse)',
-            3389: 'RDP (remote access)',
+            80: 'HTTP (unencrypted web traffic)',
+            443: 'HTTPS (encrypted web traffic)',
+            8080: 'HTTP-Proxy (alternative web/proxy)',
+            8443: 'HTTPS-Alt (alternative HTTPS)',
+            8000: 'HTTP-Alt (development server)',
+            
+            # Remote Access (HIGH RISK)
+            22: 'SSH (remote shell access)',
+            23: 'Telnet (unencrypted remote access - CRITICAL)',
+            3389: 'RDP (remote desktop access)',
+            5900: 'VNC (remote desktop)',
+            5901: 'VNC-1 (additional VNC instance)',
+            
+            # Email (SPAM/MALWARE RISK)
+            25: 'SMTP (spam/malware relay)',
+            110: 'POP3 (email retrieval)',
+            143: 'IMAP (email access)',
+            465: 'SMTPS (secure SMTP)',
+            587: 'SMTP-Submission (email sending)',
+            993: 'IMAPS (secure IMAP)',
+            995: 'POP3S (secure POP3)',
+            
+            # File Transfer (DATA EXFILTRATION RISK)
+            21: 'FTP (unencrypted file transfer)',
+            69: 'TFTP (trivial file transfer - no auth)',
+            445: 'SMB (file sharing - ransomware vector)',
+            139: 'NetBIOS (legacy Windows file sharing)',
+            
+            # Databases (CRITICAL IF EXPOSED)
+            1433: 'MSSQL (database - should NOT be public)',
+            3306: 'MySQL (database - should NOT be public)',
+            5432: 'PostgreSQL (database - should NOT be public)',
+            27017: 'MongoDB (database - should NOT be public)',
+            6379: 'Redis (in-memory database - should NOT be public)',
+            9200: 'Elasticsearch (search engine - data exposure)',
+            5984: 'CouchDB (database - should NOT be public)',
+            
+            # Network Services (ATTACK VECTORS)
+            161: 'SNMP (network management - info disclosure)',
+            162: 'SNMP-Trap (SNMP notifications)',
+            389: 'LDAP (directory service - credential access)',
+            636: 'LDAPS (secure LDAP)',
+            
+            # VPN & Proxy
+            1194: 'OpenVPN (VPN service)',
+            1723: 'PPTP (legacy VPN - vulnerable)',
+            4500: 'IPSec-NAT (VPN/IPSec)',
+            500: 'IKE (VPN key exchange)',
+            
+            # Web Frameworks & Services (DEVELOPMENT/MISCONFIGURATION)
+            3000: 'Node.js (development server - may be exposed)',
+            5000: 'Flask/Python (development server - may be exposed)',
+            8888: 'Jupyter (notebook server - code execution risk)',
+            9000: 'PHP-FPM (PHP processor)',
+            
+            # Other Important (LATERAL MOVEMENT)
+            111: 'RPC (remote procedure call - attack vector)',
+            135: 'MS-RPC (Microsoft RPC - lateral movement)',
+            514: 'Syslog (log server)',
+            2049: 'NFS (network file system - data access)',
+            3128: 'Squid-Proxy (proxy server)',
+            6666: 'IRC (chat server - botnet C&C)',
+            
+            # Containerization & Orchestration (CRITICAL)
+            2375: 'Docker (container API - FULL HOST COMPROMISE)',
+            2376: 'Docker-TLS (Docker with TLS)',
+            6443: 'Kubernetes (cluster API - full cluster access)',
+            10250: 'Kubelet (Kubernetes node - container access)',
         }
         for port, service in suspicious_port_services.items():
             if open_ports.get(port):
@@ -731,9 +809,26 @@ class FreeIPInvestigator:
             threat_indicators.append("Unreachable/filtered (secured network)")
             score -= 5
             
+        # Mobile IP with unusual open ports
+        carrier_info = info.get('carrier', {})
+        if carrier_info.get('is_mobile'):
+            # Check for suspicious ports on mobile IPs
+            if open_ports.get(21):  # FTP
+                threat_indicators.append("Mobile IP with open FTP (unusual - possible compromise)")
+                score += 10
+            if open_ports.get(22):  # SSH
+                threat_indicators.append("Mobile IP with open SSH (unusual configuration)")
+                score += 8
+            if open_ports.get(3389):  # RDP
+                threat_indicators.append("Mobile IP with open RDP (highly suspicious)")
+                score += 12
+            if open_ports.get(445):  # SMB
+                threat_indicators.append("Mobile IP with open SMB (likely compromised)")
+                score += 15
+            
         # Tor exit node
         if info.get('tor_exit'):
-            threat_indicators. append("Tor exit node detected")
+            threat_indicators.append("Tor exit node detected")
             score += 25
         
         # Proxy/VPN detection
@@ -826,12 +921,12 @@ class FreeIPInvestigator:
             'ip-api': self.ip_api_lookup(ip),
             'geojs': self.geojs_lookup(ip),
             'ipwhois': self.ipwhois_lookup(ip),
-            'db-ip': self. db_ip_lookup(ip),
+            'db-ip': self.db_ip_lookup(ip),
             'ipapi.co':  self.ipapi_co_lookup(ip),
             'freegeoip': self.freegeoip_lookup(ip),
-            'bigdatacloud': self. bigdatacloud_free(ip),
+            'bigdatacloud': self.bigdatacloud_free(ip),
             'ipdata': self.ipdata_co_free(ip),
-            'ipgeolocation. io': self.ipgeolocation_io(ip),
+            'ipgeolocation.io': self.ipgeolocation_io(ip),
             'abstractapi':  self.abstractapi_free(ip),
             'shodan':  self.shodan_internetdb(ip),
         }
@@ -861,14 +956,37 @@ class FreeIPInvestigator:
             'team_cymru': self.team_cymru_asn(ip),
         }
         
-        result['asn'] = {k: v for k, v in asn_sources.items() if v and 'error' not in v}
+        result['asn'] = {k: v for k, v in asn_sources.items() if v and 'error' not in str(v).lower()}
+
         
         if verbose:
             for source, data in result['asn'].items():
-                if data and 'error' not in data:
-                    asn = data.get('asn') or data.get('AS Number') or 'N/A'
-                    org = data.get('org') or data.get('organisation_name') or 'N/A'
+                if not data or 'error' in str(data):
+                    continue
+                    
+                # Handle string responses
+                if isinstance(data, str):
+                    print(f"✓ {source:12}: {data}")
+                    continue
+                
+                # Handle dict responses
+                if isinstance(data, dict):
+                    asn = (data.get('asn') or
+                           data.get('AS Number') or
+                           data.get('as_number') or
+                           data.get('announced') or
+                           'N/A')
+                    
+                    org = (data.get('org') or
+                           data.get('organisation_name') or
+                           data.get('name') or
+                           data.get('as_name') or
+                           'N/A')
+                    
                     print(f"✓ {source:12}: {asn} ({org})")
+                else:
+                    # Fallback for unexpected types
+                    print(f"✓ {source:12}: {str(data)[:60]}")
         
         # ===== DNS LOOKUPS =====
         if verbose:
@@ -892,17 +1010,127 @@ class FreeIPInvestigator:
         # ===== PORT SCANNING =====
         if verbose:
             print("\n[*] Checking open ports...")
-        
+
         open_ports, port_risk = self.port_scan_check(ip)
-        result['connectivity']['open_ports'] = {k: v for k, v in open_ports.items() if v}
+
+        # Store port information with service names
+        port_info = {}
+        common_ports = {
+            53: ('DNS', 2),
+            80: ('HTTP', 1),
+            443: ('HTTPS', 1),
+            8080: ('HTTP-Proxy', 3),
+            8443: ('HTTPS-Alt', 3),
+            8000: ('HTTP-Alt', 2),
+            
+            # Remote Access (HIGH RISK)
+            22: ('SSH', 5),
+            23: ('Telnet', 10),
+            3389: ('RDP', 8),
+            5900: ('VNC', 8),
+            5901: ('VNC-1', 8),
+            
+            # Email
+            25: ('SMTP', 3),
+            110: ('POP3', 2),
+            143: ('IMAP', 2),
+            465: ('SMTPS', 2),
+            587: ('SMTP-Submission', 2),
+            993: ('IMAPS', 2),
+            995: ('POP3S', 2),
+            
+            # File Transfer
+            21: ('FTP', 6),
+            69: ('TFTP', 7),
+            445: ('SMB', 9),
+            139: ('NetBIOS', 7),
+            
+            # Databases (HIGH RISK if exposed)
+            1433: ('MSSQL', 10),
+            3306: ('MySQL', 10),
+            5432: ('PostgreSQL', 10),
+            27017: ('MongoDB', 10),
+            6379: ('Redis', 10),
+            9200: ('Elasticsearch', 9),
+            5984: ('CouchDB', 9),
+            
+            # Network Services
+            161: ('SNMP', 7),
+            162: ('SNMP-Trap', 6),
+            389: ('LDAP', 6),
+            636: ('LDAPS', 5),
+            
+            # VPN & Proxy
+            1194: ('OpenVPN', 4),
+            1723: ('PPTP', 5),
+            4500: ('IPSec-NAT', 4),
+            500: ('IKE', 4),
+            
+            # Web Frameworks & Services
+            3000: ('Node.js', 5),
+            5000: ('Flask/Python', 5),
+            8888: ('Jupyter/Alt-HTTP', 7),
+            9000: ('PHP-FPM', 6),
+            
+            # Other Important
+            111: ('RPC', 7),
+            135: ('MS-RPC', 7),
+            514: ('Syslog', 4),
+            2049: ('NFS', 8),
+            3128: ('Squid-Proxy', 4),
+            6666: ('IRC', 5),
+            
+            # Containerization & Orchestration
+            2375: ('Docker', 10),
+            2376: ('Docker-TLS', 8),
+            6443: ('Kubernetes', 9),
+            10250: ('Kubelet', 9),
+        }
+
+        # Build detailed port information for open ports
+        for port, is_open in open_ports.items():
+            if is_open:
+                service, risk = common_ports. get(port, ('Unknown', 0))
+                port_info[port] = {'service': service, 'risk':  risk}
+
+        result['connectivity']['open_ports'] = port_info
         result['connectivity']['port_risk_score'] = port_risk
-        
+
         if verbose:
-            if result['connectivity']['open_ports']:
-                for port in result['connectivity']['open_ports'].keys():
-                    print(f"✓ Port {port} is OPEN")
+            if port_info:
+                print(f"✓ Found {len(port_info)} open port(s):")
+                # Sort by risk (highest first), then by port number
+                sorted_ports = sorted(port_info.items(), key=lambda x: (-x[1]['risk'], x[0]))
+                
+                for port, info in sorted_ports:
+                    service = info['service']
+                    risk = info['risk']
+                    
+                    # Color-code by risk level
+                    if risk >= 9:
+                        risk_indicator = "🔴 CRITICAL"
+                    elif risk >= 7:
+                        risk_indicator = "🟠 HIGH"
+                    elif risk >= 4:
+                        risk_indicator = "🟡 MEDIUM"
+                    else:
+                        risk_indicator = "🟢 LOW"
+                    
+                    print(f"    • Port {port: >5} | {service:<20} | Risk: {risk: >2}/10 {risk_indicator}")
+                
+                # Display total risk score
+                if port_risk >= 30:
+                    risk_level = "🔴 CRITICAL"
+                elif port_risk >= 20:
+                    risk_level = "🟠 HIGH"
+                elif port_risk >= 10:
+                    risk_level = "🟡 MEDIUM"
+                else:
+                    risk_level = "🟢 LOW"
+                
+                print(f"\n    Total Port Risk Score: {port_risk} ({risk_level})")
             else:
-                print(f"✓ No common ports open")
+                print(f"✓ No common ports open (or all filtered)")
                 
         if verbose:
             print("\n[*] Checking reputation databases...")
@@ -919,7 +1147,8 @@ class FreeIPInvestigator:
         if verbose:
             listed_count = sum(1 for v in dnsbl_results.values() if v)
             if listed_count > 0:
-                print(f"⚠️  Listed on {listed_count}/{len(dnsbl_results)} blacklists")
+                listed_on = [bl for bl, listed in dnsbl_results.items() if listed]
+                print(f"⚠️  Listed on {listed_count}/{len(dnsbl_results)} blacklists:  {', '.join(listed_on)}")
             else:
                 print(f"✓ Not listed on any blacklists")
         
@@ -988,7 +1217,7 @@ class FreeIPInvestigator:
         sslbl = self.sslbl_abuse_ch(ip)
         if sslbl:
             result['threat_analysis']['ssl_blacklist'] = sslbl
-            if verbose and sslbl. get('listed'):
+            if verbose and sslbl.get('listed'):
                 print(f"⚠️  SSL Blacklist:  Malicious SSL certificate detected")
         
         # GetIPIntel proxy detection
@@ -997,7 +1226,7 @@ class FreeIPInvestigator:
             result['threat_analysis']['getipintel'] = getipintel
             if verbose:
                 if getipintel > 0.99:
-                    print(f"🔀 GetIPIntel: VPN/Proxy CONFIRMED ({getipintel:. 2f})")
+                    print(f"🔀 GetIPIntel: VPN/Proxy CONFIRMED ({getipintel:.2f})")
                 elif getipintel > 0.95:
                     print(f"⚠️  GetIPIntel: Likely VPN/Proxy ({getipintel:.2f})")
                 else:
@@ -1084,7 +1313,7 @@ class FreeIPInvestigator:
         if hackertarget and '[ERROR]' not in hackertarget:
             result['asn']['hackertarget'] = hackertarget
             if verbose:
-                print(f"✓ HackerTarget ASN: {hackertarget. split()[0] if hackertarget else 'N/A'}")
+                print(f"✓ HackerTarget ASN: {hackertarget.split()[0] if hackertarget else 'N/A'}")
         
         # ===== MILITARY/DEFENSE CHECK =====
         combined_info = {
