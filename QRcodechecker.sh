@@ -13033,6 +13033,398 @@ PYHTMLQR
     [[ -s "$output_file" ]]
 }
 
+# Decoder 44: UPC (Universal Product Code) - UPC-A and UPC-E
+decode_with_upc() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_upc"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "pyzbar"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYUPC > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    from pyzbar.pyzbar import decode, ZBarSymbol
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    # Decode UPC-A and UPC-E
+    results = decode(img, symbols=[ZBarSymbol.UPCA, ZBarSymbol.UPCE])
+    
+    if results:
+        for result in results:
+            barcode_type = result.type
+            data = result.data.decode('utf-8', errors='ignore')
+            print(f"{barcode_type}:{data}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYUPC
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 45: MSI/Plessey - Inventory control barcode
+decode_with_msi() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_msi"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYMSI > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    # Try to decode with MSI format if available
+    try:
+        results = zxingcpp.read_barcodes(img, formats=zxingcpp.BarcodeFormat.MSI)
+    except AttributeError:
+        # MSI might not be available, try generic decode
+        results = zxingcpp.read_barcodes(img)
+        results = [r for r in results if 'MSI' in str(r.format)]
+    
+    for r in results:
+        print(f"MSI:{r.text}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYMSI
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 46: Telepen - Pharmacy/Library barcode
+decode_with_telepen() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_telepen"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYTELEPEN > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    # Try Telepen format
+    try:
+        results = zxingcpp.read_barcodes(img, formats=zxingcpp.BarcodeFormat.Telepen)
+    except AttributeError:
+        # Telepen might not be available
+        results = zxingcpp.read_barcodes(img)
+        results = [r for r in results if 'TELEPEN' in str(r.format).upper()]
+    
+    for r in results:
+        print(f"TELEPEN:{r.text}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYTELEPEN
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 47: GS1 DataBar (RSS) - Retail and coupons
+decode_with_gs1_databar() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_gs1_databar"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYGS1 > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    # Try GS1 DataBar formats (Expanded, Limited, etc.)
+    results = []
+    try:
+        for fmt in [zxingcpp.BarcodeFormat.DataBarExpanded, 
+                    zxingcpp.BarcodeFormat.DataBarLimited]:
+            r = zxingcpp.read_barcodes(img, formats=fmt)
+            results.extend(r)
+    except AttributeError:
+        # Try generic decode and filter
+        results = zxingcpp.read_barcodes(img)
+        results = [r for r in results if 'DATABAR' in str(r.format).upper() or 'RSS' in str(r.format).upper()]
+    
+    for r in results:
+        print(f"GS1_DATABAR:{r.text}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYGS1
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 48: Pharmacode - Pharmaceutical packaging
+decode_with_pharmacode() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_pharmacode"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "PIL"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYPHARMA > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    from PIL import Image
+    import numpy as np
+    
+    img = Image.open('$image').convert('L')
+    arr = np.array(img)
+    
+    # Pharmacode is a series of thick and thin bars
+    # Simple heuristic detection - look for bar pattern
+    # This is a basic implementation for detection purposes
+    
+    # Check for vertical bar patterns
+    height, width = arr.shape
+    mid_row = arr[height // 2, :]
+    
+    # Detect bars (transitions between light and dark)
+    threshold = np.mean(mid_row)
+    binary = (mid_row < threshold).astype(int)
+    transitions = np.diff(binary)
+    bar_count = np.sum(np.abs(transitions))
+    
+    # Pharmacode typically has 2-13 bars
+    if 4 <= bar_count <= 26:  # Account for both edges of bars
+        print(f"PHARMACODE:DETECTED_{bar_count//2}_BARS")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYPHARMA
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 49: Code 11 - Telecommunications barcode
+decode_with_code11() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_code11"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "zxingcpp"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYCODE11 > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    import zxingcpp
+    from PIL import Image
+    
+    img = Image.open('$image')
+    
+    # Try Code 11 format
+    try:
+        results = zxingcpp.read_barcodes(img, formats=zxingcpp.BarcodeFormat.Code11)
+    except AttributeError:
+        # Code11 might not be in this version
+        results = zxingcpp.read_barcodes(img)
+        results = [r for r in results if 'CODE11' in str(r.format).upper() or 'CODE_11' in str(r.format).upper()]
+    
+    for r in results:
+        print(f"CODE11:{r.text}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYCODE11
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
+# Decoder 50: DPD (Deutsche Post) Barcode
+decode_with_dpd() {
+    local image="$1"
+    local output_file="$2"
+    local python_cmd=$(get_python_cmd)
+    
+    if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
+        return 1
+    fi
+    
+    if ! validate_decoder_output_path "$output_file" "decode_with_dpd"; then
+        return 1
+    fi
+    
+    [[ -z "$python_cmd" ]] && return 2
+    
+    if ! safe_check_python_module "pyzbar"; then
+        return 2
+    fi
+    
+    (
+        trap 'exit 139' SEGV ABRT BUS
+        ulimit -c 0 2>/dev/null
+        timeout 20 "$python_cmd" <<PYDPD > "$output_file" 2>/dev/null
+import sys
+import signal
+signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
+signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
+
+try:
+    from pyzbar.pyzbar import decode
+    from PIL import Image
+    
+    img = Image.open('$image')
+    results = decode(img)
+    
+    # DPD uses Code 128 with specific format
+    for result in results:
+        data = result.data.decode('utf-8', errors='ignore')
+        # DPD barcodes typically start with specific patterns
+        if data.startswith('%') or len(data) == 32:
+            print(f"DPD:{data}")
+except ImportError:
+    sys.exit(2)
+except Exception:
+    sys.exit(1)
+PYDPD
+    ) 2>/dev/null
+    
+    [[ -s "$output_file" ]]
+}
+
 multi_decoder_analysis() {
     local image="$1"
     local base_output="$2"
@@ -14334,13 +14726,223 @@ EOF
         log_info "  ✗ html_qr_detector: Python not available"
     fi
 
+    # --- DECODER 44: UPC (Universal Product Code) ---
+    local out_upc="${TEMP_DIR}_upc.txt"
+    log_info "  [44/50] Trying UPC decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_upc "$image" "$out_upc"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_upc" ]; then
+                log_success "  ✓ upc: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_upc" 2>/dev/null)$'\n'
+                decoder_results+=("upc:$(head -1 "$out_upc" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ upc: decoder module not installed"
+            else
+                log_info "  ✗ upc: no UPC found"
+            fi
+        else
+            log_info "  ✗ upc: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ upc: Python not available"
+    fi
+
+    # --- DECODER 45: MSI/Plessey ---
+    local out_msi="${TEMP_DIR}_msi.txt"
+    log_info "  [45/50] Trying MSI/Plessey decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_msi "$image" "$out_msi"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_msi" ]; then
+                log_success "  ✓ msi: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_msi" 2>/dev/null)$'\n'
+                decoder_results+=("msi:$(head -1 "$out_msi" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ msi: decoder module not installed"
+            else
+                log_info "  ✗ msi: no MSI/Plessey found"
+            fi
+        else
+            log_info "  ✗ msi: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ msi: Python not available"
+    fi
+
+    # --- DECODER 46: Telepen ---
+    local out_telepen="${TEMP_DIR}_telepen.txt"
+    log_info "  [46/50] Trying Telepen decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_telepen "$image" "$out_telepen"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_telepen" ]; then
+                log_success "  ✓ telepen: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_telepen" 2>/dev/null)$'\n'
+                decoder_results+=("telepen:$(head -1 "$out_telepen" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ telepen: decoder module not installed"
+            else
+                log_info "  ✗ telepen: no Telepen found"
+            fi
+        else
+            log_info "  ✗ telepen: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ telepen: Python not available"
+    fi
+
+    # --- DECODER 47: GS1 DataBar ---
+    local out_gs1="${TEMP_DIR}_gs1_databar.txt"
+    log_info "  [47/50] Trying GS1 DataBar decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_gs1_databar "$image" "$out_gs1"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_gs1" ]; then
+                log_success "  ✓ gs1_databar: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_gs1" 2>/dev/null)$'\n'
+                decoder_results+=("gs1_databar:$(head -1 "$out_gs1" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ gs1_databar: decoder module not installed"
+            else
+                log_info "  ✗ gs1_databar: no GS1 DataBar found"
+            fi
+        else
+            log_info "  ✗ gs1_databar: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ gs1_databar: Python not available"
+    fi
+
+    # --- DECODER 48: Pharmacode ---
+    local out_pharmacode="${TEMP_DIR}_pharmacode.txt"
+    log_info "  [48/50] Trying Pharmacode decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_pharmacode "$image" "$out_pharmacode"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_pharmacode" ]; then
+                log_success "  ✓ pharmacode: detected"
+                ((success_count++))
+                all_decoded+=$(cat "$out_pharmacode" 2>/dev/null)$'\n'
+                decoder_results+=("pharmacode:$(head -1 "$out_pharmacode" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ pharmacode: decoder module not installed"
+            else
+                log_info "  ✗ pharmacode: no Pharmacode found"
+            fi
+        else
+            log_info "  ✗ pharmacode: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ pharmacode: Python not available"
+    fi
+
+    # --- DECODER 49: Code 11 ---
+    local out_code11="${TEMP_DIR}_code11.txt"
+    log_info "  [49/50] Trying Code 11 decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_code11 "$image" "$out_code11"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_code11" ]; then
+                log_success "  ✓ code11: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_code11" 2>/dev/null)$'\n'
+                decoder_results+=("code11:$(head -1 "$out_code11" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ code11: decoder module not installed"
+            else
+                log_info "  ✗ code11: no Code 11 found"
+            fi
+        else
+            log_info "  ✗ code11: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ code11: Python not available"
+    fi
+
+    # --- DECODER 50: DPD (Deutsche Post) Barcode ---
+    local out_dpd="${TEMP_DIR}_dpd.txt"
+    log_info "  [50/50] Trying DPD decoder..."
+    if [ -n "$python_cmd" ]; then
+        (
+            set +e
+            decode_with_dpd "$image" "$out_dpd"
+            exit $?
+        ) &
+        local decoder_pid=$!
+        
+        if wait $decoder_pid 2>/dev/null; then
+            local exit_code=$?
+            if [ $exit_code -eq 0 ] && [ -s "$out_dpd" ]; then
+                log_success "  ✓ dpd: decoded successfully"
+                ((success_count++))
+                all_decoded+=$(cat "$out_dpd" 2>/dev/null)$'\n'
+                decoder_results+=("dpd:$(head -1 "$out_dpd" 2>/dev/null)")
+            elif [ $exit_code -eq 2 ]; then
+                log_info "  ✗ dpd: decoder module not installed"
+            else
+                log_info "  ✗ dpd: no DPD barcode found"
+            fi
+        else
+            log_info "  ✗ dpd: decoder crashed or timed out (skipped)"
+        fi
+    else
+        log_info "  ✗ dpd: Python not available"
+    fi
+
     echo ""
     echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
     echo -e "${CYAN}│                   DECODER SUMMARY                           │${NC}"
     echo -e "${CYAN}├─────────────────────────────────────────────────────────────┤${NC}"
 
     # Calculate total decoders attempted
-    local total_decoders=43  # Updated: 22 original + 16 extended + 5 new implementations (including HTML fraud detector)
+    local total_decoders=50  # Updated: 22 original + 16 extended + 12 new implementations
     
     echo -e "${CYAN}│${NC} Decoders Attempted:   ${WHITE}${total_decoders}${NC}"
     echo -e "${CYAN}│${NC} Successful Decodes:   ${WHITE}${success_count}${NC}"
@@ -14420,6 +15022,13 @@ run_single_decoder() {
         hccb) decode_with_hccb "$image" "$output" ;;
         micro_qr) decode_with_micro_qr "$image" "$output" ;;
         html_qr_detector) decode_with_html_qr_detector "$image" "$output" ;;
+        upc) decode_with_upc "$image" "$output" ;;
+        msi) decode_with_msi "$image" "$output" ;;
+        telepen) decode_with_telepen "$image" "$output" ;;
+        gs1_databar) decode_with_gs1_databar "$image" "$output" ;;
+        pharmacode) decode_with_pharmacode "$image" "$output" ;;
+        code11) decode_with_code11 "$image" "$output" ;;
+        dpd) decode_with_dpd "$image" "$output" ;;
         *) return 1 ;;
     esac
 }
@@ -14442,10 +15051,10 @@ multi_decoder_analysis_parallel() {
     mkdir -p "$allowed_temp_dir" 2>/dev/null
     
     # Priority-based decoder groups
-    local priority_high=("zbar" "pyzbar" "opencv" "zxingcpp" "html_qr_detector")
-    local priority_medium=("quirc" "dmtx" "pyzbar_enhanced" "multiscale" "inverse" "adaptive")
-    local priority_low=("aztec" "pdf417" "code128" "code39" "ean" "itf" "code93")
-    local priority_specialty=("tesseract" "imagemagick_zbar" "universal")
+    local priority_high=("zbar" "pyzbar" "opencv" "zxingcpp" "html_qr_detector" "upc")
+    local priority_medium=("quirc" "dmtx" "pyzbar_enhanced" "multiscale" "inverse" "adaptive" "gs1_databar")
+    local priority_low=("aztec" "pdf417" "code128" "code39" "ean" "itf" "code93" "code11" "msi" "telepen")
+    local priority_specialty=("tesseract" "imagemagick_zbar" "universal" "pharmacode" "dpd")
     
     local success_count=0
     local all_decoded=""
