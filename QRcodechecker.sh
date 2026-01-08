@@ -12762,6 +12762,7 @@ decode_with_qr_model1() {
         return 2
     fi
     
+    # Note: PIL is also required but checked inline via try/except for graceful fallback
     (
         trap 'exit 139' SEGV ABRT BUS
         ulimit -c 0 2>/dev/null
@@ -12837,6 +12838,7 @@ decode_with_hccb() {
         return 2
     fi
     
+    # Note: numpy is also required but checked inline via try/except for graceful fallback
     (
         trap 'exit 139' SEGV ABRT BUS
         ulimit -c 0 2>/dev/null
@@ -12886,6 +12888,7 @@ decode_with_micro_qr() {
         return 2
     fi
     
+    # Note: PIL is also required but checked inline via try/except for graceful fallback
     (
         trap 'exit 139' SEGV ABRT BUS
         ulimit -c 0 2>/dev/null
@@ -14044,7 +14047,7 @@ EOF
 
     # --- DECODER 38: UNIVERSAL (All formats with preprocessing) ---
     local out_universal="${TEMP_DIR}_universal.txt"
-    log_info "  [38/38] Trying Universal decoder (all formats)..."
+    log_info "  [38/42] Trying Universal decoder (all formats)..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
             set +e
@@ -14256,6 +14259,10 @@ run_single_decoder() {
         tesseract) decode_with_tesseract_ocr "$image" "$output" ;;
         imagemagick_zbar) decode_with_imagemagick_zbar "$image" "$output" ;;
         universal) decode_with_universal "$image" "$output" ;;
+        qr_model1) decode_with_qr_model1 "$image" "$output" ;;
+        jabcode) decode_with_jabcode "$image" "$output" ;;
+        hccb) decode_with_hccb "$image" "$output" ;;
+        micro_qr) decode_with_micro_qr "$image" "$output" ;;
         *) return 1 ;;
     esac
 }
