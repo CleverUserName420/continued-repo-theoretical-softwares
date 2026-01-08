@@ -5131,7 +5131,7 @@ declare -A OBFUSCATION_PATTERNS=(
     ["deflate_data"]="\\x78\\x01"
     # XOR patterns
     ["xor_loop"]="(\\^=|xor|XOR)"
-    ["xor_key"]='[A-Za-z0-9]{8,32}'
+    ["xor_key"]='[[:alnum:]]{8,32}'
     # ROT13/Caesar
     ["rot13"]="(ROT13|rot13|str_rot13)"
     # Packing
