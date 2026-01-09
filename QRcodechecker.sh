@@ -34678,16 +34678,23 @@ analyze_adversarial_ai() {
         echo ""
     } > "$adv_report"
     
+    # AUDIT FIX: Use base64 to safely pass image path to Python (prevents segfault)
+    local encoded_image
+    encoded_image=$(printf '%s' "$image" | base64 2>/dev/null) || return
+    
     # Python-based adversarial detection
-    local adv_analysis=$(python3 << EOF 2>/dev/null
+    local adv_analysis=$(python3 - "$encoded_image" 2>/dev/null <<'EOF'
 import json
 import sys
+import base64
 
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
+    
     from PIL import Image
     import numpy as np
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     img_array = np.array(img)
     
     results = {
@@ -35690,7 +35697,9 @@ analyze_ux_redress_attacks() {
 # ============================================================================
 
 analyze_dga_domains() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$DGA_ANALYSIS" = false ]; then
         analysis_success_none "DGA-ANALYSIS"
@@ -35725,14 +35734,23 @@ analyze_dga_domains() {
     echo "Domain: $domain" >> "$dga_report"
     echo "" >> "$dga_report"
     
+    # AUDIT FIX: Use base64 to safely pass domain to Python (prevents segfault with special chars)
+    local encoded_domain
+    encoded_domain=$(printf '%s' "$domain" | base64 2>/dev/null) || return
+    
     # Python-based DGA analysis
-    local dga_analysis=$(python3 << EOF 2>/dev/null
+    local dga_analysis=$(python3 - "$encoded_domain" 2>/dev/null <<'EOF'
 import json
 import math
 import re
+import sys
+import base64
 from collections import Counter
 
-domain = '$domain'
+try:
+    domain = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
+except:
+    domain = ''
 # Remove TLD for analysis
 parts = domain.split('.')
 if len(parts) > 1:
@@ -37138,38 +37156,62 @@ record_analysis_feedback() {
     local analysis_hash=$(echo "$QR_CONTENT" | md5sum | cut -d' ' -f1)
     
     # Create feedback entry
-    local entry=$(cat << EOF
+    local entry=$(cat << 'EOF_ENTRY'
 {
-    "timestamp": "$timestamp",
-    "analysis_hash": "$analysis_hash",
-    "automated_verdict": "$verdict",
-    "confidence": $confidence,
-    "user_feedback": "$user_feedback",
-    "notes": "$notes",
-    "threat_score": $THREAT_SCORE,
-    "ioc_count": ${#RECORDED_IOCS[@]}
+    "timestamp": "TIMESTAMP_PLACEHOLDER",
+    "analysis_hash": "HASH_PLACEHOLDER",
+    "automated_verdict": "VERDICT_PLACEHOLDER",
+    "confidence": CONFIDENCE_PLACEHOLDER,
+    "user_feedback": "USER_FEEDBACK_PLACEHOLDER",
+    "notes": "NOTES_PLACEHOLDER",
+    "threat_score": THREAT_SCORE_PLACEHOLDER,
+    "ioc_count": IOC_COUNT_PLACEHOLDER
 }
-EOF
+EOF_ENTRY
 )
     
+    # AUDIT FIX: Use sed to safely replace placeholders (prevents injection)
+    entry=$(echo "$entry" | sed "s/TIMESTAMP_PLACEHOLDER/$timestamp/g" | \
+            sed "s/HASH_PLACEHOLDER/$analysis_hash/g" | \
+            sed "s/VERDICT_PLACEHOLDER/$verdict/g" | \
+            sed "s/CONFIDENCE_PLACEHOLDER/$confidence/g" | \
+            sed "s/USER_FEEDBACK_PLACEHOLDER/$user_feedback/g" | \
+            sed "s/NOTES_PLACEHOLDER/$notes/g" | \
+            sed "s/THREAT_SCORE_PLACEHOLDER/$THREAT_SCORE/g" | \
+            sed "s/IOC_COUNT_PLACEHOLDER/${#RECORDED_IOCS[@]}/g")
+    
+    # AUDIT FIX: Base64 encode entry and feedback file path for safe passing
+    local encoded_entry
+    local encoded_feedback_file
+    encoded_entry=$(printf '%s' "$entry" | base64 2>/dev/null) || return
+    encoded_feedback_file=$(printf '%s' "$FEEDBACK_FILE" | base64 2>/dev/null) || return
+    
     # Append to feedback file
-    python3 << EOF 2>/dev/null
+    python3 - "$encoded_entry" "$encoded_feedback_file" 2>/dev/null <<'EOF'
 import json
-
-entry = $entry
+import sys
+import base64
 
 try:
-    with open('$FEEDBACK_FILE', 'r') as f:
-        data = json.load(f)
-except:
-    data = {"feedback_entries": []}
+    entry_str = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
+    feedback_file = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8', errors='ignore')
+    
+    entry = json.loads(entry_str)
 
-data['feedback_entries'].append(entry)
+    try:
+        with open(feedback_file, 'r') as f:
+            data = json.load(f)
+    except:
+        data = {"feedback_entries": []}
 
-with open('$FEEDBACK_FILE', 'w') as f:
-    json.dump(data, f, indent=2)
+    data['feedback_entries'].append(entry)
 
-print("Feedback recorded")
+    with open(feedback_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print("Feedback recorded")
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
 EOF
 }
 
@@ -38250,37 +38292,66 @@ process_feedback() {
     
     log_info "Processing feedback for analysis: $analysis_id"
     
-    local feedback_entry=$(cat << EOF
+    local feedback_entry=$(cat << 'EOF_FEEDBACK'
 {
-    "timestamp": "$(date -Iseconds)",
-    "analysis_id": "$analysis_id",
-    "verdict": "$verdict",
-    "notes": "$notes",
-    "reviewer": "${reviewer:-$(whoami)}"
+    "timestamp": "TIMESTAMP_PLACEHOLDER",
+    "analysis_id": "ANALYSIS_ID_PLACEHOLDER",
+    "verdict": "VERDICT_PLACEHOLDER",
+    "notes": "NOTES_PLACEHOLDER",
+    "reviewer": "REVIEWER_PLACEHOLDER"
 }
-EOF
+EOF_FEEDBACK
 )
+    
+    # AUDIT FIX: Use sed to safely replace placeholders
+    local timestamp=$(date -Iseconds)
+    local reviewer_name="${reviewer:-$(whoami)}"
+    feedback_entry=$(echo "$feedback_entry" | \
+        sed "s/TIMESTAMP_PLACEHOLDER/$timestamp/g" | \
+        sed "s/ANALYSIS_ID_PLACEHOLDER/$analysis_id/g" | \
+        sed "s/VERDICT_PLACEHOLDER/$verdict/g" | \
+        sed "s/NOTES_PLACEHOLDER/$notes/g" | \
+        sed "s/REVIEWER_PLACEHOLDER/$reviewer_name/g")
     
     # Append to history
     echo "$feedback_entry" >> "$FEEDBACK_HISTORY"
     
     # Update main feedback file if exists
     if [ -f "$FEEDBACK_FILE" ]; then
+        # AUDIT FIX: Base64 encode for safe passing to Python
+        local encoded_feedback_file
+        local encoded_verdict
+        local encoded_notes
+        local encoded_reviewer
+        local encoded_timestamp
+        encoded_feedback_file=$(printf '%s' "$FEEDBACK_FILE" | base64 2>/dev/null) || return
+        encoded_verdict=$(printf '%s' "$verdict" | base64 2>/dev/null) || return
+        encoded_notes=$(printf '%s' "$notes" | base64 2>/dev/null) || return
+        encoded_reviewer=$(printf '%s' "$reviewer_name" | base64 2>/dev/null) || return
+        encoded_timestamp=$(printf '%s' "$timestamp" | base64 2>/dev/null) || return
+        
         # Use Python to update JSON (more reliable than jq for complex updates)
-        python3 << EOF 2>/dev/null
+        python3 - "$encoded_feedback_file" "$encoded_verdict" "$encoded_notes" "$encoded_reviewer" "$encoded_timestamp" 2>/dev/null <<'EOF'
 import json
 import sys
+import base64
 
 try:
-    with open('$FEEDBACK_FILE', 'r') as f:
+    feedback_file = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
+    verdict = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8', errors='ignore')
+    notes = base64.b64decode(sys.argv[3] if len(sys.argv) > 3 else '').decode('utf-8', errors='ignore')
+    reviewer = base64.b64decode(sys.argv[4] if len(sys.argv) > 4 else '').decode('utf-8', errors='ignore')
+    feedback_timestamp = base64.b64decode(sys.argv[5] if len(sys.argv) > 5 else '').decode('utf-8', errors='ignore')
+    
+    with open(feedback_file, 'r') as f:
         data = json.load(f)
     
-    data['verdict'] = '$verdict'
-    data['notes'] = '$notes'
-    data['reviewer'] = '${reviewer:-$(whoami)}'
-    data['feedback_timestamp'] = '$(date -Iseconds)'
+    data['verdict'] = verdict
+    data['notes'] = notes
+    data['reviewer'] = reviewer
+    data['feedback_timestamp'] = feedback_timestamp
     
-    with open('$FEEDBACK_FILE', 'w') as f:
+    with open(feedback_file, 'w') as f:
         json.dump(data, f, indent=2)
     
     print("Feedback recorded successfully")
