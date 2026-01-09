@@ -5114,9 +5114,9 @@ declare -A OBFUSCATION_PATTERNS=(
     ["base64_decode_call"]="(atob|base64_decode|b64decode|Base64\.decode|Buffer\.from)"
     
     # Hex encoding (FIXED: using POSIX classes)
-    ["hex_string"]='^[[:xdigit:]]{40,}$'
-    ["hex_escape"]='(\\x[[:xdigit:]]{2}){10,}'
-    ["unicode_escape"]='(\\u[[:xdigit:]]{4}){10,}'
+    ["hex_string"]="^[[:xdigit:]]{40,}$"
+    ["hex_escape"]="(\\x[[:xdigit:]]{2}){10,}"
+    ["unicode_escape"]="(\\u[[:xdigit:]]{4}){10,}"
     
     # Character code obfuscation
     ["charcode_js"]="String\\.fromCharCode\\([[:digit:],[:space:]]+\\)"
@@ -5144,7 +5144,7 @@ declare -A OBFUSCATION_PATTERNS=(
     
     # XOR patterns (FIXED: already using POSIX)
     ["xor_loop"]="(\\^=|xor|XOR)"
-    ["xor_key"]='[[:alnum:]]{8,32}'
+    ["xor_key"]="[[:alnum:]]{8,32}"
     
     # ROT13/Caesar
     ["rot13"]="(ROT13|rot13|str_rot13)"
@@ -5157,7 +5157,7 @@ declare -A OBFUSCATION_PATTERNS=(
     
     # Script obfuscators (FIXED: using POSIX classes)
     ["js_obfuscator"]="(\\$_|_0x[a-f0-9]+|__webpack)"
-    ["php_obfuscator"]='\\$[a-zA-Z_][a-zA-Z0-9_]*\\[[0-9]+\\]'
+    ["php_obfuscator"]="\\$[a-zA-Z_][a-zA-Z0-9_]*\\[[0-9]+\\]"
     ["powershell_obf"]="(-join|-split|-replace.*\\[char\\])"
 
     # Additional patterns:
@@ -5177,7 +5177,7 @@ declare -A OBFUSCATION_PATTERNS=(
     ["self_modify_js"]="this\\[window\\['.+? '\\]\\]"
     
     # Unicode homoglyph
-    ["unicode_homoglyph"]='[Ѐ-ӿԀ-ԯⰀ-ⱟꙀ-ꚟ]'
+    ["unicode_homoglyph"]="[Ѐ-ӿԀ-ԯⰀ-ⱟꙀ-ꚟ]"
     
     # Steganography (image/payload embedding)
     ["steg_image_data"]="(data:image/(png|jpg|jpeg).*base64,)"
@@ -5214,13 +5214,18 @@ detect_unicode_homoglyphs() {
         return 1
     fi
     
+    # AUDIT FIX: Use base64 encoding to safely pass content to Python (prevents segfault)
+    local encoded_content
+    encoded_content=$(printf '%s' "$content" | base64 2>/dev/null) || return 1
+    
     # Use Python for proper Unicode regex support
-    local result=$(python3 -c '
+    local result=$(python3 - "$encoded_content" 2>/dev/null <<'EOF'
 import re
 import sys
+import base64
 
 try:
-    content = sys.stdin.read()
+    content = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
     # Detect Cyrillic, Cyrillic Supplement, Glagolitic, Cyrillic Extended-B
     # These are commonly used for homoglyph attacks (look like Latin but are different)
     patterns = [
@@ -5237,7 +5242,8 @@ try:
     print("NOT_FOUND")
 except Exception: 
     print("ERROR")
-' <<< "$content" 2>/dev/null)
+EOF
+)
     
     if [[ "$result" == "FOUND" ]]; then
         log_threat "+35:  Obfuscation technique detected:  unicode_homoglyph"
@@ -21134,14 +21140,22 @@ analyze_encoding() {
 analyze_obfuscation() {
     set +u
     local content="${1:-}"
+    local depth="${2:-0}"
     set -u
+    
+    # AUDIT FIX: Prevent infinite recursion - max depth 3
+    if [ "$depth" -ge 3 ]; then
+        log_info "  Maximum recursion depth reached for obfuscation analysis"
+        return
+    fi
 
     log_info "  Checking for advanced obfuscation techniques..."
 
     # Detect known and advanced obfuscation techniques via patterns (from OBFUSCATION_PATTERNS db)
     for pattern_name in "${!OBFUSCATION_PATTERNS[@]}"; do
         local pattern="${OBFUSCATION_PATTERNS[$pattern_name]}"
-        if echo "$content" | grep -qE "$pattern"; then
+        # AUDIT FIX: Wrap grep in error handling to prevent crashes
+        if echo "$content" | grep -qE "$pattern" 2>/dev/null; then
             log_threat 35 "Obfuscation technique detected: $pattern_name"
             log_forensic "Matched obfuscation pattern: $pattern_name ($pattern)"
         fi
@@ -21173,18 +21187,19 @@ analyze_obfuscation() {
         log_warning "High string entropy ($entropy) - possible packing/encryption/obfuscation"
         log_forensic "String entropy: $entropy"
         # Optionally, recursive decoding for high entropy blocks if base64/hex detected
+        # AUDIT FIX: Pass depth parameter and add error handling
         if echo "$content" | grep -qE "^[A-Za-z0-9+/]{40,}$"; then
-            local decoded=$(echo "$content" | base64 -d 2>/dev/null)
-            if [ -n "$decoded" ]; then
-                log_info "Recursively analyzing high-entropy base64 block"
-                analyze_obfuscation "$decoded"
+            local decoded=$(echo "$content" | base64 -d 2>/dev/null || true)
+            if [ -n "$decoded" ] && [ "$depth" -lt 2 ]; then
+                log_info "Recursively analyzing high-entropy base64 block (depth: $((depth + 1)))"
+                analyze_obfuscation "$decoded" "$((depth + 1))"
             fi
         fi
         if echo "$content" | grep -qE "^[0-9a-fA-F]{40,}$"; then
-            local decoded=$(echo "$content" | xxd -r -p 2>/dev/null)
-            if [ -n "$decoded" ]; then
-                log_info "Recursively analyzing high-entropy hex block"
-                analyze_obfuscation "$decoded"
+            local decoded=$(echo "$content" | xxd -r -p 2>/dev/null || true)
+            if [ -n "$decoded" ] && [ "$depth" -lt 2 ]; then
+                log_info "Recursively analyzing high-entropy hex block (depth: $((depth + 1)))"
+                analyze_obfuscation "$decoded" "$((depth + 1))"
             fi
         fi
     fi
