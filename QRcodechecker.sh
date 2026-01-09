@@ -1434,6 +1434,58 @@ safe_grep_oiE() {
     grep -oiE "$pattern" 2>/dev/null
 }
 
+# AUDIT FIX: Additional safe grep wrappers for QR code content analysis
+# Safe quiet case-insensitive grep (no extended regex)
+safe_grep_qi() {
+    local pattern="$1"
+    grep -qi "$pattern" 2>/dev/null
+}
+
+# Safe case-insensitive extended regex
+safe_grep_iE() {
+    local pattern="$1"
+    pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
+    grep -iE "$pattern" 2>/dev/null
+}
+
+# Safe output match (no extended regex)
+safe_grep_o() {
+    local pattern="$1"
+    grep -o "$pattern" 2>/dev/null
+}
+
+# Safe count case-insensitive extended regex
+safe_grep_ciE() {
+    local pattern="$1"
+    pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
+    grep -ciE "$pattern" 2>/dev/null
+}
+
+# Safe count output extended regex
+safe_grep_coE() {
+    local pattern="$1"
+    pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
+    grep -coE "$pattern" 2>/dev/null
+}
+
+# Safe quiet case-insensitive fixed string
+safe_grep_qiF() {
+    local pattern="$1"
+    grep -qiF "$pattern" 2>/dev/null
+}
+
+# Safe quiet fixed string
+safe_grep_qF() {
+    local pattern="$1"
+    grep -qF "$pattern" 2>/dev/null
+}
+
+# Safe output fixed string
+safe_grep_oF() {
+    local pattern="$1"
+    grep -oF "$pattern" 2>/dev/null
+}
+
 ################################################################################
 # SAFE FLOATING POINT COMPARISON HELPERS
 # bc can fail with parse errors on invalid input, use awk instead
@@ -1651,10 +1703,10 @@ extract_and_display_ips() {
     local source_name="${2:-content}"
     
     # Extract IPv4 addresses
-    local ipv4_addrs=$(echo "$content" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' 2>/dev/null | sort -u)
+    local ipv4_addrs=$(echo "$content" | safe_grep_oE '([0-9]{1,3}\.){3}[0-9]{1,3}' 2>/dev/null | sort -u)
     
     # Extract IPv6 addresses (simplified pattern)
-    local ipv6_addrs=$(echo "$content" | grep -oE '([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|::[0-9a-fA-F]{1,4}' 2>/dev/null | sort -u)
+    local ipv6_addrs=$(echo "$content" | safe_grep_oE '([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|::[0-9a-fA-F]{1,4}' 2>/dev/null | sort -u)
     
     local ip_count=0
     
@@ -2518,7 +2570,7 @@ analyze_dns_over_https() {
     )
     
     for pattern in "${doh_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             doh_findings+=("doh_provider:$pattern")
             ((doh_score += 30))
             log_forensic_detection 30 \
@@ -2532,7 +2584,7 @@ analyze_dns_over_https() {
     done
     
     # Suspicious DoH usage patterns
-    if echo "$content" | grep -qiE "base64.*dns-query|dns-query.*base64"; then
+    if echo "$content" | safe_grep_qiE "base64.*dns-query|dns-query.*base64"; then
         doh_findings+=("encoded_doh_query")
         ((doh_score += 50))
         log_forensic_detection 50 \
@@ -2636,7 +2688,7 @@ detect_developer_platform_abuse() {
     local devplat_score=0
     
     # GitHub abuse patterns
-    if echo "$content" | grep -qiE "github\.com.*token|gist\.github.*password|github.*credential"; then
+    if echo "$content" | safe_grep_qiE "github\.com.*token|gist\.github.*password|github.*credential"; then
         devplat_findings+=("github_credential_exposure")
         ((devplat_score += 70))
         log_forensic_detection 70 \
@@ -2649,7 +2701,7 @@ detect_developer_platform_abuse() {
     fi
     
     # GitLab abuse patterns
-    if echo "$content" | grep -qiE "gitlab\.com.*token|gitlab.*api.*key"; then
+    if echo "$content" | safe_grep_qiE "gitlab\.com.*token|gitlab.*api.*key"; then
         devplat_findings+=("gitlab_credential_exposure")
         ((devplat_score += 70))
         log_forensic_detection 70 \
@@ -2662,7 +2714,7 @@ detect_developer_platform_abuse() {
     fi
     
     # CI/CD pipeline abuse
-    if echo "$content" | grep -qiE "jenkins.*token|travis.*token|circleci.*token|GITHUB_TOKEN"; then
+    if echo "$content" | safe_grep_qiE "jenkins.*token|travis.*token|circleci.*token|GITHUB_TOKEN"; then
         devplat_findings+=("cicd_token_exposure")
         ((devplat_score += 75))
         log_forensic_detection 75 \
@@ -2675,7 +2727,7 @@ detect_developer_platform_abuse() {
     fi
     
     # NPM/PyPI package manager abuse
-    if echo "$content" | grep -qiE "npmjs\.com.*token|pypi\.org.*token|npm.*_auth"; then
+    if echo "$content" | safe_grep_qiE "npmjs\.com.*token|pypi\.org.*token|npm.*_auth"; then
         devplat_findings+=("package_manager_token")
         ((devplat_score += 75))
         log_forensic_detection 75 \
@@ -2688,7 +2740,7 @@ detect_developer_platform_abuse() {
     fi
     
     # Docker Hub / container registry abuse
-    if echo "$content" | grep -qiE "docker\.com.*token|docker.*login|dockerhub.*password"; then
+    if echo "$content" | safe_grep_qiE "docker\.com.*token|docker.*login|dockerhub.*password"; then
         devplat_findings+=("container_registry_credential")
         ((devplat_score += 65))
         log_forensic_detection 65 \
@@ -18316,9 +18368,9 @@ analyze_decoded_content() {
     set -u
 
     # Check for script tags, inline JS, event handlers (QR phishing/exploit)
-    if echo "$content" | grep -qiE "<script|javascript:|onerror=|onload=|onmouseover=|onfocus=|onwheel=|onmessage=|setTimeout\(|setInterval\(|fetch\(|XMLHttpRequest"; then
+    if echo "$content" | safe_grep_qiE "<script|javascript:|onerror=|onload=|onmouseover=|onfocus=|onwheel=|onmessage=|setTimeout\(|setInterval\(|fetch\(|XMLHttpRequest"; then
         local js_indicators
-        js_indicators=$(echo "$content" | grep -oiE "<script|javascript:|onerror=|onload=|onmouseover=|onfocus=|onwheel=|onmessage=|setTimeout\(|setInterval\(|fetch\(|XMLHttpRequest" | sort -u | tr '\n' ',' | sed 's/,$//')
+        js_indicators=$(echo "$content" | safe_grep_oiE "<script|javascript:|onerror=|onload=|onmouseover=|onfocus=|onwheel=|onmessage=|setTimeout\(|setInterval\(|fetch\(|XMLHttpRequest" | sort -u | tr '\n' ',' | sed 's/,$//')
         log_forensic_detection 40 \
             "JavaScript/Browser Exploit Detected in Decoded QR Content" \
             "js_indicators:$js_indicators" \
@@ -18329,8 +18381,8 @@ analyze_decoded_content() {
     fi
 
     # Embedded URLs (QR code exfil, redirect, phishing, C2)
-    if echo "$content" | grep -qiE "https?://|ftp://|file://|smb://"; then
-        local embedded_urls=$(echo "$content" | grep -oE "https?://[^[[:space:]]\"'<>]+|ftp://[^[[:space:]]\"'<>]+|file://[^[[:space:]]\"'<>]+|smb://[^[[:space:]]\"'<>]+")
+    if echo "$content" | safe_grep_qiE "https?://|ftp://|file://|smb://"; then
+        local embedded_urls=$(echo "$content" | safe_grep_oE "https?://[^[[:space:]]\"'<>]+|ftp://[^[[:space:]]\"'<>]+|file://[^[[:space:]]\"'<>]+|smb://[^[[:space:]]\"'<>]+")
         log_forensic "Embedded URLs in decoded QR content: $embedded_urls"
         # Phishing/shortener indicators
         if echo "$embedded_urls" | grep -qiE "bit\.ly|tinyurl|goo\.gl|is\.gd|t\.co|cutt\.ly|qr\.co"; then
@@ -18339,9 +18391,9 @@ analyze_decoded_content() {
     fi
 
     # Command execution artifacts (QR auto-action, exploit, dropper)
-    if echo "$content" | grep -qiE "powershell|cmd|bash|sh|wget|curl|python|chmod|base64 -d|nc |netcat|rm |mkfs|ssh-keygen|openssl|systemctl|launchctl|osascript"; then
+    if echo "$content" | safe_grep_qiE "powershell|cmd|bash|sh|wget|curl|python|chmod|base64 -d|nc |netcat|rm |mkfs|ssh-keygen|openssl|systemctl|launchctl|osascript"; then
         local cmd_keywords
-        cmd_keywords=$(echo "$content" | grep -oiE "powershell|cmd|bash|sh|wget|curl|python|chmod|base64 -d|nc |netcat|rm |mkfs|ssh-keygen|openssl|systemctl|launchctl|osascript" | sort -u | tr '\n' ',' | sed 's/,$//')
+        cmd_keywords=$(echo "$content" | safe_grep_oiE "powershell|cmd|bash|sh|wget|curl|python|chmod|base64 -d|nc |netcat|rm |mkfs|ssh-keygen|openssl|systemctl|launchctl|osascript" | sort -u | tr '\n' ',' | sed 's/,$//')
         log_forensic_detection 50 \
             "Command Execution Keywords Detected in Decoded QR Content" \
             "commands:$cmd_keywords" \
@@ -18353,7 +18405,7 @@ analyze_decoded_content() {
 
     # Credentials, secrets, flags, crypto (QR exfil/phishing CTX)
     # AUDIT FIX: Fixed character class - moved dash to end [A-Za-z0-9_-] instead of [A-Za-z0-9\-_]
-    if echo "$content" | grep -qiE "[A-Za-z0-9]{32,}|api[_-]?key|flag\{[A-Za-z0-9_-]+\}|password|passwd|secret|token|wallet|mnemonic|recover|seed|private.?key|ssh-rsa|-----BEGIN"; then
+    if echo "$content" | safe_grep_qiE "[A-Za-z0-9]{32,}|api[_-]?key|flag\{[A-Za-z0-9_-]+\}|password|passwd|secret|token|wallet|mnemonic|recover|seed|private.?key|ssh-rsa|-----BEGIN"; then
         log_forensic_detection 55 \
             "Secrets/Credentials/CTF Flags Detected in Decoded QR Content" \
             "suspect_keyword_detected" \
@@ -18364,12 +18416,12 @@ analyze_decoded_content() {
     fi
 
     # Email addresses (QR social engineering, phishing, exfil)
-    if echo "$content" | grep -qE "[a-z0-9._%+-]+@([a-z0-9.-]+\.)+[a-z]{2,}"; then
-        log_forensic "Email addresses detected in decoded QR content: $(echo "$content" | grep -oE "[a-z0-9._%+-]+@([a-z0-9.-]+\.)+[a-z]{2,}" | tr '\n' ',' | sed 's/,$//')"
+    if echo "$content" | safe_grep_qE "[a-z0-9._%+-]+@([a-z0-9.-]+\.)+[a-z]{2,}"; then
+        log_forensic "Email addresses detected in decoded QR content: $(echo "$content" | safe_grep_oE "[a-z0-9._%+-]+@([a-z0-9.-]+\.)+[a-z]{2,}" | tr '\n' ',' | sed 's/,$//')"
     fi
 
     # Base64 detected in decoded QR content (multi-encoded exfil/obfuscation)
-    if echo "$content" | grep -qE "[A-Za-z0-9+/]{40,}=*"; then
+    if echo "$content" | safe_grep_qE "[A-Za-z0-9+/]{40,}=*"; then
         log_forensic "Nested base64 block detected in decoded QR content"
     fi
 
@@ -19920,7 +19972,7 @@ check_cisa_kev() {
     fi
     
     # Search for CVE patterns in content
-    local cves=$(echo "$content" | grep -oE 'CVE-[0-9]{4}-[0-9]{4,}' | sort -u)
+    local cves=$(echo "$content" | safe_grep_oE 'CVE-[0-9]{4}-[0-9]{4,}' | sort -u)
     
     if [ -n "$cves" ]; then
         while IFS= read -r cve; do
@@ -19942,7 +19994,7 @@ check_crowdstrike() {
     fi
     
     # Extract potential IOCs from content
-    local domain=$(echo "$content" | grep -oE '[a-zA-Z0-9.-]+\.[a-z]{2,}' | head -1)
+    local domain=$(echo "$content" | safe_grep_oE '[a-zA-Z0-9.-]+\.[a-z]{2,}' | head -1)
     [[ -z "$domain" ]] && return
     
     log_info "Checking CrowdStrike Falcon X..."
@@ -19969,7 +20021,7 @@ check_recorded_future() {
     fi
     
     # Extract potential IOCs from content
-    local domain=$(echo "$content" | grep -oE '[a-zA-Z0-9.-]+\.[a-z]{2,}' | head -1)
+    local domain=$(echo "$content" | safe_grep_oE '[a-zA-Z0-9.-]+\.[a-z]{2,}' | head -1)
     [[ -z "$domain" ]] && return
     
     log_info "Checking Recorded Future..."
@@ -19996,7 +20048,7 @@ check_threatfox() {
     fi
     
     # Extract potential IOCs
-    local ioc=$(echo "$content" | grep -oE 'https?://[^ ]+' | head -1)
+    local ioc=$(echo "$content" | safe_grep_oE 'https?://[^ ]+' | head -1)
     [[ -z "$ioc" ]] && return
     
     log_info "Checking ThreatFox API..."
@@ -20026,7 +20078,7 @@ check_malwarebazaar() {
     fi
     
     # Extract potential hashes (MD5, SHA256)
-    local hash=$(echo "$content" | grep -oE '\b[a-f0-9]{32}\b|\b[a-f0-9]{64}\b' | head -1)
+    local hash=$(echo "$content" | safe_grep_oE '\b[a-f0-9]{32}\b|\b[a-f0-9]{64}\b' | head -1)
     [[ -z "$hash" ]] && return
     
     log_info "Checking MalwareBazaar API..."
@@ -20082,7 +20134,7 @@ check_hybrid_analysis() {
     fi
     
     # Extract hash if present
-    local hash=$(echo "$content" | grep -oE '\b[a-f0-9]{64}\b' | head -1)
+    local hash=$(echo "$content" | safe_grep_oE '\b[a-f0-9]{64}\b' | head -1)
     [[ -z "$hash" ]] && return
     
     log_info "Checking Hybrid Analysis..."
@@ -20110,7 +20162,7 @@ check_anyrun() {
     fi
     
     # Extract hash if present
-    local hash=$(echo "$content" | grep -oE '\b[a-f0-9]{64}\b' | head -1)
+    local hash=$(echo "$content" | safe_grep_oE '\b[a-f0-9]{64}\b' | head -1)
     [[ -z "$hash" ]] && return
     
     log_info "Checking ANY.RUN..."
@@ -20137,7 +20189,7 @@ check_joesandbox() {
     fi
     
     # Extract hash if present
-    local hash=$(echo "$content" | grep -oE '\b[a-f0-9]{64}\b' | head -1)
+    local hash=$(echo "$content" | safe_grep_oE '\b[a-f0-9]{64}\b' | head -1)
     [[ -z "$hash" ]] && return
     
     log_info "Checking Joe Sandbox Cloud..."
@@ -20163,7 +20215,7 @@ check_triage() {
     fi
     
     # Extract hash if present
-    local hash=$(echo "$content" | grep -oE '\b[a-f0-9]{64}\b' | head -1)
+    local hash=$(echo "$content" | safe_grep_oE '\b[a-f0-9]{64}\b' | head -1)
     [[ -z "$hash" ]] && return
     
     log_info "Checking Triage..."
@@ -20259,7 +20311,7 @@ analyze_apt_indicators() {
         
         IFS=',' read -ra indicator_array <<< "$indicators"
         for indicator in "${indicator_array[@]}"; do
-            if echo "$content" | grep -qi "$indicator"; then
+            if echo "$content" | safe_grep_qi "$indicator"; then
                 apt_matches+=("$group_name:$indicator_type:$indicator")
                 log_apt "Potential $group_name indicator: $indicator ($indicator_type)"
             fi
@@ -20274,7 +20326,7 @@ analyze_apt_indicators() {
         
         IFS=',' read -ra sig_array <<< "$signatures"
         for sig in "${sig_array[@]}"; do
-            if echo "$content" | grep -qiE "$sig"; then
+            if echo "$content" | safe_grep_qiE "$sig"; then
                 apt_matches+=("malware:$family_name:$sig")
                 log_apt "Potential malware family signature: $family_name - $sig"
             fi
@@ -20289,7 +20341,7 @@ analyze_apt_indicators() {
         
         IFS=',' read -ra ind_array <<< "$indicators"
         for ind in "${ind_array[@]}"; do
-            if echo "$content" | grep -qiE "$ind"; then
+            if echo "$content" | safe_grep_qiE "$ind"; then
                 apt_matches+=("ransomware:$ransom_name:$ind")
                 log_threat 80 "Ransomware indicator detected: $ransom_name - $ind"
             fi
@@ -20304,7 +20356,7 @@ analyze_apt_indicators() {
         
         IFS=',' read -ra ind_array <<< "$indicators"
         for ind in "${ind_array[@]}"; do
-            if echo "$content" | grep -qiE "$ind"; then
+            if echo "$content" | safe_grep_qiE "$ind"; then
                 apt_matches+=("APT_TTP:$aptttp_name:$ind")
                 log_threat 80 "APT_TTP indicator detected: $aptttp_name - $ind"
             fi
@@ -20427,7 +20479,7 @@ check_sandbox_evasion() {
     
     local found_techniques=()
     for technique in "${evasion_techniques[@]}"; do
-        if echo "$content" | grep -qiE "$technique"; then
+        if echo "$content" | safe_grep_qiE "$technique"; then
             found_techniques+=("$technique")
         fi
     done
@@ -20459,7 +20511,7 @@ check_anti_vm_techniques() {
     
     local found_indicators=()
     for indicator in "${vm_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             found_indicators+=("$indicator")
         fi
     done
@@ -20494,7 +20546,7 @@ check_anti_debug_techniques() {
     
     local found_checks=()
     for check in "${debug_checks[@]}"; do
-        if echo "$content" | grep -qiE "$check"; then
+        if echo "$content" | safe_grep_qiE "$check"; then
             found_checks+=("$check")
         fi
     done
@@ -20515,7 +20567,7 @@ check_time_based_evasion() {
     local content="$1"
     
     # Check for time delays
-    if echo "$content" | grep -qiE "sleep[[:space:]]*[(\[]?[[:space:]]*[0-9]{4,}|timeout[[:space:]]*[/]?[[:space:]]*t?[[:space:]]*[0-9]{3,}|delay[[:space:]]*[:\(][[:space:]]*[0-9]{4,}"; then
+    if echo "$content" | safe_grep_qiE "sleep[[:space:]]*[(\[]?[[:space:]]*[0-9]{4,}|timeout[[:space:]]*[/]?[[:space:]]*t?[[:space:]]*[0-9]{3,}|delay[[:space:]]*[:\(][[:space:]]*[0-9]{4,}"; then
         log_forensic_detection 40 \
             "Time-Based Evasion Detected" \
             "technique:long_sleep/delay" \
@@ -20526,7 +20578,7 @@ check_time_based_evasion() {
     fi
     
     # Check for date/time checks
-    if echo "$content" | grep -qiE "GetSystemTime|GetLocalTime|QueryPerformanceCounter|timeGetTime"; then
+    if echo "$content" | safe_grep_qiE "GetSystemTime|GetLocalTime|QueryPerformanceCounter|timeGetTime"; then
         log_info "Time-related API calls detected (possible time-based evasion)"
     fi
 }
@@ -20571,7 +20623,7 @@ check_persistence_techniques() {
 
     local found_indicators=()
     for indicator in "${persistence_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             found_indicators+=("$indicator")
         fi
     done
@@ -20619,7 +20671,7 @@ check_lateral_movement() {
 
     local found_indicators=()
     for indicator in "${lateral_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             found_indicators+=("$indicator")
         fi
     done
@@ -20675,7 +20727,7 @@ check_exfiltration_patterns() {
 
     local found_indicators=()
     for indicator in "${exfil_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             found_indicators+=("$indicator")
         fi
     done
@@ -20729,7 +20781,7 @@ check_privilege_escalation() {
 
     local found_indicators=()
     for indicator in "${privesc_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             found_indicators+=("$indicator")
         fi
     done
@@ -20786,7 +20838,7 @@ check_defense_evasion() {
 
     local found_indicators=()
     for indicator in "${evasion_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             found_indicators+=("$indicator")
         fi
     done
@@ -20810,7 +20862,7 @@ check_c2_patterns() {
     # Check against C2 pattern database
     for pattern_name in "${!C2_PATTERNS[@]}"; do
         local pattern="${C2_PATTERNS[$pattern_name]}"
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             found_patterns+=("$pattern_name")
         fi
     done
@@ -20829,7 +20881,7 @@ check_c2_patterns() {
     )
 
     for indicator in "${generic_c2_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             found_patterns+=("$indicator")
         fi
     done
@@ -20883,7 +20935,7 @@ check_credential_access() {
 
     local found_indicators=()
     for indicator in "${cred_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             found_indicators+=("$indicator")
         fi
     done
@@ -20964,7 +21016,7 @@ check_discovery_techniques() {
 
     local found_indicators=()
     for indicator in "${discovery_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             found_indicators+=("$indicator")
         fi
     done
@@ -21026,7 +21078,7 @@ check_impact_techniques() {
 
     local found_indicators=()
     for indicator in "${impact_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             found_indicators+=("$indicator")
         fi
     done
@@ -21093,7 +21145,7 @@ analyze_encoding() {
     # === Layered and recursive encoding/packing detection ===
 
     # Base64 (basic and multiline)
-    if echo "$content" | grep -qE "^[A-Za-z0-9+/]{40,}={0,2}$"; then
+    if echo "$content" | safe_grep_qE "^[A-Za-z0-9+/]{40,}={0,2}$"; then
         log_warning "Potential Base64 encoded content detected"
         local decoded=$(echo "$content" | base64 -d 2>/dev/null)
         if [ -n "$decoded" ]; then
@@ -21103,7 +21155,7 @@ analyze_encoding() {
     fi
 
     # Hex encoding (with/without 0x prefix, even-length only)
-    if echo "$content" | grep -qE "^([0-9a-fA-F]{40,}|(0x)?[0-9a-fA-F]{40,})$"; then
+    if echo "$content" | safe_grep_qE "^([0-9a-fA-F]{40,}|(0x)?[0-9a-fA-F]{40,})$"; then
         log_warning "Potential hex encoded content detected"
         local decoded=$(echo "$content" | sed 's/^0x//' | xxd -r -p 2>/dev/null)
         if [ -n "$decoded" ]; then
@@ -21113,7 +21165,7 @@ analyze_encoding() {
     fi
 
     # URL encoding, layered
-    if echo "$content" | grep -qE "(%[0-9A-Fa-f]{2}){5,}"; then
+    if echo "$content" | safe_grep_qE "(%[0-9A-Fa-f]{2}){5,}"; then
         log_warning "Heavy URL encoding detected"
         # FIXED: Use printf and stdin to safely pass content to Python
         local decoded
@@ -21125,7 +21177,7 @@ analyze_encoding() {
     fi
 
     # Unicode escapes
-    if echo "$content" | grep -qE "(\\\\u[0-9a-fA-F]{4}){2,}"; then
+    if echo "$content" | safe_grep_qE "(\\\\u[0-9a-fA-F]{4}){2,}"; then
         log_warning "Unicode escape sequences detected"
         # FIXED: Use printf and stdin to safely pass content to Python
         local decoded
@@ -21156,7 +21208,7 @@ analyze_encoding() {
     fi
 
     # ROT13/simple obfuscation detection
-    if echo "$content" | grep -qE "[A-Za-z]{30,}"; then
+    if echo "$content" | safe_grep_qE "[A-Za-z]{30,}"; then
         local rot=$(echo "$content" | tr 'A-Za-z' 'N-ZA-Mn-za-m')
         if ! grep -qE "^[A-Za-z0-9+/=]{40,}$" <<<"$rot" && grep -qE "(password|cmd|exec|powershell|curl|wget)" <<<"$rot"; then
             log_warning "ROT13-obfuscated snippet detected"
@@ -21166,24 +21218,24 @@ analyze_encoding() {
     fi
 
     # XOR pattern hints (often in exploit/MaaS frameworks)
-    if echo "$content" | grep -qE "(xor|0x[0-9a-fA-F]{2,})" && echo "$content" | grep -qE "(encrypted|decrypt|decode)"; then
+    if echo "$content" | safe_grep_qE "(xor|0x[0-9a-fA-F]{2,})" && echo "$content" | safe_grep_qE "(encrypted|decrypt|decode)"; then
         log_warning "XOR-based obfuscation pattern detected"
         log_threat 30 "Detected XOR pattern in encoded payload (manual review recommended)"
     fi
 
     # Stego and QR image payload hints
-    if echo "$content" | grep -qE "(png|jpg|jpeg|stego|lsb)"; then
+    if echo "$content" | safe_grep_qE "(png|jpg|jpeg|stego|lsb)"; then
         log_warning "Potential steganographic or image-hidden payload detected"
         log_threat 25 "Stego/LSB/image payload channel - common in QR/mobile attacks"
     fi
 
     # Mobile intent and provisioning/base64 manipulations via QR
-    if echo "$content" | grep -qiE "intent://|market://|android.intent.action.|provisioning profile|base64.*manifest"; then
+    if echo "$content" | safe_grep_qiE "intent://|market://|android.intent.action.|provisioning profile|base64.*manifest"; then
         log_warning "Mobile QR/app encoding or sideload techniques detected"
     fi
 
     # Layered recursive (base64-encoded zip/archive or stego, e.g. mobile dropper in b64)
-    if echo "$content" | grep -qE "^[A-Za-z0-9+/]{100,}={0,2}$"; then
+    if echo "$content" | safe_grep_qE "^[A-Za-z0-9+/]{100,}={0,2}$"; then
         local decoded=$(echo "$content" | base64 -d 2>/dev/null)
         if [ -n "$decoded" ] && echo "$decoded" | xxd 2>/dev/null | head -1 | grep -qE "(504b0304|1f8b|789c|7575656e63|425a68|fd377a58)"; then
             log_warning "Base64-encoded archive/stego payload detected after decode"
@@ -21211,29 +21263,29 @@ analyze_obfuscation() {
     for pattern_name in "${!OBFUSCATION_PATTERNS[@]}"; do
         local pattern="${OBFUSCATION_PATTERNS[$pattern_name]}"
         # AUDIT FIX: Wrap grep in error handling to prevent crashes
-        if echo "$content" | grep -qE "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qE "$pattern" 2>/dev/null; then
             log_threat 35 "Obfuscation technique detected: $pattern_name"
             log_forensic "Matched obfuscation pattern: $pattern_name ($pattern)"
         fi
     done
 
     # Mobile app packing & script obfuscators
-    if echo "$content" | grep -qiE "dexguard|proguard|ilex|protect.dex|mogua|jiagu|secneo|appguard|tampermonkey|packer|deepsea|mobisec"; then
+    if echo "$content" | safe_grep_qiE "dexguard|proguard|ilex|protect.dex|mogua|jiagu|secneo|appguard|tampermonkey|packer|deepsea|mobisec"; then
         log_threat 40 "Mobile app packer/obfuscator detected"
     fi
 
     # Typical Red Team/RAT/MaaS obfuscation toolchains
-    if echo "$content" | grep -qiE "ConfuserEx|obfuscar|powersploit|invoke-obfuscation|veil|empire|meterpreter|cobaltstrike|base64.*exec|xor"; then
+    if echo "$content" | safe_grep_qiE "ConfuserEx|obfuscar|powersploit|invoke-obfuscation|veil|empire|meterpreter|cobaltstrike|base64.*exec|xor"; then
         log_threat 45 "Red Team/MaaS/Commodity toolkit obfuscation detected"
     fi
 
     # PowerShell, VBA, JavaScript, Bash obfuscators
-    if echo "$content" | grep -qiE "(IEX|Invoke-Expression|MSH|FromBase64String|new-object|unescape|String\.fromCharCode|eval|obfuscated)"; then
+    if echo "$content" | safe_grep_qiE "(IEX|Invoke-Expression|MSH|FromBase64String|new-object|unescape|String\.fromCharCode|eval|obfuscated)"; then
         log_threat 35 "Script/command obfuscation detected"
     fi
 
     # Crypto, encoding, and payload concatenation
-    if echo "$content" | grep -qiE "(aes|rsa|des|rc4|xor|base64|rot13|hex|GzipStream|zlib)"; then
+    if echo "$content" | safe_grep_qiE "(aes|rsa|des|rc4|xor|base64|rot13|hex|GzipStream|zlib)"; then
         log_warning "Possible cryptographic or encoding obfuscation detected"
     fi
 
@@ -21244,14 +21296,14 @@ analyze_obfuscation() {
         log_forensic "String entropy: $entropy"
         # Optionally, recursive decoding for high entropy blocks if base64/hex detected
         # AUDIT FIX: Pass depth parameter and add error handling
-        if echo "$content" | grep -qE "^[A-Za-z0-9+/]{40,}$"; then
+        if echo "$content" | safe_grep_qE "^[A-Za-z0-9+/]{40,}$"; then
             local decoded=$(echo "$content" | base64 -d 2>/dev/null || true)
             if [ -n "$decoded" ] && [ "$depth" -lt 2 ]; then
                 log_info "Recursively analyzing high-entropy base64 block (depth: $((depth + 1)))"
                 analyze_obfuscation "$decoded" "$((depth + 1))"
             fi
         fi
-        if echo "$content" | grep -qE "^[0-9a-fA-F]{40,}$"; then
+        if echo "$content" | safe_grep_qE "^[0-9a-fA-F]{40,}$"; then
             local decoded=$(echo "$content" | xxd -r -p 2>/dev/null || true)
             if [ -n "$decoded" ] && [ "$depth" -lt 2 ]; then
                 log_info "Recursively analyzing high-entropy hex block (depth: $((depth + 1)))"
@@ -21265,12 +21317,12 @@ analyze_obfuscation() {
     detect_unicode_homoglyphs "$content"
 
     # Layered/junk/substring obfuscation
-    if echo "$content" | grep -qE "(concat|substr|split|replace|reverse|junk code|dead code|no-op|nop sled|padding)"; then
+    if echo "$content" | safe_grep_qE "(concat|substr|split|replace|reverse|junk code|dead code|no-op|nop sled|padding)"; then
         log_warning "Substring/junk/no-op/padding obfuscation detected"
     fi
 
     # Mobile/QR/Supply Chain (intent, manifest, provisioning)
-    if echo "$content" | grep -qiE "(intent://|manifest|provisioning profile|base64.*permission|obfuscated app|hidden activity|stealth receiver)"; then
+    if echo "$content" | safe_grep_qiE "(intent://|manifest|provisioning profile|base64.*permission|obfuscated app|hidden activity|stealth receiver)"; then
         log_warning "Mobile QR app obfuscation/stealth techniques detected"
     fi
 
@@ -21410,111 +21462,111 @@ analyze_script_content() {
     log_info "  Checking for script content..."
     
     # PowerShell
-    if echo "$content" | grep -qiE "powershell|pwsh|\$\{|\$\(|Invoke-|IEX|New-Object|System\."; then
+    if echo "$content" | safe_grep_qiE "powershell|pwsh|\$\{|\$\(|Invoke-|IEX|New-Object|System\."; then
         log_threat 50 "PowerShell content detected"
         analyze_powershell_payload "$content"
     fi
     
     # Bash/Shell
-    if echo "$content" | grep -qiE "^#!/|bash|/bin/sh|wget|curl|chmod|sudo|eval|exec"; then
+    if echo "$content" | safe_grep_qiE "^#!/|bash|/bin/sh|wget|curl|chmod|sudo|eval|exec"; then
         log_threat 45 "Shell script content detected"
         analyze_shell_payload "$content"
     fi
     
     # JavaScript
-    if echo "$content" | grep -qiE "javascript:|<script|document\.|window\.|eval\(|Function\("; then
+    if echo "$content" | safe_grep_qiE "javascript:|<script|document\.|window\.|eval\(|Function\("; then
         log_threat 40 "JavaScript content detected"
         analyze_javascript_payload "$content"
     fi
     
     # Python
-    if echo "$content" | grep -qiE "python|import[[:space:]]\+|from[[:space:]]\+.*[[:space:]]+import|exec\(|eval\(|__import__"; then
+    if echo "$content" | safe_grep_qiE "python|import[[:space:]]\+|from[[:space:]]\+.*[[:space:]]+import|exec\(|eval\(|__import__"; then
         log_threat 40 "Python content detected"
         analyze_python_payload "$content"
     fi
     
     # VBScript
-    if echo "$content" | grep -qiE "vbscript:|CreateObject|WScript|Scripting\."; then
+    if echo "$content" | safe_grep_qiE "vbscript:|CreateObject|WScript|Scripting\."; then
         log_threat 50 "VBScript content detected"
     fi
     
     # Batch
-    if echo "$content" | grep -qiE "@echo|%.*%|set /|goto|cmd\.exe|command\.com"; then
+    if echo "$content" | safe_grep_qiE "@echo|%.*%|set /|goto|cmd\.exe|command\.com"; then
         log_threat 45 "Windows Batch content detected"
     fi
     
     # AppleScript/macOS/iOS
-    if echo "$content" | grep -qiE "osascript|tell application|AppleScript|do shell script"; then
+    if echo "$content" | safe_grep_qiE "osascript|tell application|AppleScript|do shell script"; then
         log_threat 38 "macOS/iOS AppleScript detected"
     fi
 
     # Android/ADB
-    if echo "$content" | grep -qiE "adb shell|pm install|am start|am broadcast|am force-stop|logcat|dumpsys|getprop"; then
+    if echo "$content" | safe_grep_qiE "adb shell|pm install|am start|am broadcast|am force-stop|logcat|dumpsys|getprop"; then
         log_threat 39 "Android ADB/mobile automation/script detected"
     fi
 
     # Ruby (Metasploit, Red Team, MaaS)
-    if echo "$content" | grep -qiE "ruby|require |def |end |Metasploit|msfconsole|msfvenom"; then
+    if echo "$content" | safe_grep_qiE "ruby|require |def |end |Metasploit|msfconsole|msfvenom"; then
         log_threat 39 "Ruby/Metasploit/MaaS script detected"
     fi
 
     # Perl
-    if echo "$content" | grep -qiE "perl|use [A-Za-z]|sub |print |binmode|open\(.*\)"; then
+    if echo "$content" | safe_grep_qiE "perl|use [A-Za-z]|sub |print |binmode|open\(.*\)"; then
         log_threat 36 "Perl script detected"
     fi
 
     # Lua (RAT, Game mods, threat tooling)
-    if echo "$content" | grep -qiE "lua|require\(|function |local |end"; then
+    if echo "$content" | safe_grep_qiE "lua|require\(|function |local |end"; then
         log_threat 35 "Lua script detected"
     fi
 
     # HTML/Hybrid
-    if echo "$content" | grep -qiE "<html>|<head>|<body>|<iframe|<object|<embed|document\.cookie|document\.location"; then
+    if echo "$content" | safe_grep_qiE "<html>|<head>|<body>|<iframe|<object|<embed|document\.cookie|document\.location"; then
         log_threat 32 "HTML/Hybrid payload detected"
     fi
     
     # MQTT/automation (IoT, mobile abuse)
-    if echo "$content" | grep -qiE "mqtt|mosquitto_pub|mosquitto_sub|topic|payload|client\.publish"; then
+    if echo "$content" | safe_grep_qiE "mqtt|mosquitto_pub|mosquitto_sub|topic|payload|client\.publish"; then
         log_threat 32 "MQTT/IoT automation detected"
     fi
 
     # Living-off-the-Land/dual-use/LOLBAS
-    if echo "$content" | grep -qiE "certutil|mshta|wmic|cscript|wscript|regsvr32|rundll32|powershell|\$\{|\$\(|python|curl|wget|Invoke-|IEX|New-Object|systemctl|service|netcat|nc"; then
+    if echo "$content" | safe_grep_qiE "certutil|mshta|wmic|cscript|wscript|regsvr32|rundll32|powershell|\$\{|\$\(|python|curl|wget|Invoke-|IEX|New-Object|systemctl|service|netcat|nc"; then
         log_threat 44 "Living-off-the-land binary/script/automation detected"
     fi
     
     # RAT/stealer C2 logic (Python, JS, PowerShell, Bash)
-    if echo "$content" | grep -qiE "quasar|empire|meterpreter|cobaltstrike|beacon|rat|async|reverse_shell|bind_shell|websocket|token|api.*post|discord|telegram|slack"; then
+    if echo "$content" | safe_grep_qiE "quasar|empire|meterpreter|cobaltstrike|beacon|rat|async|reverse_shell|bind_shell|websocket|token|api.*post|discord|telegram|slack"; then
         log_threat 44 "RAT/stealer or C2 logic detected"
     fi
 
     # Mobile intent/app/QR hybrid payloads
-    if echo "$content" | grep -qiE "intent://|market://|android\.intent\.action|startActivity|sendBroadcast|content://|provisioning profile|coreml|ios.*UniversalLink|deepLink"; then
+    if echo "$content" | safe_grep_qiE "intent://|market://|android\.intent\.action|startActivity|sendBroadcast|content://|provisioning profile|coreml|ios.*UniversalLink|deepLink"; then
         log_threat 41 "Mobile QR/app/intent/abuse script detected"
     fi
     
     # Messaging/SMS/Email automation scripts for fraud/social engineering
-    if echo "$content" | grep -qiE "smsManager|twilio|sendTextMessage|email\.send|smtp|android\.telephony|message\.send|telegram\.send|discord\.send|slack\.send"; then
+    if echo "$content" | safe_grep_qiE "smsManager|twilio|sendTextMessage|email\.send|smtp|android\.telephony|message\.send|telegram\.send|discord\.send|slack\.send"; then
         log_threat 35 "Messaging/email/social/automation detected"
     fi
 
     # Supply chain/builder/provisioning/packer
-    if echo "$content" | grep -qiE "builder\.exe|packer|obfuscator|manifest|provisioning|signapk|signipa|shellter|veil|drozer|mobisec|mobSF"; then
+    if echo "$content" | safe_grep_qiE "builder\.exe|packer|obfuscator|manifest|provisioning|signapk|signipa|shellter|veil|drozer|mobisec|mobSF"; then
         log_threat 40 "Supply chain/packer/provisioning script detected"
     fi
 
     # Data exfiltration/compression/staging
-    if echo "$content" | grep -qiE "base64|zipfile|gzip|tarfile|curl.*-T|wget.*--post|ftp|scp|sftp|nc.*-w|aws s3 cp|gsutil cp|azcopy|dropbox|gdrive"; then
+    if echo "$content" | safe_grep_qiE "base64|zipfile|gzip|tarfile|curl.*-T|wget.*--post|ftp|scp|sftp|nc.*-w|aws s3 cp|gsutil cp|azcopy|dropbox|gdrive"; then
         log_threat 38 "Exfiltration/packing/staging script detected"
     fi
 
     # Stego/encoded/hybrid
-    if echo "$content" | grep -qiE "stego|lsb|steganography|encode.*image|decode.*image"; then
+    if echo "$content" | safe_grep_qiE "stego|lsb|steganography|encode.*image|decode.*image"; then
         log_threat 35 "Steganography or image-encoded script detected"
     fi
 
     # Misc common office macro
-    if echo "$content" | grep -qiE "autoopen|document_open|ThisDocument|ActiveDocument|macro|Sub Auto_Open|Sub Workbook_Open"; then
+    if echo "$content" | safe_grep_qiE "autoopen|document_open|ThisDocument|ActiveDocument|macro|Sub Auto_Open|Sub Workbook_Open"; then
         log_threat 50 "Office macro/VBA automation detected"
     fi
 }
@@ -21540,17 +21592,17 @@ analyze_powershell_payload() {
     )
     
     for cmdlet in "${dangerous_cmdlets[@]}"; do
-        if echo "$content" | grep -qiE "$cmdlet"; then
+        if echo "$content" | safe_grep_qiE "$cmdlet"; then
             log_threat 60 "Dangerous PowerShell cmdlet: $cmdlet"
         fi
     done
     
     # Encoded commands
-    if echo "$content" | grep -qiE "\-enc|\-encodedcommand|\-e[[:space:]]+[A-Za-z0-9+/=]{20,}"; then
+    if echo "$content" | safe_grep_qiE "\-enc|\-encodedcommand|\-e[[:space:]]+[A-Za-z0-9+/=]{20,}"; then
         log_threat 70 "Encoded PowerShell command detected"
         
         # Try to decode
-        local encoded=$(echo "$content" | grep -oE "[A-Za-z0-9+/=]{50,}" | head -1)
+        local encoded=$(echo "$content" | safe_grep_oE "[A-Za-z0-9+/=]{50,}" | head -1)
         if [ -n "$encoded" ]; then
             local decoded=$(echo "$encoded" | base64 -d 2>/dev/null | iconv -f UTF-16LE -t UTF-8 2>/dev/null)
             if [ -n "$decoded" ]; then
@@ -21561,52 +21613,52 @@ analyze_powershell_payload() {
     fi
     
     # Bypass techniques
-    if echo "$content" | grep -qiE "\-ExecutionPolicy[[:space:]]\+Bypass|\-ep[[:space:]]\+bypass|\-nop|\-windowstyle[[:space:]]\+hidden|\-w[[:space:]]+hidden"; then
+    if echo "$content" | safe_grep_qiE "\-ExecutionPolicy[[:space:]]\+Bypass|\-ep[[:space:]]\+bypass|\-nop|\-windowstyle[[:space:]]\+hidden|\-w[[:space:]]+hidden"; then
         log_threat 55 "PowerShell bypass/evasion flags detected"
     fi
 
     # Advanced AMSI, ETW, Defender bypass & scripting evasion
-    if echo "$content" | grep -qiE "amsi.*bypass|patch.*amsi|etw.*bypass|defender.*disable|Set-MpPreference.*-Disable|Clear-EventLog|wevtutil.*cl|log.*clear|bypassuac|Invoke-NinjaCopy"; then
+    if echo "$content" | safe_grep_qiE "amsi.*bypass|patch.*amsi|etw.*bypass|defender.*disable|Set-MpPreference.*-Disable|Clear-EventLog|wevtutil.*cl|log.*clear|bypassuac|Invoke-NinjaCopy"; then
         log_threat 65 "PowerShell AMSI/ETW/Defender/Log bypass detected"
     fi
 
     # Credential access and dumping
-    if echo "$content" | grep -qiE "Invoke-CredentialPrompt|Invoke-Kerberoast|Invoke-DCSync|Invoke-PowerDump|Invoke-TokenManipulation"; then
+    if echo "$content" | safe_grep_qiE "Invoke-CredentialPrompt|Invoke-Kerberoast|Invoke-DCSync|Invoke-PowerDump|Invoke-TokenManipulation"; then
         log_threat 65 "PowerShell credential stealing/dumping technique detected"
     fi
 
     # Lateral movement (WinRM/PSRemoting)
-    if echo "$content" | grep -qiE "New-PSSession|Enter-PSSession|Invoke-Command|Invoke-WmiMethod|Invoke-CimMethod|PsExec"; then
+    if echo "$content" | safe_grep_qiE "New-PSSession|Enter-PSSession|Invoke-Command|Invoke-WmiMethod|Invoke-CimMethod|PsExec"; then
         log_threat 62 "Lateral movement (PowerShell Remoting/WMI/CIM) detected"
     fi
 
     # RAT/C2/Red Team/MaaS payloads
-    if echo "$content" | grep -qiE "Empire|CobaltStrike|beacon|reverse_tcp|Invoke-RAT|Meterpreter|websocket|Invoke-DomainBackdoor"; then
+    if echo "$content" | safe_grep_qiE "Empire|CobaltStrike|beacon|reverse_tcp|Invoke-RAT|Meterpreter|websocket|Invoke-DomainBackdoor"; then
         log_threat 68 "PowerShell RAT/C2/Red Team/MaaS payload detected"
     fi
 
     # Data exfiltration, staging, and compression
-    if echo "$content" | grep -qiE "compress.*archive|base64|zipfile|Invoke-FileTransfer|Upload-File|Invoke-FtpUpload|Invoke-SMBExec|Invoke-Shellcode|DropBox.*API|OneDrive.*API"; then
+    if echo "$content" | safe_grep_qiE "compress.*archive|base64|zipfile|Invoke-FileTransfer|Upload-File|Invoke-FtpUpload|Invoke-SMBExec|Invoke-Shellcode|DropBox.*API|OneDrive.*API"; then
         log_threat 61 "PowerShell exfil/compression/staging technique detected"
     fi
 
     # Living-off-the-land, LOLBAS, dual-use binaries
-    if echo "$content" | grep -qiE "certutil|mshta|regsvr32|rundll32|Add-MpPreference|Invoke-ReflectivePEInjection|Invoke-Obfuscation"; then
+    if echo "$content" | safe_grep_qiE "certutil|mshta|regsvr32|rundll32|Add-MpPreference|Invoke-ReflectivePEInjection|Invoke-Obfuscation"; then
         log_threat 60 "PowerShell LOLBAS dual-use binary/script detected"
     fi
 
     # Mobile, cloud/SaaS, and cross-platform integration
-    if echo "$content" | grep -qiE "Invoke-Android|Invoke-Ios|Invoke-MobilePayload|Invoke-GoogleDrive|Invoke-AwsS3|Invoke-AzureBlob|Invoke-TeamsMessage|Invoke-SlackMessage|Invoke-DiscordMessage"; then
+    if echo "$content" | safe_grep_qiE "Invoke-Android|Invoke-Ios|Invoke-MobilePayload|Invoke-GoogleDrive|Invoke-AwsS3|Invoke-AzureBlob|Invoke-TeamsMessage|Invoke-SlackMessage|Invoke-DiscordMessage"; then
         log_threat 54 "Mobile SaaS/cloud integration/script detected"
     fi
 
     # Office macro or document abuse
-    if echo "$content" | grep -qiE "ActiveDocument|ThisDocument|AutoOpen|Macro|Document_Open|Excel\.Application"; then
+    if echo "$content" | safe_grep_qiE "ActiveDocument|ThisDocument|AutoOpen|Macro|Document_Open|Excel\.Application"; then
         log_threat 60 "PowerShell Office macro/abuse detected"
     fi
 
     # Stego/hybrid/obfuscated script
-    if echo "$content" | grep -qiE "stego|lsb|obfuscated|encode.*image|decode.*image"; then
+    if echo "$content" | safe_grep_qiE "stego|lsb|obfuscated|encode.*image|decode.*image"; then
         log_threat 60 "Steganography or heavily obfuscated PowerShell detected"
     fi
 
@@ -21637,68 +21689,68 @@ analyze_shell_payload() {
     )
     
     for cmd in "${dangerous_commands[@]}"; do
-        if echo "$content" | grep -qiE "$cmd"; then
+        if echo "$content" | safe_grep_qiE "$cmd"; then
             log_threat 65 "Dangerous shell command: $cmd"
         fi
     done
     
     # Reverse shell patterns
-    if echo "$content" | grep -qiE "bash.*-i.*>&.*/dev/tcp|nc.*-e.*/bin|python.*socket.*connect|php.*fsockopen"; then
+    if echo "$content" | safe_grep_qiE "bash.*-i.*>&.*/dev/tcp|nc.*-e.*/bin|python.*socket.*connect|php.*fsockopen"; then
         log_threat 80 "Reverse shell pattern detected!"
     fi
 
     # Supply chain, dropper, packer logic
-    if echo "$content" | grep -qiE "tar.*-x|unzip|rpm|dpkg|apt install|yum install|apk add|pip install|npm install|curl .*get.*sh|bash <(curl|wget)"; then
+    if echo "$content" | safe_grep_qiE "tar.*-x|unzip|rpm|dpkg|apt install|yum install|apk add|pip install|npm install|curl .*get.*sh|bash <(curl|wget)"; then
         log_threat 54 "Supply chain/downloader/installer/packer logic detected"
     fi
 
     # Living-off-the-land binaries & dual-use abuse (LOLBAS, LOLBins)
-    if echo "$content" | grep -qiE "curl|wget|nc|ncat|socat|perl|python|php|ruby|openssl|base64|iconv|awk|sed|dd|mkfifo|mknod|crontab|sshd|telnet|ftp|scp|find|locate|su|sudo"; then
+    if echo "$content" | safe_grep_qiE "curl|wget|nc|ncat|socat|perl|python|php|ruby|openssl|base64|iconv|awk|sed|dd|mkfifo|mknod|crontab|sshd|telnet|ftp|scp|find|locate|su|sudo"; then
         log_threat 62 "Living-off-the-land script or binary detected"
     fi
 
     # Data exfiltration and staging
-    if echo "$content" | grep -qiE "ftp .*put|scp|sftp|curl.*-T|wget.*--post|nc.*<|tar.*-c|gzip|base64|openssl enc|aws s3 cp|gsutil cp|azcopy|dropbox|gdrive"; then
+    if echo "$content" | safe_grep_qiE "ftp .*put|scp|sftp|curl.*-T|wget.*--post|nc.*<|tar.*-c|gzip|base64|openssl enc|aws s3 cp|gsutil cp|azcopy|dropbox|gdrive"; then
         log_threat 59 "Data exfiltration/staging script or command detected"
     fi
 
     # RAT, C2 beacon, malware automation
-    if echo "$content" | grep -qiE "quasar|rat|meterpreter|cobaltstrike|empire|reverse_shell|bind_shell|websocket|tor|onion|discord|telegram"; then
+    if echo "$content" | safe_grep_qiE "quasar|rat|meterpreter|cobaltstrike|empire|reverse_shell|bind_shell|websocket|tor|onion|discord|telegram"; then
         log_threat 77 "Malware/RAT/C2 automation logic detected"
     fi
 
     # Persistence techniques
-    if echo "$content" | grep -qiE "rc.local|init.d|systemctl enable|service --add|update-rc.d|cron|crontab -e|at -f|nohup|background"; then
+    if echo "$content" | safe_grep_qiE "rc.local|init.d|systemctl enable|service --add|update-rc.d|cron|crontab -e|at -f|nohup|background"; then
         log_threat 68 "Persistence mechanism detected"
     fi
 
     # Privilege escalation, user/group/policy/elevation
-    if echo "$content" | grep -qiE "sudo|su |chmod [0-7]{3}|pkexec|setuid|setgid|useradd|passwd|adduser|usermod|visudo|groupadd|chown|chmod .*s"; then
+    if echo "$content" | safe_grep_qiE "sudo|su |chmod [0-7]{3}|pkexec|setuid|setgid|useradd|passwd|adduser|usermod|visudo|groupadd|chown|chmod .*s"; then
         log_threat 70 "Privilege escalation attempt detected"
     fi
 
     # Destructive/impact (wiper/ransom/data destroy)
-    if echo "$content" | grep -qiE "rm -rf|wipe|shred|dd if=|format|mkfs|fsck|diskutil erase|cryptsetup|dd if=/dev/zero of=/dev/sd"; then
+    if echo "$content" | safe_grep_qiE "rm -rf|wipe|shred|dd if=|format|mkfs|fsck|diskutil erase|cryptsetup|dd if=/dev/zero of=/dev/sd"; then
         log_threat 75 "Destructive or wiper logic detected"
     fi
 
     # Mobile/Android/ADB/smart device script
-    if echo "$content" | grep -qiE "adb shell|pm install|am start|am broadcast|am force-stop|content://|dumpsys|getprop|settings get|intent://|market://"; then
+    if echo "$content" | safe_grep_qiE "adb shell|pm install|am start|am broadcast|am force-stop|content://|dumpsys|getprop|settings get|intent://|market://"; then
         log_threat 55 "Android/ADB/mobile automation logic detected"
     fi
 
     # Cloud/SaaS automation/exfil/script
-    if echo "$content" | grep -qiE "aws|gcloud|azcopy|azure|gsutil|slack|discord|office365|teams"; then
+    if echo "$content" | safe_grep_qiE "aws|gcloud|azcopy|azure|gsutil|slack|discord|office365|teams"; then
         log_threat 52 "Cloud/SaaS automation/exfiltration logic detected"
     fi
 
     # IoT/OT/ICS/SCADA device scripts
-    if echo "$content" | grep -qiE "modbus|mqtt|plc|rtu|scada|industrial|s7comm|dnp3|bacnet|mosquitto_pub|mosquitto_sub"; then
+    if echo "$content" | safe_grep_qiE "modbus|mqtt|plc|rtu|scada|industrial|s7comm|dnp3|bacnet|mosquitto_pub|mosquitto_sub"; then
         log_threat 49 "IoT/OT/ICS/SCADA automation script detected"
     fi
 
     # Stego/hybrid/encoded/packer magic
-    if echo "$content" | grep -qiE "stego|lsb|steganography|encode.*image|decode.*image|exiftool|pngcheck|ffmpeg|imagemagick"; then
+    if echo "$content" | safe_grep_qiE "stego|lsb|steganography|encode.*image|decode.*image|exiftool|pngcheck|ffmpeg|imagemagick"; then
         log_threat 46 "Image/stego/encoded payload script detected"
     fi
 
@@ -21727,70 +21779,70 @@ analyze_javascript_payload() {
     )
     
     for pattern in "${dangerous_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 45 "Dangerous JavaScript pattern: $pattern"
         fi
     done
     
     # Check for heavily obfuscated code
-    local bracket_count=$(echo "$content" | grep -o '\[' | wc -l)
-    local paren_count=$(echo "$content" | grep -o '(' | wc -l)
+    local bracket_count=$(echo "$content" | safe_grep_o '\[' | wc -l)
+    local paren_count=$(echo "$content" | safe_grep_o '(' | wc -l)
     if [ "$bracket_count" -gt 50 ] || [ "$paren_count" -gt 50 ]; then
         log_threat 35 "Heavily obfuscated JavaScript detected"
     fi
 
     # Credential theft (phishing, stealer, autofill abuse)
-    if echo "$content" | grep -qiE "input type=[\"']password[\"']|document\.getElementById.*password|chrome\.runtime\.sendMessage.*password|navigator\.credentials|getUserMedia|getElementsByName.*password"; then
+    if echo "$content" | safe_grep_qiE "input type=[\"']password[\"']|document\.getElementById.*password|chrome\.runtime\.sendMessage.*password|navigator\.credentials|getUserMedia|getElementsByName.*password"; then
         log_threat 52 "JavaScript credential theft/phishing logic detected"
     fi
 
     # Keylogger, input/DOM abuse, event sniffer
-    if echo "$content" | grep -qiE "addEventListener[[:space:]]*\(.*key|onkeypress|onkeydown|onkeyup|keypress|keydown|keyup|logkeys|user_input|capture_input"; then
+    if echo "$content" | safe_grep_qiE "addEventListener[[:space:]]*\(.*key|onkeypress|onkeydown|onkeyup|keypress|keydown|keyup|logkeys|user_input|capture_input"; then
         log_threat 48 "JavaScript keylogger/event sniffer logic detected"
     fi
 
     # Mobile HTML5/QR/intent/app abuse
-    if echo "$content" | grep -qiE "intent:\/\/|market:\/\/|android\.intent\.action|cordova|phonegap|window\.cordova|coreml.*scan|navigator\.contacts|navigator\.camera|navigator\.mediaDevices"; then
+    if echo "$content" | safe_grep_qiE "intent:\/\/|market:\/\/|android\.intent\.action|cordova|phonegap|window\.cordova|coreml.*scan|navigator\.contacts|navigator\.camera|navigator\.mediaDevices"; then
         log_threat 41 "Mobile/QR/app/intent/abuse script detected"
     fi
 
     # RAT, C2, beacon, post-ex tools
-    if echo "$content" | grep -qiE "websocket|sockjs|reverse_shell|evilginx|beef\.hook|beef\.api|malicious\.js|rat\.js|c2_server|token_stealer"; then
+    if echo "$content" | safe_grep_qiE "websocket|sockjs|reverse_shell|evilginx|beef\.hook|beef\.api|malicious\.js|rat\.js|c2_server|token_stealer"; then
         log_threat 54 "RAT/C2/post-exploitation JavaScript detected"
     fi
 
     # Data exfil, beacon, pastebin, cloud APIs
-    if echo "$content" | grep -qiE "sendBeacon|postMessage|fetch.*post|$.ajax|pastebin\.com|dropbox\.api|gdrive\.api|discord\.api|telegram\.api"; then
+    if echo "$content" | safe_grep_qiE "sendBeacon|postMessage|fetch.*post|$.ajax|pastebin\.com|dropbox\.api|gdrive\.api|discord\.api|telegram\.api"; then
         log_threat 46 "Data exfiltration/beacon/cloud API logic detected"
     fi
 
     # Persistence (localStorage, cookie abuse, scheduled reload, push)
-    if echo "$content" | grep -qiE "localStorage\.setItem|sessionStorage\.setItem|document\.cookie=.*;|setInterval|setTimeout.*reload|addEventListener.*push"; then
+    if echo "$content" | safe_grep_qiE "localStorage\.setItem|sessionStorage\.setItem|document\.cookie=.*;|setInterval|setTimeout.*reload|addEventListener.*push"; then
         log_threat 44 "Persistence/reload/cookie abuse logic detected"
     fi
 
     # Stego, encoding, packing
-    if echo "$content" | grep -qiE "steganography|imageData|canvas\.toDataURL|encodeURIComponent|Base64|btoa|atob|encode|decode"; then
+    if echo "$content" | safe_grep_qiE "steganography|imageData|canvas\.toDataURL|encodeURIComponent|Base64|btoa|atob|encode|decode"; then
         log_threat 43 "JavaScript stego/packing/encoding logic detected"
     fi
 
     # Malicious browser extension/abuse
-    if echo "$content" | grep -qiE "chrome\.runtime|chrome\.extension|browser\.extension|browser_action|onInstalled|webRequest|background\.js|manifest\.json"; then
+    if echo "$content" | safe_grep_qiE "chrome\.runtime|chrome\.extension|browser\.extension|browser_action|onInstalled|webRequest|background\.js|manifest\.json"; then
         log_threat 36 "Browser extension abuse logic detected"
     fi
 
     # Supply chain, loader, packer, code injection
-    if echo "$content" | grep -qiE "webpack|parcel|rollup|electron|nw\.js|loadExternalScript|importDynamic|injectScript|self\.postMessage"; then
+    if echo "$content" | safe_grep_qiE "webpack|parcel|rollup|electron|nw\.js|loadExternalScript|importDynamic|injectScript|self\.postMessage"; then
         log_threat 37 "Supply chain/packer/loader/injection logic detected"
     fi
 
     # Living-off-the-land, LOLBins JS/HTML hybrid threats
-    if echo "$content" | grep -qiE "mshta|activex|HTA:Application|rundll32|certutil|powershell|wscript\.shell"; then
+    if echo "$content" | safe_grep_qiE "mshta|activex|HTA:Application|rundll32|certutil|powershell|wscript\.shell"; then
         log_threat 42 "Living-off-the-land hybrid JS/HTML/command content detected"
     fi
 
     # Advanced obfuscators or layered encoding
-    if echo "$content" | grep -qiE "javascript-obfuscator|packer|obfuscated|eval\(function\(p,a,c,k,e,d"; then
+    if echo "$content" | safe_grep_qiE "javascript-obfuscator|packer|obfuscated|eval\(function\(p,a,c,k,e,d"; then
         log_threat 52 "Advanced JavaScript obfuscator/packer detected"
     fi
 
@@ -21818,63 +21870,63 @@ analyze_python_payload() {
     )
     
     for pattern in "${dangerous_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 50 "Dangerous Python pattern: $pattern"
         fi
     done
 
     # File, system, and credential access
-    if echo "$content" | grep -qiE "open[[:space:]]*\(|os\.remove|os\.unlink|shutil\.move|shutil\.copy|os\.chmod|getpass|getuser|getlogin|keyring|creds|password|token"; then
+    if echo "$content" | safe_grep_qiE "open[[:space:]]*\(|os\.remove|os\.unlink|shutil\.move|shutil\.copy|os\.chmod|getpass|getuser|getlogin|keyring|creds|password|token"; then
         log_threat 52 "Python system/file/credential access detected"
     fi
 
     # Persistence techniques & privilege escalation
-    if echo "$content" | grep -qiE "crontab|systemctl enable|at\.open|startup|autostart|chmod\s+[247]{3}|useradd|adduser|sudo|su[[:space:]]"; then
+    if echo "$content" | safe_grep_qiE "crontab|systemctl enable|at\.open|startup|autostart|chmod\s+[247]{3}|useradd|adduser|sudo|su[[:space:]]"; then
         log_threat 56 "Python persistence or privilege escalation logic detected"
     fi
 
     # Exfiltration, cloud, SaaS, data staging
-    if echo "$content" | grep -qiE "requests\.post|socket\.send|ftplib|smtplib|dropbox|gdrive|boto3|azure|google\.cloud|aws|s3|upload|scp|paramiko\.SFTPClient|pypastebin"; then
+    if echo "$content" | safe_grep_qiE "requests\.post|socket\.send|ftplib|smtplib|dropbox|gdrive|boto3|azure|google\.cloud|aws|s3|upload|scp|paramiko\.SFTPClient|pypastebin"; then
         log_threat 54 "Python exfiltration/cloud/SaaS/script detected"
     fi
 
     # RAT, C2, beacon/post-exploit
-    if echo "$content" | grep -qiE "quasar|rat|c2|reverse_shell|bind_shell|websocket|botnet|discord|telegram|slack|beacon|meterpreter|empire|cobaltstrike"; then
+    if echo "$content" | safe_grep_qiE "quasar|rat|c2|reverse_shell|bind_shell|websocket|botnet|discord|telegram|slack|beacon|meterpreter|empire|cobaltstrike"; then
         log_threat 60 "Python RAT/C2/post-exploitation code detected"
     fi
 
     # Living-off-the-land, dual-use, LOLBAS
-    if echo "$content" | grep -qiE "curl|wget|nc|netcat|ncat|socat|perl|php|rundll32|certutil|mshta|os\.system|shutil|ftplib|powershell|wscript"; then
+    if echo "$content" | safe_grep_qiE "curl|wget|nc|netcat|ncat|socat|perl|php|rundll32|certutil|mshta|os\.system|shutil|ftplib|powershell|wscript"; then
         log_threat 57 "Python Living-off-the-land binary/script detected"
     fi
 
     # Impact, destructive, encryption/wiper/ransom
-    if echo "$content" | grep -qiE "encrypt|decrypt|rsa|aes|fernet|pycryptodome|pycrypto|ransom|shred|os\.remove|os\.unlink|rm.*-rf|wipe|destroy|delete|crypto|bitcoin|monero|wallet"; then
+    if echo "$content" | safe_grep_qiE "encrypt|decrypt|rsa|aes|fernet|pycryptodome|pycrypto|ransom|shred|os\.remove|os\.unlink|rm.*-rf|wipe|destroy|delete|crypto|bitcoin|monero|wallet"; then
         log_threat 70 "Python impact/destructive/ransom/crypto logic detected"
     fi
 
     # Stego, packing, encoding, obfuscation, image abuse
-    if echo "$content" | grep -qiE "base64|binascii|zlib|gzip|tarfile|zipfile|lzma|xxd|stego|lsb|jpeg|png|imageio|opencv|PIL|canvas|encode|decode|xor|rot13"; then
+    if echo "$content" | safe_grep_qiE "base64|binascii|zlib|gzip|tarfile|zipfile|lzma|xxd|stego|lsb|jpeg|png|imageio|opencv|PIL|canvas|encode|decode|xor|rot13"; then
         log_threat 61 "Python stego/packing/encoding/obfuscation detected"
     fi
 
     # Supply chain, mobile, builder/provisioning, sideload
-    if echo "$content" | grep -qiE "PyInstaller|cx_Freeze|pip install|setup\.py|requirements\.txt|signapk|signipa|apktool|androguard|frida|drozer|mobisec|mobSF|adb|ios-deploy|provision|manifest"; then
+    if echo "$content" | safe_grep_qiE "PyInstaller|cx_Freeze|pip install|setup\.py|requirements\.txt|signapk|signipa|apktool|androguard|frida|drozer|mobisec|mobSF|adb|ios-deploy|provision|manifest"; then
         log_threat 53 "Python supply chain/mobile/provisioning script detected"
     fi
 
     # IoT, OT/ICS/SCADA device scripts
-    if echo "$content" | grep -qiE "modbus|mqtt|plc|rtu|scada|industrial|s7comm|dnp3|bacnet|mosquitto_pub|mosquitto_sub|python-automation"; then
+    if echo "$content" | safe_grep_qiE "modbus|mqtt|plc|rtu|scada|industrial|s7comm|dnp3|bacnet|mosquitto_pub|mosquitto_sub|python-automation"; then
         log_threat 49 "Python IoT/OT/ICS/SCADA automation script detected"
     fi
 
     # Browser/extension/MITM/credential intercept
-    if echo "$content" | grep -qiE "selenium|chromedriver|firefox|mitmproxy|scapy|pychrome|webbrowser|get_cookie|get_token|get_credentials"; then
+    if echo "$content" | safe_grep_qiE "selenium|chromedriver|firefox|mitmproxy|scapy|pychrome|webbrowser|get_cookie|get_token|get_credentials"; then
         log_threat 47 "Python browser automation/MITM/credential intercept detected"
     fi
 
     # Advanced obfuscators, code packers/loaders
-    if echo "$content" | grep -qiE "pyarmor|pyminifier|obfuscator|marshal|exec|compile|codecs|eval\(function"; then
+    if echo "$content" | safe_grep_qiE "pyarmor|pyminifier|obfuscator|marshal|exec|compile|codecs|eval\(function"; then
         log_threat 52 "Python obfuscator/codepacker/loader detected"
     fi
 
@@ -21902,7 +21954,7 @@ analyze_command_content() {
     )
     
     for cmd in "${win_commands[@]}"; do
-        if echo "$content" | grep -qiE "$cmd"; then
+        if echo "$content" | safe_grep_qiE "$cmd"; then
             log_threat 40 "Windows command detected: $cmd"
         fi
     done
@@ -21919,7 +21971,7 @@ analyze_command_content() {
     )
     
     for lolbin in "${lolbins[@]}"; do
-        if echo "$content" | grep -qiE "$lolbin"; then
+        if echo "$content" | safe_grep_qiE "$lolbin"; then
             log_threat 70 "LOLBIN/LOLBAS technique: $lolbin"
         fi
     done
@@ -22036,7 +22088,7 @@ analyze_command_content() {
     )
 
     for cmd in "${unix_commands[@]}"; do
-        if echo "$content" | grep -qiE "$cmd"; then
+        if echo "$content" | safe_grep_qiE "$cmd"; then
             log_threat 45 "Unix/Linux/macOS command detected: $cmd"
         fi
     done
@@ -22047,7 +22099,7 @@ analyze_command_content() {
         "docker " "kubectl" "helm"
     )
     for cmd in "${cloud_commands[@]}"; do
-        if echo "$content" | grep -qiE "$cmd"; then
+        if echo "$content" | safe_grep_qiE "$cmd"; then
             log_threat 43 "Cloud/SaaS/automation/exfil command detected: $cmd"
         fi
     done
@@ -22057,7 +22109,7 @@ analyze_command_content() {
         "adb shell" "pm install" "am start" "am broadcast" "am force-stop" "intent://" "market://" "dumpsys" "getprop" "content://" "settings get" "ios-deploy" "provisioning"
     )
     for cmd in "${mobile_commands[@]}"; do
-        if echo "$content" | grep -qiE "$cmd"; then
+        if echo "$content" | safe_grep_qiE "$cmd"; then
             log_threat 41 "Mobile/Android/iOS automation/supply chain command detected: $cmd"
         fi
     done
@@ -22067,7 +22119,7 @@ analyze_command_content() {
         "modbus" "mqtt" "plc" "rtu" "scada" "industrial" "mosquitto_pub" "mosquitto_sub" "iot"
     )
     for cmd in "${iot_commands[@]}"; do
-        if echo "$content" | grep -qiE "$cmd"; then
+        if echo "$content" | safe_grep_qiE "$cmd"; then
             log_threat 39 "IoT/OT/ICS/SCADA command/automation detected: $cmd"
         fi
     done
@@ -22077,7 +22129,7 @@ analyze_command_content() {
         "stego" "lsb" "exiftool" "pngcheck" "convert" "imagemagick" "ffmpeg" "jpegoptim" "zip" "tar" "gzip" "binascii" "b64" "xxd"
     )
     for cmd in "${stego_commands[@]}"; do
-        if echo "$content" | grep -qiE "$cmd"; then
+        if echo "$content" | safe_grep_qiE "$cmd"; then
             log_threat 35 "Stego/image/packing/supply chain command detected: $cmd"
         fi
     done
@@ -22087,7 +22139,7 @@ analyze_command_content() {
         "ransom" "encrypt" "decrypt" "wipe" "shred" "destroy" "mkfs" "format" "diskutil" "cryptsetup" "bitcoin" "monero" "wallet"
     )
     for cmd in "${impact_commands[@]}"; do
-        if echo "$content" | grep -qiE "$cmd"; then
+        if echo "$content" | safe_grep_qiE "$cmd"; then
             log_threat 80 "Ransomware/wiper/impact/crypto command detected: $cmd"
         fi
     done
@@ -22106,69 +22158,69 @@ analyze_secrets() {
     # Check against API key patterns
     for key_type in "${!API_KEY_PATTERNS[@]}"; do
         local pattern="${API_KEY_PATTERNS[$key_type]}"
-        if echo "$content" | grep -qE "$pattern"; then
+        if echo "$content" | safe_grep_qE "$pattern"; then
             log_threat 60 "Potential $key_type exposed!"
             
             # Record IOC
-            local matched=$(echo "$content" | grep -oE "$pattern" | head -1)
+            local matched=$(echo "$content" | safe_grep_oE "$pattern" | head -1)
             record_ioc "api_key" "$key_type:${matched:0:20}..." "Secret exposure"
         fi
     done
     
     # Check for credential patterns
     for pattern in "${CREDENTIAL_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 50 "Credential pattern detected: $pattern"
         fi
     done
     
     # Private keys
-    if echo "$content" | grep -qE "-----BEGIN.*(PRIVATE|RSA|EC|DSA|OPENSSH).*-----"; then
+    if echo "$content" | safe_grep_qE "-----BEGIN.*(PRIVATE|RSA|EC|DSA|OPENSSH).*-----"; then
         log_threat 80 "Private key detected!"
     fi
     
     # Connection strings
-    if echo "$content" | grep -qiE "password=|pwd=|passwd=|secret="; then
+    if echo "$content" | safe_grep_qiE "password=|pwd=|passwd=|secret="; then
         log_threat 55 "Connection string with credentials detected"
     fi
 
     # OAuth tokens, session keys, JWT, SSO, cookie secrets
-    if echo "$content" | grep -qiE "eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}|oauth_token|access_token|refresh_token|sessionid|xsrf-token|csrftoken|sso_token"; then
+    if echo "$content" | safe_grep_qiE "eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}|oauth_token|access_token|refresh_token|sessionid|xsrf-token|csrftoken|sso_token"; then
         log_threat 65 "Session/JWT/OAuth/SSO token exposed"
     fi
 
     # Cloud/SaaS/DevOps secrets (AWS, Azure, GCP, Google, Dropbox, etc)
-    if echo "$content" | grep -qiE "AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|A3T[A-Z0-9]{13}|AIza[0-9A-Za-z-_]{35}|ya29\.[0-9A-Za-z-_]+|firebaseio|S3_BUCKET|gcp_token|AZURE_KEY|storageAccountKey|google_secret|dropbox_token|gdrive_token"; then
+    if echo "$content" | safe_grep_qiE "AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|A3T[A-Z0-9]{13}|AIza[0-9A-Za-z-_]{35}|ya29\.[0-9A-Za-z-_]+|firebaseio|S3_BUCKET|gcp_token|AZURE_KEY|storageAccountKey|google_secret|dropbox_token|gdrive_token"; then
         log_threat 75 "Cloud/SaaS/DevOps secret detected"
     fi
 
     # Mobile/QR app secrets & provisioning keys
-    if echo "$content" | grep -qiE "api_key.*android|client_secret.*mobile|provisioning_profile|mobiletoken|push_key|firebase_secret|app_secret|intent://|market://"; then
+    if echo "$content" | safe_grep_qiE "api_key.*android|client_secret.*mobile|provisioning_profile|mobiletoken|push_key|firebase_secret|app_secret|intent://|market://"; then
         log_threat 55 "Mobile/QR app secret/provisioning key detected"
     fi
 
     # Payment, credit card, SCA, FIDO, bank data
-    if echo "$content" | grep -qE "[0-9]{12,19}|CVC|CVV|expiry|expiration|bank_account|routing_no|iban|swift|fido_key|secure_2fa|authy"; then
+    if echo "$content" | safe_grep_qE "[0-9]{12,19}|CVC|CVV|expiry|expiration|bank_account|routing_no|iban|swift|fido_key|secure_2fa|authy"; then
         log_threat 78 "Payment/card/bank/SCA/FIDO secret detected"
     fi
 
     # Social media & messaging secrets/tokens
-    if echo "$content" | grep -qiE "discord_token|telegram_token|slack_token|teams_token|facebook_access_token|twitter_api_secret|twilio_account_sid|twilio_auth_token"; then
+    if echo "$content" | safe_grep_qiE "discord_token|telegram_token|slack_token|teams_token|facebook_access_token|twitter_api_secret|twilio_account_sid|twilio_auth_token"; then
         log_threat 62 "Social/messaging secret/token detected"
     fi
 
     # Business, enterprise, private/config/secrets
-    if echo "$content" | grep -qiE "client_secret|company_secret|internal_secret|admin_password|root_password|backup_key|business_key|enterprise_key|db_root_password|dba_secret"; then
+    if echo "$content" | safe_grep_qiE "client_secret|company_secret|internal_secret|admin_password|root_password|backup_key|business_key|enterprise_key|db_root_password|dba_secret"; then
         log_threat 59 "Business/enterprise secret detected"
     fi
 
     # IoT/SCADA/config secrets
-    if echo "$content" | grep -qiE "plc_key|iot_token|mqtt_password|scada_secret|sensor_key|device_key|industrial_secret"; then
+    if echo "$content" | safe_grep_qiE "plc_key|iot_token|mqtt_password|scada_secret|sensor_key|device_key|industrial_secret"; then
         log_threat 50 "IoT/OT/SCADA secret/config detected"
     fi
 
     # Misc encoded secrets, compress, packer, stego
-    if echo "$content" | grep -qiE "base64[[:space:]]+\w{40,}|stego|encode|decode"; then
+    if echo "$content" | safe_grep_qiE "base64[[:space:]]+\w{40,}|stego|encode|decode"; then
         log_threat 45 "Encoded or steganographic secret detected"
     fi
 
@@ -22186,7 +22238,7 @@ analyze_crypto_addresses() {
     local crypto_found=false
     
     for pattern in "${CRYPTO_PATTERNS[@]}"; do
-        local matches=$(echo "$content" | grep -oE "$pattern")
+        local matches=$(echo "$content" | safe_grep_oE "$pattern")
         if [ -n "$matches" ]; then
             crypto_found=true
             for addr in $matches; do
@@ -22247,7 +22299,7 @@ analyze_crypto_addresses() {
     )
 
     for pattern in "${extra_patterns[@]}"; do
-        local matches=$(echo "$content" | grep -oE "$pattern")
+        local matches=$(echo "$content" | safe_grep_oE "$pattern")
         if [ -n "$matches" ]; then
             for addr in $matches; do
                 log_warning "Additional cryptocurrency address found: $addr"
@@ -22258,41 +22310,41 @@ analyze_crypto_addresses() {
     done
 
     # DEX, mixing, scam/pay/QR payment processors
-    if echo "$content" | grep -qiE "shapeshift|mixer\.io|tornado\.cash|wasabi\.wallet|samourai\.wallet|binance\.com|coinbase\.com|kraken\.com|trustwallet|metamask|blockchain\.info"; then
+    if echo "$content" | safe_grep_qiE "shapeshift|mixer\.io|tornado\.cash|wasabi\.wallet|samourai\.wallet|binance\.com|coinbase\.com|kraken\.com|trustwallet|metamask|blockchain\.info"; then
         log_threat 45 "Crypto exchange/DEX/mixing/payment processor address/payment detected"
     fi
     
     # L2 Bridge and DEX detection
-    if echo "$content" | grep -qiE "bridge\.arbitrum|app\.optimism|bridge\.zksync|starkgate|bridge\.base|hop\.exchange|across\.to|stargate\.finance"; then
+    if echo "$content" | safe_grep_qiE "bridge\.arbitrum|app\.optimism|bridge\.zksync|starkgate|bridge\.base|hop\.exchange|across\.to|stargate\.finance"; then
         log_threat 40 "Layer 2 bridge interaction detected"
     fi
     
     # TON/Telegram wallet detection
-    if echo "$content" | grep -qiE "tonkeeper|tonhub|ton\.org/wallets|fragment\.com|getgems\.io|ton\.place"; then
+    if echo "$content" | safe_grep_qiE "tonkeeper|tonhub|ton\.org/wallets|fragment\.com|getgems\.io|ton\.place"; then
         log_threat 38 "TON ecosystem wallet/service detected"
     fi
 
     # Possible QR/mobile payment or scam context
-    if echo "$content" | grep -qiE "qr code.*bitcoin|qr code.*eth|scan.*wallet|address=.*btc|address=.*eth|mobile.*crypto.*wallet"; then
+    if echo "$content" | safe_grep_qiE "qr code.*bitcoin|qr code.*eth|scan.*wallet|address=.*btc|address=.*eth|mobile.*crypto.*wallet"; then
         log_threat 47 "QR/mobile/crypto wallet/payment pattern detected"
     fi
 
     # DeFi/NFT/contract abuse/wallet drainers - Extended
-    if echo "$content" | grep -qiE "contractAddress|erc721|erc1155|tokenID|mintNFT|signTransaction|walletConnect|drainer|setApprovalForAll|increaseAllowance|permit2|seaport"; then
+    if echo "$content" | safe_grep_qiE "contractAddress|erc721|erc1155|tokenID|mintNFT|signTransaction|walletConnect|drainer|setApprovalForAll|increaseAllowance|permit2|seaport"; then
         log_threat 50 "DeFi/NFT/contract/wallet drainer pattern detected"
     fi
     
     # Check against EXTENDED_CRYPTO_IOCS
     for key in "${!EXTENDED_CRYPTO_IOCS[@]}"; do
         local pattern="${EXTENDED_CRYPTO_IOCS[$key]}"
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 45 "Extended crypto threat: $key"
             record_ioc "crypto_threat" "$key" "Extended crypto IOC match"
         fi
     done
 
     # IoT/SCADA/industrial theft via crypto
-    if echo "$content" | grep -qiE "iot.*wallet|plc.*wallet|industrial.*key.*eth|modbus.*token"; then
+    if echo "$content" | safe_grep_qiE "iot.*wallet|plc.*wallet|industrial.*key.*eth|modbus.*token"; then
         log_threat 41 "IoT/SCADA/industrial crypto address detected"
     fi
 
@@ -22318,7 +22370,7 @@ analyze_phone_numbers() {
     )
     
     for pattern in "${phone_patterns[@]}"; do
-        local matches=$(echo "$content" | grep -oE "$pattern")
+        local matches=$(echo "$content" | safe_grep_oE "$pattern")
         if [ -n "$matches" ]; then
             for phone in $matches; do
                 log_info "Phone number found: $phone"
@@ -22339,7 +22391,7 @@ analyze_email_addresses() {
     set -u
     
     local email_pattern="[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-    local emails=$(echo "$content" | grep -oE "$email_pattern")
+    local emails=$(echo "$content" | safe_grep_oE "$email_pattern")
     
     if [ -n "$emails" ]; then
         for email in $emails; do
@@ -22366,32 +22418,32 @@ analyze_email_addresses() {
 
     # Look for mass phishing targets or dropboxes
     local phishing_indicators="submit.*@|report.*@|phish.*@|spam.*@|target.*@|victim.*@|compromis|breach|accountrecov|resetpwd|leak.*@"
-    if echo "$content" | grep -qiE "$phishing_indicators"; then
+    if echo "$content" | safe_grep_qiE "$phishing_indicators"; then
         log_threat 53 "Potential phishing/malware dropbox email pattern detected"
     fi
 
     # Mobile/QR/email abuse
-    if echo "$content" | grep -qiE "mailto:|intent://email|android\.intent\.action\.SENDTO|email\.send|smsManager|twilio"; then
+    if echo "$content" | safe_grep_qiE "mailto:|intent://email|android\.intent\.action\.SENDTO|email\.send|smsManager|twilio"; then
         log_threat 41 "Mobile/QR/email abuse or fraud automation detected"
     fi
 
     # C2/ransom/extortion email dropboxes
-    if echo "$content" | grep -qiE "ransom|bitcoin|crypt|pay|decrypt|restore|contact.*@|extort|malwarehelp@|helpdecrypt@"; then
+    if echo "$content" | safe_grep_qiE "ransom|bitcoin|crypt|pay|decrypt|restore|contact.*@|extort|malwarehelp@|helpdecrypt@"; then
         log_threat 51 "Ransomware/extortion email contact detected"
     fi
 
     # PII, business email compromise, sensitive data leaks
-    if echo "$content" | grep -qiE "ssn|passport|taxid|personaldata|addressbook|pii|payroll|wire|bank|account|hr@|admin@|root@"; then
+    if echo "$content" | safe_grep_qiE "ssn|passport|taxid|personaldata|addressbook|pii|payroll|wire|bank|account|hr@|admin@|root@"; then
         log_threat 57 "Possible PII/BEC/sensitive email leak detected"
     fi
 
     # API/mail gateway abuse
-    if echo "$content" | grep -qiE "sendgrid|mailgun|smtp2go|amazonses|mandrill|zoho|office365|outlook|gmail"; then
+    if echo "$content" | safe_grep_qiE "sendgrid|mailgun|smtp2go|amazonses|mandrill|zoho|office365|outlook|gmail"; then
         log_threat 35 "API/mail gateway detected in email context"
     fi
 
     # Social media platform/IM/email bridge
-    if echo "$content" | grep -qiE "facebook\.com|twitter\.com|discord\.com|telegram\.me|t\.me|signal\.org"; then
+    if echo "$content" | safe_grep_qiE "facebook\.com|twitter\.com|discord\.com|telegram\.me|t\.me|signal\.org"; then
         log_threat 33 "IM/social platform or email bridge detected"
     fi
 
@@ -22483,7 +22535,7 @@ evaluate_all_yara_rules() {
             while read -r rule; do
                 local rule_name=$(echo "$rule" | cut -d':' -f1)
                 local rule_pattern=$(echo "$rule" | cut -d':' -f2-)
-                if echo "$content" | grep -qE "$rule_pattern"; then
+                if echo "$content" | safe_grep_qE "$rule_pattern"; then
                     log_forensic_detection 60 \
                         "External YARA-like Rule Match: $rule_name" \
                         "$rule_pattern" \
@@ -22515,203 +22567,203 @@ evaluate_yara_rule() {
     case "$rule_name" in
         "phishing_url")
             local login_match urgent_match
-            login_match=$(echo "$content" | grep -oiE "login|signin|verify" | head -1)
-            urgent_match=$(echo "$content" | grep -oiE "urgent|suspended|action|required" | head -1)
+            login_match=$(echo "$content" | safe_grep_oiE "login|signin|verify" | head -1)
+            urgent_match=$(echo "$content" | safe_grep_oiE "urgent|suspended|action|required" | head -1)
             if [ -n "$login_match" ] && [ -n "$urgent_match" ]; then
                 matched_patterns="login_keyword:$login_match, urgency_keyword:$urgent_match"
             fi
             ;;
         "malware_distribution")
             local ext_match action_match
-            ext_match=$(echo "$content" | grep -oiE "\.(exe|dll|scr|bat|cmd|ps1|vbs|js|jar|apk|msi|dmg|pkg)" | head -1)
-            action_match=$(echo "$content" | grep -oiE "download|install|update|patch|setup" | head -1)
+            ext_match=$(echo "$content" | safe_grep_oiE "\.(exe|dll|scr|bat|cmd|ps1|vbs|js|jar|apk|msi|dmg|pkg)" | head -1)
+            action_match=$(echo "$content" | safe_grep_oiE "download|install|update|patch|setup" | head -1)
             if [ -n "$ext_match" ] && [ -n "$action_match" ]; then
                 matched_patterns="executable_extension:$ext_match, action:$action_match"
             fi
             ;;
         "crypto_scam")
             local crypto_match scam_match
-            crypto_match=$(echo "$content" | grep -oE "bc1[a-z0-9]{39,59}|1[a-km-zA-HJ-NP-Z1-9]{25,34}|0x[a-fA-F0-9]{40}" | head -1)
-            scam_match=$(echo "$content" | grep -oiE "limited|exclusive|invest|double|giveaway|airdrop" | head -1)
+            crypto_match=$(echo "$content" | safe_grep_oE "bc1[a-z0-9]{39,59}|1[a-km-zA-HJ-NP-Z1-9]{25,34}|0x[a-fA-F0-9]{40}" | head -1)
+            scam_match=$(echo "$content" | safe_grep_oiE "limited|exclusive|invest|double|giveaway|airdrop" | head -1)
             if [ -n "$crypto_match" ] && [ -n "$scam_match" ]; then
                 matched_patterns="crypto_address:${crypto_match:0:20}..., scam_keyword:$scam_match"
             fi
             ;;
         "powershell_malware")
             local ps_match
-            ps_match=$(echo "$content" | grep -oiE "IEX|Invoke-Expression|downloadstring|Net\.WebClient|Invoke-WebRequest|\-enc|\-encodedcommand" | head -3 | tr '\n' ',' | sed 's/,$//')
+            ps_match=$(echo "$content" | safe_grep_oiE "IEX|Invoke-Expression|downloadstring|Net\.WebClient|Invoke-WebRequest|\-enc|\-encodedcommand" | head -3 | tr '\n' ',' | sed 's/,$//')
             if [ -n "$ps_match" ]; then
                 matched_patterns="powershell_indicators:$ps_match"
             fi
             ;;
         "ransomware")
             local matches=""
-            echo "$content" | grep -qiE "decrypt" && matches="${matches}decrypt,"
-            echo "$content" | grep -qiE "encrypted|encrypt" && matches="${matches}encrypt,"
-            echo "$content" | grep -qiE "ransom" && matches="${matches}ransom,"
-            echo "$content" | grep -qiE "bitcoin|monero" && matches="${matches}crypto_payment,"
-            echo "$content" | grep -qiE "\.onion" && matches="${matches}tor_address,"
+            echo "$content" | safe_grep_qiE "decrypt" && matches="${matches}decrypt,"
+            echo "$content" | safe_grep_qiE "encrypted|encrypt" && matches="${matches}encrypt,"
+            echo "$content" | safe_grep_qiE "ransom" && matches="${matches}ransom,"
+            echo "$content" | safe_grep_qiE "bitcoin|monero" && matches="${matches}crypto_payment,"
+            echo "$content" | safe_grep_qiE "\.onion" && matches="${matches}tor_address,"
             local match_count=$(echo "$matches" | tr ',' '\n' | grep -c .)
             [ "$match_count" -ge 2 ] && matched_patterns="ransomware_indicators:${matches%,}"
             ;;
         "c2_communication")
             local c2_match
-            c2_match=$(echo "$content" | grep -oiE "beacon|checkin|callback|pastebin\.com/raw|raw\.githubusercontent" | head -1)
-            [ -z "$c2_match" ] && c2_match=$(echo "$content" | grep -oE "http://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1)
+            c2_match=$(echo "$content" | safe_grep_oiE "beacon|checkin|callback|pastebin\.com/raw|raw\.githubusercontent" | head -1)
+            [ -z "$c2_match" ] && c2_match=$(echo "$content" | safe_grep_oE "http://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1)
             [ -n "$c2_match" ] && matched_patterns="c2_indicator:$c2_match"
             ;;
         "data_exfil")
             local exfil_match
-            exfil_match=$(echo "$content" | grep -oiE "POST.*(password|credential)|upload.*(zip|rar|7z)|(base64|encode).*http" | head -1)
+            exfil_match=$(echo "$content" | safe_grep_oiE "POST.*(password|credential)|upload.*(zip|rar|7z)|(base64|encode).*http" | head -1)
             [ -n "$exfil_match" ] && matched_patterns="exfiltration_pattern:${exfil_match:0:50}"
             ;;
         "obfuscation")
             local obf_match
-            obf_match=$(echo "$content" | grep -oiE "eval\(atob\(|String\.fromCharCode|unescape\(%|Function\(" | head -1)
+            obf_match=$(echo "$content" | safe_grep_oiE "eval\(atob\(|String\.fromCharCode|unescape\(%|Function\(" | head -1)
             [ -n "$obf_match" ] && matched_patterns="obfuscation_technique:$obf_match"
             ;;
         "keylogger")
             local kl_match
-            kl_match=$(echo "$content" | grep -oiE "keylog|keystroke|GetAsyncKeyState|SetWindowsHookEx|pynput|keyboard\.hook" | head -1)
+            kl_match=$(echo "$content" | safe_grep_oiE "keylog|keystroke|GetAsyncKeyState|SetWindowsHookEx|pynput|keyboard\.hook" | head -1)
             [ -n "$kl_match" ] && matched_patterns="keylogger_indicator:$kl_match"
             ;;
         "remote_access")
             local rat_match
-            rat_match=$(echo "$content" | grep -oiE "njrat|darkcomet|remcos|asyncrat|quasar|reverse.shell|bind.shell" | head -1)
+            rat_match=$(echo "$content" | safe_grep_oiE "njrat|darkcomet|remcos|asyncrat|quasar|reverse.shell|bind.shell" | head -1)
             [ -n "$rat_match" ] && matched_patterns="rat_indicator:$rat_match"
             ;;
         "credential_theft")
             local cred_match
-            cred_match=$(echo "$content" | grep -oiE "mimikatz|lsass|SAM|sekurlsa|credential.dump" | head -1)
-            [ -z "$cred_match" ] && cred_match=$(echo "$content" | grep -oiE "browser.*(password|cookie)|(password|cookie).*browser" | head -1)
+            cred_match=$(echo "$content" | safe_grep_oiE "mimikatz|lsass|SAM|sekurlsa|credential.dump" | head -1)
+            [ -z "$cred_match" ] && cred_match=$(echo "$content" | safe_grep_oiE "browser.*(password|cookie)|(password|cookie).*browser" | head -1)
             [ -n "$cred_match" ] && matched_patterns="credential_theft_indicator:${cred_match:0:30}"
             ;;
         "banking_trojan")
             local bt_match
-            bt_match=$(echo "$content" | grep -oiE "webinject|formgrabber|zeus|dridex|trickbot|emotet" | head -1)
+            bt_match=$(echo "$content" | safe_grep_oiE "webinject|formgrabber|zeus|dridex|trickbot|emotet" | head -1)
             [ -n "$bt_match" ] && matched_patterns="banking_trojan:$bt_match"
             ;;
 
         # Apex: Add ALL other evaluate_yara_rule behaviors, but with detailed extraction!
         "mobile_malware")
             local mob_match
-            mob_match=$(echo "$content" | grep -oiE "READ_SMS.*SEND_SMS|SEND_SMS.*READ_SMS|android\.permission\.CALL_PHONE|\.apk.*(payload|dropper)" | head -1)
+            mob_match=$(echo "$content" | safe_grep_oiE "READ_SMS.*SEND_SMS|SEND_SMS.*READ_SMS|android\.permission\.CALL_PHONE|\.apk.*(payload|dropper)" | head -1)
             [ -n "$mob_match" ] && matched_patterns="mobile_malware_indicator:${mob_match:0:40}"
             ;;
         "iot_malware")
             local iot_match
-            iot_match=$(echo "$content" | grep -oiE "mirai|bashlite|gafgyt|/dev/watchdog|telnet.*default.*password" | head -2 | tr '\n' ',' | sed 's/,$//')
+            iot_match=$(echo "$content" | safe_grep_oiE "mirai|bashlite|gafgyt|/dev/watchdog|telnet.*default.*password" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$iot_match" ] && matched_patterns="iot_malware_indicator:$iot_match"
             ;;
         "cryptominer")
             local cm_match
-            cm_match=$(echo "$content" | grep -oiE "stratum\+tcp://|xmrig|cpuminer|minergate|\.nanopool\.|monero.*wallet" | head -2 | tr '\n' ',' | sed 's/,$//')
+            cm_match=$(echo "$content" | safe_grep_oiE "stratum\+tcp://|xmrig|cpuminer|minergate|\.nanopool\.|monero.*wallet" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$cm_match" ] && matched_patterns="crypto_miner_indicator:$cm_match"
             ;;
         "exploit_kit")
             local ek_match
-            ek_match=$(echo "$content" | grep -oiE "FlashVars|deployJava|application/pdf|<iframe.*src=.*http|eval\(function\(p,a,c,k,e|\\\\x[0-9a-f]{2}" | head -3 | tr '\n' ',' | sed 's/,$//')
+            ek_match=$(echo "$content" | safe_grep_oiE "FlashVars|deployJava|application/pdf|<iframe.*src=.*http|eval\(function\(p,a,c,k,e|\\\\x[0-9a-f]{2}" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$ek_match" ] && matched_patterns="exploit_kit_indicator:$ek_match"
             ;;
         "phishing_kit")
             local pk_match
-            pk_match=$(echo "$content" | grep -oiE "<form.*action=.*\.php|<input.*type=.password|(paypal|amazon|google|microsoft|apple|facebook).*\.(png|jpg|svg)" | head -2 | tr '\n' ',' | sed 's/,$//')
+            pk_match=$(echo "$content" | safe_grep_oiE "<form.*action=.*\.php|<input.*type=.password|(paypal|amazon|google|microsoft|apple|facebook).*\.(png|jpg|svg)" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$pk_match" ] && matched_patterns="phishing_kit_indicator:$pk_match"
             ;;
         "session_hijack")
             local sh_match
-            sh_match=$(echo "$content" | grep -oiE "(session|token|cookie).*(steal|capture|intercept)" | head -1)
+            sh_match=$(echo "$content" | safe_grep_oiE "(session|token|cookie).*(steal|capture|intercept)" | head -1)
             [ -n "$sh_match" ] && matched_patterns="session_hijack_indicator:$sh_match"
             ;;
         "webshell")
             local ws_match
-            ws_match=$(echo "$content" | grep -oiE "eval[[:space:]]*\([[:space:]]*\$_(GET|POST|REQUEST|COOKIE)|system[[:space:]]*\([[:space:]]*\$_(GET|POST)|c99shell|r57shell|wso.shell|b374k" | head -2 | tr '\n' ',' | sed 's/,$//')
+            ws_match=$(echo "$content" | safe_grep_oiE "eval[[:space:]]*\([[:space:]]*\$_(GET|POST|REQUEST|COOKIE)|system[[:space:]]*\([[:space:]]*\$_(GET|POST)|c99shell|r57shell|wso.shell|b374k" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$ws_match" ] && matched_patterns="webshell_indicator:$ws_match"
             ;;
         "sql_injection")
             local sql_match
-            sql_match=$(echo "$content" | grep -oiE "UNION[[:space:]]\+SELECT|OR[[:space:]]\+1=1|AND[[:space:]]\+1=1|DROP[[:space:]]+TABLE|SLEEP\(|BENCHMARK\(" | head -2 | tr '\n' ',' | sed 's/,$//')
+            sql_match=$(echo "$content" | safe_grep_oiE "UNION[[:space:]]\+SELECT|OR[[:space:]]\+1=1|AND[[:space:]]\+1=1|DROP[[:space:]]+TABLE|SLEEP\(|BENCHMARK\(" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$sql_match" ] && matched_patterns="sql_injection_indicator:$sql_match"
             ;;
         "xss_attack")
             local xss_match
-            xss_match=$(echo "$content" | grep -oiE "<script|onerror[[:space:]]*=|onload[[:space:]]*=|javascript:" | head -2 | tr '\n' ',' | sed 's/,$//')
+            xss_match=$(echo "$content" | safe_grep_oiE "<script|onerror[[:space:]]*=|onload[[:space:]]*=|javascript:" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$xss_match" ] && matched_patterns="xss_attack_indicator:$xss_match"
             ;;
         "privilege_escalation")
             local pe_match
-            pe_match=$(echo "$content" | grep -oiE "(sudo|setuid|SUID|runas).*(escalate|privilege)|potato|printspoofer|getsystem" | head -2 | tr '\n' ',' | sed 's/,$//')
+            pe_match=$(echo "$content" | safe_grep_oiE "(sudo|setuid|SUID|runas).*(escalate|privilege)|potato|printspoofer|getsystem" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$pe_match" ] && matched_patterns="privilege_escalation_indicator:$pe_match"
             ;;
         "persistence")
             local pers_match
-            pers_match=$(echo "$content" | grep -oiE "HKLM.*Run|HKCU.*Run|CurrentVersion\\\\Run|schtasks|crontab|LaunchAgent|systemctl.enable" | head -2 | tr '\n' ',' | sed 's/,$//')
+            pers_match=$(echo "$content" | safe_grep_oiE "HKLM.*Run|HKCU.*Run|CurrentVersion\\\\Run|schtasks|crontab|LaunchAgent|systemctl.enable" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$pers_match" ] && matched_patterns="persistence_indicator:$pers_match"
             ;;
         "defense_evasion")
             local de_match
-            de_match=$(echo "$content" | grep -oiE "disable.*defender|AMSI.*bypass|ETW.*bypass|process.*hollow|reflective.*load" | head -2 | tr '\n' ',' | sed 's/,$//')
+            de_match=$(echo "$content" | safe_grep_oiE "disable.*defender|AMSI.*bypass|ETW.*bypass|process.*hollow|reflective.*load" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$de_match" ] && matched_patterns="defense_evasion_indicator:$de_match"
             ;;
         "lateral_movement")
             local lm_match
-            lm_match=$(echo "$content" | grep -oiE "psexec|wmic.*process.*create|winrm|pass.the.hash" | head -2 | tr '\n' ',' | sed 's/,$//')
+            lm_match=$(echo "$content" | safe_grep_oiE "psexec|wmic.*process.*create|winrm|pass.the.hash" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$lm_match" ] && matched_patterns="lateral_movement_indicator:$lm_match"
             ;;
         "data_collection")
             local dc_matches=""
-            echo "$content" | grep -oiE "screenshot" | grep -q . && dc_matches="${dc_matches}screenshot,"
-            echo "$content" | grep -oiE "keylog" | grep -q . && dc_matches="${dc_matches}keylog,"
-            echo "$content" | grep -oiE "clipboard" | grep -q . && dc_matches="${dc_matches}clipboard,"
-            echo "$content" | grep -oiE "webcam|camera" | grep -q . && dc_matches="${dc_matches}webcam,"
-            echo "$content" | grep -oiE "microphone|audio" | grep -q . && dc_matches="${dc_matches}microphone,"
+            echo "$content" | safe_grep_oiE "screenshot" | grep -q . && dc_matches="${dc_matches}screenshot,"
+            echo "$content" | safe_grep_oiE "keylog" | grep -q . && dc_matches="${dc_matches}keylog,"
+            echo "$content" | safe_grep_oiE "clipboard" | grep -q . && dc_matches="${dc_matches}clipboard,"
+            echo "$content" | safe_grep_oiE "webcam|camera" | grep -q . && dc_matches="${dc_matches}webcam,"
+            echo "$content" | safe_grep_oiE "microphone|audio" | grep -q . && dc_matches="${dc_matches}microphone,"
             local dc_count=$(echo "$dc_matches" | tr ',' '\n' | grep -c .)
             [ "$dc_count" -ge 2 ] && matched_patterns="data_collection:${dc_matches%,}"
             ;;
 
         "qr_malware")
             local qr_match
-            qr_match=$(echo "$content" | grep -oiE "qr code.*payload|scan.*intent://|market://|provisioning.*profile|mobile.*dropper|android\.intent\.action|ios.*UniversalLink" | head -2 | tr '\n' ',' | sed 's/,$//')
+            qr_match=$(echo "$content" | safe_grep_oiE "qr code.*payload|scan.*intent://|market://|provisioning.*profile|mobile.*dropper|android\.intent\.action|ios.*UniversalLink" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$qr_match" ] && matched_patterns="qr_mobile_indicator:$qr_match"
             ;;
         "cloud_impact")
             local cloud_match
-            cloud_match=$(echo "$content" | grep -oiE "aws_access_key_id|gcp_token|azure.*secret|s3://|gs://|cloudtrail|auditlog|iam:DeleteUser|iam:DeleteRole" | head -2 | tr '\n' ',' | sed 's/,$//')
+            cloud_match=$(echo "$content" | safe_grep_oiE "aws_access_key_id|gcp_token|azure.*secret|s3://|gs://|cloudtrail|auditlog|iam:DeleteUser|iam:DeleteRole" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$cloud_match" ] && matched_patterns="cloud_impact_indicator:$cloud_match"
             ;;
         "supplychain_malware")
             local supply_match
-            supply_match=$(echo "$content" | grep -oiE "setup\.py|requirements\.txt|signapk|signipa|manifest\.json|npm install|apktool|androguard|build.gradle" | head -2 | tr '\n' ',' | sed 's/,$//')
+            supply_match=$(echo "$content" | safe_grep_oiE "setup\.py|requirements\.txt|signapk|signipa|manifest\.json|npm install|apktool|androguard|build.gradle" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$supply_match" ] && matched_patterns="supplychain_indicator:$supply_match"
             ;;
         "business_social_compromise")
             local biz_match
-            biz_match=$(echo "$content" | grep -oiE "account_manager|dashboard|wire transfer|ceo fraud|payroll|hoax|business_email_compromise|social_engineering" | head -2 | tr '\n' ',' | sed 's/,$//')
+            biz_match=$(echo "$content" | safe_grep_oiE "account_manager|dashboard|wire transfer|ceo fraud|payroll|hoax|business_email_compromise|social_engineering" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$biz_match" ] && matched_patterns="business_social_compromise:$biz_match"
             ;;
         "stego_data_exfil")
             local stego_match
-            stego_match=$(echo "$content" | grep -oiE "steganography|hidden.*data|lsb|encode.*image|decode.*image|exiftool|imageIO|ffmpeg" | head -2 | tr '\n' ',' | sed 's/,$//')
+            stego_match=$(echo "$content" | safe_grep_oiE "steganography|hidden.*data|lsb|encode.*image|decode.*image|exiftool|imageIO|ffmpeg" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$stego_match" ] && matched_patterns="stego_exfil_indicator:$stego_match"
             ;;
         "rat_framework")
             local ratfw_match
-            ratfw_match=$(echo "$content" | grep -oiE "quasar|empire|cobaltstrike|meterpreter|reverse-shell|websocket|beacon|command queue|tasking|rat|async" | head -2 | tr '\n' ',' | sed 's/,$//')
+            ratfw_match=$(echo "$content" | safe_grep_oiE "quasar|empire|cobaltstrike|meterpreter|reverse-shell|websocket|beacon|command queue|tasking|rat|async" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$ratfw_match" ] && matched_patterns="rat_framework_indicator:$ratfw_match"
             ;;
         "iot_attack_framework")
             local iotfw_match
-            iotfw_match=$(echo "$content" | grep -oiE "mqtt|modbus|plc|iot_token|industrial.*key|mosquitto_pub|mosquitto_sub" | head -2 | tr '\n' ',' | sed 's/,$//')
+            iotfw_match=$(echo "$content" | safe_grep_oiE "mqtt|modbus|plc|iot_token|industrial.*key|mosquitto_pub|mosquitto_sub" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$iotfw_match" ] && matched_patterns="iot_attack_framework_indicator:$iotfw_match"
             ;;
         "impact_destruction")
             local impact_match
-            impact_match=$(echo "$content" | grep -oiE "wipe|shred|destroy|diskutil erase|cryptsetup|mkfs|factory reset|android.*delete|ios.*erase" | head -2 | tr '\n' ',' | sed 's/,$//')
+            impact_match=$(echo "$content" | safe_grep_oiE "wipe|shred|destroy|diskutil erase|cryptsetup|mkfs|factory reset|android.*delete|ios.*erase" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$impact_match" ] && matched_patterns="impact_destruction_indicator:$impact_match"
             ;;
         "impersonation_abuse")
             local imp_match
-            imp_match=$(echo "$content" | grep -oiE "impersonat(e|ion)|fakesender|spoofed|phish(S|ing)|forged|scan.*passport" | head -2 | tr '\n' ',' | sed 's/,$//')
+            imp_match=$(echo "$content" | safe_grep_oiE "impersonat(e|ion)|fakesender|spoofed|phish(S|ing)|forged|scan.*passport" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$imp_match" ] && matched_patterns="impersonation_abuse_indicator:$imp_match"
             ;;
         
@@ -22721,117 +22773,117 @@ evaluate_yara_rule() {
         
         "webshell_indicators")
             local ws_match
-            ws_match=$(echo "$content" | grep -oiE "\\\$_(GET|POST|REQUEST|COOKIE)|eval\s*\(\s*\\\$|system\s*\(\s*\\\$|passthru|shell_exec|c99shell|r57shell|b374k|WSO|AlfaShell|weevely|antsword|godzilla|behinder" | head -3 | tr '\n' ',' | sed 's/,$//')
+            ws_match=$(echo "$content" | safe_grep_oiE "\\\$_(GET|POST|REQUEST|COOKIE)|eval\s*\(\s*\\\$|system\s*\(\s*\\\$|passthru|shell_exec|c99shell|r57shell|b374k|WSO|AlfaShell|weevely|antsword|godzilla|behinder" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$ws_match" ] && matched_patterns="webshell_indicator:$ws_match"
             ;;
         "rootkit_signatures")
             local rk_match
-            rk_match=$(echo "$content" | grep -oiE "init_module|sys_call_table|kallsyms|__NR_|hide_process|hide_file|LD_PRELOAD|azazel|jynx2|diamorphine|reptile|beurk" | head -3 | tr '\n' ',' | sed 's/,$//')
+            rk_match=$(echo "$content" | safe_grep_oiE "init_module|sys_call_table|kallsyms|__NR_|hide_process|hide_file|LD_PRELOAD|azazel|jynx2|diamorphine|reptile|beurk" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$rk_match" ] && matched_patterns="rootkit_indicator:$rk_match"
             ;;
         "bootkit_patterns")
             local bk_match
-            bk_match=$(echo "$content" | grep -oiE "MBR|VBR|bootkit|bootsector|bootmgr|winload|UEFI|bootx64|\.efi|TDL4|TDSS|mebromi|rovnix|PhysicalDrive0|/dev/sda" | head -3 | tr '\n' ',' | sed 's/,$//')
+            bk_match=$(echo "$content" | safe_grep_oiE "MBR|VBR|bootkit|bootsector|bootmgr|winload|UEFI|bootx64|\.efi|TDL4|TDSS|mebromi|rovnix|PhysicalDrive0|/dev/sda" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$bk_match" ] && matched_patterns="bootkit_indicator:$bk_match"
             ;;
         "firmware_implants")
             local fw_match
-            fw_match=$(echo "$content" | grep -oiE "DXE_DRIVER|EFI_BOOT_SERVICES|EFI_RUNTIME|SPI Flash|SMM|firmware|flashrom|LoJax|MosaicRegressor|MoonBounce|CosmicStrand|ESPecter|SecureBoot" | head -3 | tr '\n' ',' | sed 's/,$//')
+            fw_match=$(echo "$content" | safe_grep_oiE "DXE_DRIVER|EFI_BOOT_SERVICES|EFI_RUNTIME|SPI Flash|SMM|firmware|flashrom|LoJax|MosaicRegressor|MoonBounce|CosmicStrand|ESPecter|SecureBoot" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$fw_match" ] && matched_patterns="firmware_implant_indicator:$fw_match"
             ;;
         "kernel_exploit")
             local ke_match
-            ke_match=$(echo "$content" | grep -oiE "/proc/kallsyms|/proc/modules|/dev/mem|/dev/kmem|commit_creds|prepare_kernel_cred|dirty_cow|dirty_pipe|CVE-20|setuid\(0\)|setgid\(0\)|ROP chain|gadget" | head -3 | tr '\n' ',' | sed 's/,$//')
+            ke_match=$(echo "$content" | safe_grep_oiE "/proc/kallsyms|/proc/modules|/dev/mem|/dev/kmem|commit_creds|prepare_kernel_cred|dirty_cow|dirty_pipe|CVE-20|setuid\(0\)|setgid\(0\)|ROP chain|gadget" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$ke_match" ] && matched_patterns="kernel_exploit_indicator:$ke_match"
             ;;
         "container_escape")
             local ce_match
-            ce_match=$(echo "$content" | grep -oiE "/var/run/docker\.sock|docker\.sock|privileged:true|--privileged|CAP_SYS_ADMIN|nsenter|unshare|serviceaccount|/var/run/secrets/kubernetes|kubectl|kubelet|etcd|release_agent|169\.254\.169\.254|/proc/1/root" | head -3 | tr '\n' ',' | sed 's/,$//')
+            ce_match=$(echo "$content" | safe_grep_oiE "/var/run/docker\.sock|docker\.sock|privileged:true|--privileged|CAP_SYS_ADMIN|nsenter|unshare|serviceaccount|/var/run/secrets/kubernetes|kubectl|kubelet|etcd|release_agent|169\.254\.169\.254|/proc/1/root" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$ce_match" ] && matched_patterns="container_escape_indicator:$ce_match"
             ;;
         "serverless_abuse")
             local sl_match
-            sl_match=$(echo "$content" | grep -oiE "AWS_LAMBDA|lambda\.amazonaws|invoke-function|update-function-code|LAMBDA_TASK_ROOT|azure\.functions|AzureWebJobsStorage|cloudfunctions\.net|AWS_ACCESS_KEY|AWS_SECRET_ACCESS|iam:PassRole|sts:AssumeRole" | head -3 | tr '\n' ',' | sed 's/,$//')
+            sl_match=$(echo "$content" | safe_grep_oiE "AWS_LAMBDA|lambda\.amazonaws|invoke-function|update-function-code|LAMBDA_TASK_ROOT|azure\.functions|AzureWebJobsStorage|cloudfunctions\.net|AWS_ACCESS_KEY|AWS_SECRET_ACCESS|iam:PassRole|sts:AssumeRole" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$sl_match" ] && matched_patterns="serverless_abuse_indicator:$sl_match"
             ;;
         "ci_cd_poisoning")
             local ci_match
-            ci_match=$(echo "$content" | grep -oiE "workflow_dispatch|GITHUB_TOKEN|secrets\.|@master|@main|Jenkinsfile|withCredentials|\.gitlab-ci\.yml|CI_JOB_TOKEN|circleci|CIRCLE_TOKEN|\.travis\.yml|curl.*\|.*sh|wget.*\|.*bash" | head -3 | tr '\n' ',' | sed 's/,$//')
+            ci_match=$(echo "$content" | safe_grep_oiE "workflow_dispatch|GITHUB_TOKEN|secrets\.|@master|@main|Jenkinsfile|withCredentials|\.gitlab-ci\.yml|CI_JOB_TOKEN|circleci|CIRCLE_TOKEN|\.travis\.yml|curl.*\|.*sh|wget.*\|.*bash" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$ci_match" ] && matched_patterns="ci_cd_poisoning_indicator:$ci_match"
             ;;
         "git_hooks_abuse")
             local gh_match
-            gh_match=$(echo "$content" | grep -oiE "\.git/hooks|pre-commit|post-commit|pre-push|post-receive|pre-receive|/dev/tcp/|reverse|nc |netcat" | head -3 | tr '\n' ',' | sed 's/,$//')
+            gh_match=$(echo "$content" | safe_grep_oiE "\.git/hooks|pre-commit|post-commit|pre-push|post-receive|pre-receive|/dev/tcp/|reverse|nc |netcat" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$gh_match" ] && matched_patterns="git_hooks_abuse_indicator:$gh_match"
             ;;
         "ide_extension_abuse")
             local ide_match
-            ide_match=$(echo "$content" | grep -oiE "\.vscode/extensions|vscode:extension|\.idea|intellij|plugin\.xml|child_process|spawn|execSync|keytar|vscode\.workspace" | head -3 | tr '\n' ',' | sed 's/,$//')
+            ide_match=$(echo "$content" | safe_grep_oiE "\.vscode/extensions|vscode:extension|\.idea|intellij|plugin\.xml|child_process|spawn|execSync|keytar|vscode\.workspace" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$ide_match" ] && matched_patterns="ide_extension_abuse_indicator:$ide_match"
             ;;
         "browser_extension_abuse")
             local be_match
-            be_match=$(echo "$content" | grep -oiE "manifest\.json|content_scripts|background|permissions|<all_urls>|webRequest|clipboardRead|keylogger|form grabber|cryptominer|coinhive" | head -3 | tr '\n' ',' | sed 's/,$//')
+            be_match=$(echo "$content" | safe_grep_oiE "manifest\.json|content_scripts|background|permissions|<all_urls>|webRequest|clipboardRead|keylogger|form grabber|cryptominer|coinhive" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$be_match" ] && matched_patterns="browser_extension_abuse_indicator:$be_match"
             ;;
         "electron_app_abuse")
             local el_match
-            el_match=$(echo "$content" | grep -oiE "electron|nodeIntegration|contextIsolation|webPreferences|BrowserWindow|nodeIntegration: true|contextIsolation: false|webSecurity: false|shell\.openExternal|remote\.require|executeJavaScript" | head -3 | tr '\n' ',' | sed 's/,$//')
+            el_match=$(echo "$content" | safe_grep_oiE "electron|nodeIntegration|contextIsolation|webPreferences|BrowserWindow|nodeIntegration: true|contextIsolation: false|webSecurity: false|shell\.openExternal|remote\.require|executeJavaScript" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$el_match" ] && matched_patterns="electron_app_abuse_indicator:$el_match"
             ;;
         "wasm_malware")
             local wm_match
-            wm_match=$(echo "$content" | grep -oiE "WebAssembly|\.wasm|wasm-bindgen|cryptonight|randomx|mining|hashrate|emscripten|assemblyscript" | head -3 | tr '\n' ',' | sed 's/,$//')
+            wm_match=$(echo "$content" | safe_grep_oiE "WebAssembly|\.wasm|wasm-bindgen|cryptonight|randomx|mining|hashrate|emscripten|assemblyscript" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$wm_match" ] && matched_patterns="wasm_malware_indicator:$wm_match"
             ;;
         "oauth_abuse")
             local oa_match
-            oa_match=$(echo "$content" | grep -oiE "oauth|access_token|refresh_token|authorization_code|client_id|client_secret|redirect_uri|token theft|open redirect|state parameter" | head -3 | tr '\n' ',' | sed 's/,$//')
+            oa_match=$(echo "$content" | safe_grep_oiE "oauth|access_token|refresh_token|authorization_code|client_id|client_secret|redirect_uri|token theft|open redirect|state parameter" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$oa_match" ] && matched_patterns="oauth_abuse_indicator:$oa_match"
             ;;
         "saml_injection")
             local sm_match
-            sm_match=$(echo "$content" | grep -oiE "SAMLResponse|SAMLRequest|Assertion|urn:oasis:names:tc:SAML|saml2|signature wrapping|golden SAML|forged assertion|<!ENTITY|saml-raider" | head -3 | tr '\n' ',' | sed 's/,$//')
+            sm_match=$(echo "$content" | safe_grep_oiE "SAMLResponse|SAMLRequest|Assertion|urn:oasis:names:tc:SAML|saml2|signature wrapping|golden SAML|forged assertion|<!ENTITY|saml-raider" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$sm_match" ] && matched_patterns="saml_injection_indicator:$sm_match"
             ;;
         "jwt_attacks")
             local jw_match
-            jw_match=$(echo "$content" | grep -oiE "eyJ|JWT|Bearer|jsonwebtoken|alg.*none|algorithm confusion|kid injection|jku manipulation|jwk injection|signature bypass|jwt_tool" | head -3 | tr '\n' ',' | sed 's/,$//')
+            jw_match=$(echo "$content" | safe_grep_oiE "eyJ|JWT|Bearer|jsonwebtoken|alg.*none|algorithm confusion|kid injection|jku manipulation|jwk injection|signature bypass|jwt_tool" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$jw_match" ] && matched_patterns="jwt_attack_indicator:$jw_match"
             ;;
         "ssrf_patterns")
             local sr_match
-            sr_match=$(echo "$content" | grep -oiE "169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200|/latest/meta-data|/computeMetadata|localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|file://|gopher://|dict://|SSRF|server-side request" | head -3 | tr '\n' ',' | sed 's/,$//')
+            sr_match=$(echo "$content" | safe_grep_oiE "169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200|/latest/meta-data|/computeMetadata|localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|file://|gopher://|dict://|SSRF|server-side request" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$sr_match" ] && matched_patterns="ssrf_indicator:$sr_match"
             ;;
         "ssti_patterns")
             local st_match
-            st_match=$(echo "$content" | grep -oiE "\{\{|__class__|__mro__|__subclasses__|__globals__|__builtins__|<#|th:|#set|#foreach|os\.popen|subprocess|SSTI|template injection" | head -3 | tr '\n' ',' | sed 's/,$//')
+            st_match=$(echo "$content" | safe_grep_oiE "\{\{|__class__|__mro__|__subclasses__|__globals__|__builtins__|<#|th:|#set|#foreach|os\.popen|subprocess|SSTI|template injection" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$st_match" ] && matched_patterns="ssti_indicator:$st_match"
             ;;
         "deserialization_attacks")
             local ds_match
-            ds_match=$(echo "$content" | grep -oiE "ObjectInputStream|readObject|Serializable|ysoserial|CommonsCollections|InvokerTransformer|unserialize|__wakeup|__destruct|pickle|cPickle|yaml\.load|marshal|BinaryFormatter|ObjectStateFormatter|TypeNameHandling|Marshal\.load|deserialization|gadget chain" | head -3 | tr '\n' ',' | sed 's/,$//')
+            ds_match=$(echo "$content" | safe_grep_oiE "ObjectInputStream|readObject|Serializable|ysoserial|CommonsCollections|InvokerTransformer|unserialize|__wakeup|__destruct|pickle|cPickle|yaml\.load|marshal|BinaryFormatter|ObjectStateFormatter|TypeNameHandling|Marshal\.load|deserialization|gadget chain" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$ds_match" ] && matched_patterns="deserialization_indicator:$ds_match"
             ;;
         "xxe_patterns")
             local xe_match
-            xe_match=$(echo "$content" | grep -oiE "<!DOCTYPE|<!ENTITY|SYSTEM|PUBLIC|file://|expect://|php://|data://|gopher://|external entity|XXE|CDATA" | head -3 | tr '\n' ',' | sed 's/,$//')
+            xe_match=$(echo "$content" | safe_grep_oiE "<!DOCTYPE|<!ENTITY|SYSTEM|PUBLIC|file://|expect://|php://|data://|gopher://|external entity|XXE|CDATA" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$xe_match" ] && matched_patterns="xxe_indicator:$xe_match"
             ;;
         "prototype_pollution")
             local pp_match
-            pp_match=$(echo "$content" | grep -oiE "__proto__|constructor\.prototype|Object\.prototype|prototype|merge|extend|clone|deepCopy|pollution|pollute|gadget|\{\"__proto__\"|constructor\.prototype" | head -3 | tr '\n' ',' | sed 's/,$//')
+            pp_match=$(echo "$content" | safe_grep_oiE "__proto__|constructor\.prototype|Object\.prototype|prototype|merge|extend|clone|deepCopy|pollution|pollute|gadget|\{\"__proto__\"|constructor\.prototype" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$pp_match" ] && matched_patterns="prototype_pollution_indicator:$pp_match"
             ;;
         "supply_chain_attack")
             local sc_match
-            sc_match=$(echo "$content" | grep -oiE "npm install|package\.json|postinstall|preinstall|pip install|setup\.py|requirements\.txt|typosquatting|dependency confusion|event-stream|flatmap-stream|ua-parser-js|child_process|subprocess" | head -3 | tr '\n' ',' | sed 's/,$//')
+            sc_match=$(echo "$content" | safe_grep_oiE "npm install|package\.json|postinstall|preinstall|pip install|setup\.py|requirements\.txt|typosquatting|dependency confusion|event-stream|flatmap-stream|ua-parser-js|child_process|subprocess" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$sc_match" ] && matched_patterns="supply_chain_indicator:$sc_match"
             ;;
         "api_abuse")
             local api_match
-            api_match=$(echo "$content" | grep -oE "AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|sk_live_[0-9a-zA-Z]{24}|ghp_[0-9a-zA-Z]{36}|xoxb-[0-9]{11,13}|private_key|BEGIN RSA PRIVATE|BEGIN EC PRIVATE" | head -2)
+            api_match=$(echo "$content" | safe_grep_oE "AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|sk_live_[0-9a-zA-Z]{24}|ghp_[0-9a-zA-Z]{36}|xoxb-[0-9]{11,13}|private_key|BEGIN RSA PRIVATE|BEGIN EC PRIVATE" | head -2)
             [ -n "$api_match" ] && matched_patterns="api_credential_exposure:${api_match:0:30}..."
             ;;
         *)
@@ -22849,7 +22901,7 @@ analyze_env_fingerprinting() {
     local content="${1:-}"
     set -u
     # Evasion, fingerprinting, sandbox, VM, emulator, defense check
-    if echo "$content" | grep -qiE "VBox|vmware|qemu|parallels|sandboxie|testrun|whoami|systeminfo|uname|getprop|android\.os\.Build|frida|emulator|checkvm|check_sandbox"; then
+    if echo "$content" | safe_grep_qiE "VBox|vmware|qemu|parallels|sandboxie|testrun|whoami|systeminfo|uname|getprop|android\.os\.Build|frida|emulator|checkvm|check_sandbox"; then
         log_forensic_detection 55 \
             "Env/Sandbox Fingerprinting" \
             "Matched: VM/Emu/Sandbox/Info indicator" \
@@ -22865,7 +22917,7 @@ analyze_defense_evasion() {
     local content="${1:-}"
     set -u
     # Defense evasion, tampering, AMSI, AV, log/cleaner
-    if echo "$content" | grep -qiE "amsi.*bypass|Defender.*disable|antivirus.*off|clear-log|wevtutil|attrib.*hidden|powershell.*-nop|set-mppreference.*disable|tamper|bypass"; then
+    if echo "$content" | safe_grep_qiE "amsi.*bypass|Defender.*disable|antivirus.*off|clear-log|wevtutil|attrib.*hidden|powershell.*-nop|set-mppreference.*disable|tamper|bypass"; then
         log_forensic_detection 65 \
             "Defense Evasion" \
             "Matched: AV/EDR/Log tampering" \
@@ -22881,7 +22933,7 @@ analyze_exploit_payloads() {
     local content="${1:-}"
     set -u
     # Exploits, shellcode, CVEs, heap spray, buffer overflow
-    if echo "$content" | grep -qiE "0x[0-9a-fA-F]{8,}|stage1_shellcode|exploit|rop_chain|buffer overflow|metasploit|cve-|heap_spray|dll_inject|overflow"; then
+    if echo "$content" | safe_grep_qiE "0x[0-9a-fA-F]{8,}|stage1_shellcode|exploit|rop_chain|buffer overflow|metasploit|cve-|heap_spray|dll_inject|overflow"; then
         log_forensic_detection 77 \
             "Exploit/ROP Payload" \
             "Matched: Exploit pattern/CVE/shellcode" \
@@ -22895,7 +22947,7 @@ analyze_exploit_payloads() {
 check_persistence_techniques() {
     local content="$1"
     # Persistence: autorun, crontab, scheduled task
-    if echo "$content" | grep -qiE "HKLM.*Run|LaunchAgent|systemctl.*enable|chmod.*777|crontab|schtasks|rc\.local"; then
+    if echo "$content" | safe_grep_qiE "HKLM.*Run|LaunchAgent|systemctl.*enable|chmod.*777|crontab|schtasks|rc\.local"; then
         log_forensic_detection 45 \
             "Persistence" \
             "Matched: Persistence artifact" \
@@ -22909,7 +22961,7 @@ check_persistence_techniques() {
 check_privilege_escalation() {
     local content="$1"
     # Privilege escalation/local root/admin
-    if echo "$content" | grep -qiE "sudo|su |runas|setuid|potato|printspoofer|getsystem|escalate"; then
+    if echo "$content" | safe_grep_qiE "sudo|su |runas|setuid|potato|printspoofer|getsystem|escalate"; then
         log_forensic_detection 58 \
             "Privilege Escalation" \
             "Matched: Priv esc technique" \
@@ -22923,7 +22975,7 @@ check_privilege_escalation() {
 check_discovery_techniques() {
     local content="$1"
     # Discovery: host, network, user, cloud, AD, mobile/MaaS recon
-    if echo "$content" | grep -qiE "systeminfo|hostname|whoami|wmic|Get-ComputerInfo|ipconfig|ifconfig|ip addr|netstat|nslookup|nltest|Get-ADDomain|net view|ps aux|Get-Process|tasklist|dir /s|ls -laR|find /|Get-ChildItem.*Recurse|tree|android\.intent\.action|pm list packages|dumpsys|getprop"; then
+    if echo "$content" | safe_grep_qiE "systeminfo|hostname|whoami|wmic|Get-ComputerInfo|ipconfig|ifconfig|ip addr|netstat|nslookup|nltest|Get-ADDomain|net view|ps aux|Get-Process|tasklist|dir /s|ls -laR|find /|Get-ChildItem.*Recurse|tree|android\.intent\.action|pm list packages|dumpsys|getprop"; then
         log_forensic_detection 47 \
             "Discovery/Recon" \
             "Matched: Reconnaissance/discovery methods" \
@@ -22937,7 +22989,7 @@ check_discovery_techniques() {
 check_lateral_movement() {
     local content="$1"
     # Lateral: pass-the-hash, PsExec, WinRM, SSH, RDP, SMB, mobile/QR handoff
-    if echo "$content" | grep -qiE "psexec|wmic.*process.*create|pass.the.hash|winrm|smbclient|net use|net rpc|rdesktop|mstsc|ssh |scp |adb connect|intent://" ; then
+    if echo "$content" | safe_grep_qiE "psexec|wmic.*process.*create|pass.the.hash|winrm|smbclient|net use|net rpc|rdesktop|mstsc|ssh |scp |adb connect|intent://" ; then
         log_forensic_detection 63 \
             "Lateral Movement" \
             "Matched: Lateral movement/remote exec method" \
@@ -22951,7 +23003,7 @@ check_lateral_movement() {
 check_exfiltration_patterns() {
     local content="$1"
     # Exfil: upload, cloud/drive/pastebin, base64/FTP/email/QR/mobile exfil
-    if echo "$content" | grep -qiE "upload|ftp|get.*password|scp|sftp|aws s3 cp|gsutil cp|azcopy|curl.*--upload|-T|wget.*--post|dropbox|gdrive|sendBeacon|base64|encode|mail\.send|sendTextMessage|pastebin\.com|telegram\.api|intent://" ; then
+    if echo "$content" | safe_grep_qiE "upload|ftp|get.*password|scp|sftp|aws s3 cp|gsutil cp|azcopy|curl.*--upload|-T|wget.*--post|dropbox|gdrive|sendBeacon|base64|encode|mail\.send|sendTextMessage|pastebin\.com|telegram\.api|intent://" ; then
         log_forensic_detection 67 \
             "Exfiltration" \
             "Matched: Data exfil/cloud/SaaS/mobile" \
@@ -22965,7 +23017,7 @@ check_exfiltration_patterns() {
 check_credential_access() {
     local content="$1"
     # Credential access: Mimikatz, lsass, browser dump, token stealers, mobile/QR abuse
-    if echo "$content" | grep -qiE "mimikatz|lsass|sekurlsa|credential.dump|password|keychain|SAM|GetCredential|browser.*password|getpass|get_token|keyring|android\.permission.GET_ACCOUNTS"; then
+    if echo "$content" | safe_grep_qiE "mimikatz|lsass|sekurlsa|credential.dump|password|keychain|SAM|GetCredential|browser.*password|getpass|get_token|keyring|android\.permission.GET_ACCOUNTS"; then
         log_forensic_detection 60 \
             "Credential Access" \
             "Matched: Credential/cookie/token extractor" \
@@ -22979,7 +23031,7 @@ check_credential_access() {
 check_c2_patterns() {
     local content="$1"
     # C2: beacon, checkin, reverse shell, RATs, QR/mobile C2 patterns, cloud
-    if echo "$content" | grep -qiE "beacon|checkin|callback|pastebin\.com/raw|raw\.githubusercontent|reverse.shell|bind.shell|websocket|rat|quasar|empire|meterpreter|cobaltstrike|ngrok|tunnel|discord\.api|telegram\.api"; then
+    if echo "$content" | safe_grep_qiE "beacon|checkin|callback|pastebin\.com/raw|raw\.githubusercontent|reverse.shell|bind.shell|websocket|rat|quasar|empire|meterpreter|cobaltstrike|ngrok|tunnel|discord\.api|telegram\.api"; then
         log_forensic_detection 66 \
             "C2/Remote Operator" \
             "Matched: Beacon/RAT/C2/comm" \
@@ -22993,7 +23045,7 @@ check_c2_patterns() {
 check_impact_techniques() {
     local content="$1"
     # Impact: ransomware, wipe, destroy, wiper, sabotage, DDoS, mining
-    if echo "$content" | grep -qiE "encrypt|ransom|decrypt|bitcoin|monero|\.onion|\.locked|\.encrypted|wipe|destroy|shred|rm -rf|format|cipher /w|disable|shutdown|ddos|xmrig|minergate|minerd|stratum"; then
+    if echo "$content" | safe_grep_qiE "encrypt|ransom|decrypt|bitcoin|monero|\.onion|\.locked|\.encrypted|wipe|destroy|shred|rm -rf|format|cipher /w|disable|shutdown|ddos|xmrig|minergate|minerd|stratum"; then
         log_forensic_detection 80 \
             "Impact Techniques" \
             "Matched: Impact/ransom/wiper pattern" \
@@ -23009,7 +23061,7 @@ analyze_qr_specific_iocs() {
     local content="${1:-}"
     set -u
     # QR-specific: intent abuse, instant QR malware, QR mobilizer, app provisioning
-    if echo "$content" | grep -qiE "qr code.*payload|scan.*intent://|market://|mobile.*dropper|provisioning.*profile|android\.intent\.action|ios.*UniversalLink|scan.*app list"; then
+    if echo "$content" | safe_grep_qiE "qr code.*payload|scan.*intent://|market://|mobile.*dropper|provisioning.*profile|android\.intent\.action|ios.*UniversalLink|scan.*app list"; then
         log_forensic_detection 64 \
             "QR/Mobile IOC" \
             "Matched: QR/intent/mobile/abuse" \
@@ -23025,7 +23077,7 @@ analyze_supply_chain_impact() {
     local content="${1:-}"
     set -u
     # Supply chain: installer, script, app builder/packer/provisioning, SDK injection
-    if echo "$content" | grep -qiE "setup\.py|requirements\.txt|signapk|signipa|manifest\.json|provisioning profile|npm install|apktool|drozer|build.gradle|PyInstaller|shellter|veil|obfuscator|packer"; then
+    if echo "$content" | safe_grep_qiE "setup\.py|requirements\.txt|signapk|signipa|manifest\.json|provisioning profile|npm install|apktool|drozer|build.gradle|PyInstaller|shellter|veil|obfuscator|packer"; then
         log_forensic_detection 72 \
             "Supply Chain Impact" \
             "Matched: Builder/packer/install" \
@@ -23041,7 +23093,7 @@ analyze_mobile_abuse() {
     local content="${1:-}"
     set -u
     # Mobile-specific: SMS abuse, ADB, overlay, permissions, QR, fraud
-    if echo "$content" | grep -qiE "READ_SMS|SEND_SMS|CALL_PHONE|adb shell|pm install|am start|content://contacts|MMS|overlay|draw over|packageinstaller|deepLink|qr code.*sms|fido_key|gcm|push_key|twilio|whatsapp"; then
+    if echo "$content" | safe_grep_qiE "READ_SMS|SEND_SMS|CALL_PHONE|adb shell|pm install|am start|content://contacts|MMS|overlay|draw over|packageinstaller|deepLink|qr code.*sms|fido_key|gcm|push_key|twilio|whatsapp"; then
         log_forensic_detection 59 \
             "Mobile Abuse/Abuse of Mobile APIs" \
             "Matched: Mobile abuse/permission/QR/fraud" \
@@ -23057,7 +23109,7 @@ analyze_cloud_saas_abuse() {
     local content="${1:-}"
     set -u
     # Cloud/SaaS: data exfil, API tokens, shadow IT, risky SaaS operations
-    if echo "$content" | grep -qiE "aws_access_key_id|gcp_token|azure|cloudtrail|gs://|s3://|bucket|slack_token|discord_token|teams_token|office365|dropbox|gdrive|zapier|automation anywhere"; then
+    if echo "$content" | safe_grep_qiE "aws_access_key_id|gcp_token|azure|cloudtrail|gs://|s3://|bucket|slack_token|discord_token|teams_token|office365|dropbox|gdrive|zapier|automation anywhere"; then
         log_forensic_detection 62 \
             "Cloud/SaaS Abuse" \
             "Matched: Cloud API/data exfil/abuse" \
@@ -23073,7 +23125,7 @@ analyze_social_engineering() {
     local content="${1:-}"
     set -u
     # Phishing, fraud, vishing, QR-induced scam, social/impersonation/SEO/smishing/fake popups
-    if echo "$content" | grep -qiE "phish|fake login|urgent action|required|confirm account|security alert|vishing|smishing|qr code.*phish|reset password|verify.*identity|impersonat(e|ion)|fakesender|spoofed"; then
+    if echo "$content" | safe_grep_qiE "phish|fake login|urgent action|required|confirm account|security alert|vishing|smishing|qr code.*phish|reset password|verify.*identity|impersonat(e|ion)|fakesender|spoofed"; then
         log_forensic_detection 65 \
             "Social Engineering/Phishing" \
             "Matched: Social/Fraud/SEO tactics" \
@@ -23089,7 +23141,7 @@ analyze_steganography() {
     local content="${1:-}"
     set -u
     # Stego/hidden: Data hidden in images, files, LSB, QR, packers
-    if echo "$content" | grep -qiE "steganography|jpeg|png|lsb|hidden.*data|imageData|canvas\.toDataURL|exiftool|encode.*image|decode.*image|Stego|qr code.*steg"; then
+    if echo "$content" | safe_grep_qiE "steganography|jpeg|png|lsb|hidden.*data|imageData|canvas\.toDataURL|exiftool|encode.*image|decode.*image|Stego|qr code.*steg"; then
         log_forensic_detection 50 \
             "Steganography/Obfuscation" \
             "Matched: Stego/hidden/packer/image abuse" \
@@ -23440,8 +23492,8 @@ analyze_cloud_service_abuse() {
     
     # Check cloud storage abuse patterns
     for pattern in "${CLOUD_STORAGE_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             cloud_findings+=("cloud_storage:$matched")
             ((cloud_score += 25))
             log_warning "Cloud storage abuse pattern detected: $matched"
@@ -23450,8 +23502,8 @@ analyze_cloud_service_abuse() {
     
     # Check code hosting abuse patterns
     for pattern in "${CODE_HOSTING_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             cloud_findings+=("code_hosting:$matched")
             ((cloud_score += 30))
             log_warning "Code hosting abuse pattern detected: $matched"
@@ -23459,56 +23511,56 @@ analyze_cloud_service_abuse() {
     done
     
     # Specific high-risk combinations
-    if echo "$content" | grep -qiE "discord.*cdn.*\.(exe|dll|bat|ps1|vbs)"; then
+    if echo "$content" | safe_grep_qiE "discord.*cdn.*\.(exe|dll|bat|ps1|vbs)"; then
         log_threat 60 "Discord CDN hosting executable - common malware distribution"
         cloud_findings+=("discord_malware_distribution")
         ((cloud_score += 35))
     fi
     
-    if echo "$content" | grep -qiE "raw\.githubusercontent.*\.(ps1|bat|exe|sh|py)"; then
+    if echo "$content" | safe_grep_qiE "raw\.githubusercontent.*\.(ps1|bat|exe|sh|py)"; then
         log_threat 55 "GitHub raw hosting script/executable - potential payload delivery"
         cloud_findings+=("github_payload_delivery")
         ((cloud_score += 30))
     fi
     
-    if echo "$content" | grep -qiE "drive\.google\.com.*(download|export).*\.(exe|dll|msi|dmg)"; then
+    if echo "$content" | safe_grep_qiE "drive\.google\.com.*(download|export).*\.(exe|dll|msi|dmg)"; then
         log_threat 50 "Google Drive executable download link detected"
         cloud_findings+=("gdrive_executable")
         ((cloud_score += 30))
     fi
     
-    if echo "$content" | grep -qiE "dropbox.*\.(exe|dll|scr|bat|cmd|ps1|vbs)"; then
+    if echo "$content" | safe_grep_qiE "dropbox.*\.(exe|dll|scr|bat|cmd|ps1|vbs)"; then
         log_threat 50 "Dropbox hosting executable/script"
         cloud_findings+=("dropbox_executable")
         ((cloud_score += 30))
     fi
     
-    if echo "$content" | grep -qiE "s3\.amazonaws\.com.*/.*\.(exe|dll|msi)"; then
+    if echo "$content" | safe_grep_qiE "s3\.amazonaws\.com.*/.*\.(exe|dll|msi)"; then
         log_threat 45 "AWS S3 hosting executable"
         cloud_findings+=("s3_executable")
         ((cloud_score += 25))
     fi
     
-    if echo "$content" | grep -qiE "blob\.core\.windows\.net.*/.*\.(exe|dll|msi)"; then
+    if echo "$content" | safe_grep_qiE "blob\.core\.windows\.net.*/.*\.(exe|dll|msi)"; then
         log_threat 45 "Azure Blob hosting executable"
         cloud_findings+=("azure_executable")
         ((cloud_score += 25))
     fi
     
-    if echo "$content" | grep -qiE "workers\.dev"; then
+    if echo "$content" | safe_grep_qiE "workers\.dev"; then
         log_warning "Cloudflare Workers URL - frequently used for phishing/redirects"
         cloud_findings+=("cloudflare_workers")
         ((cloud_score += 20))
     fi
     
-    if echo "$content" | grep -qiE "pages\.dev"; then
+    if echo "$content" | safe_grep_qiE "pages\.dev"; then
         log_warning "Cloudflare Pages URL - check for phishing content"
         cloud_findings+=("cloudflare_pages")
         ((cloud_score += 15))
     fi
     
     # Pastebin with potential encoded payload
-    if echo "$content" | grep -qiE "pastebin\.com/raw"; then
+    if echo "$content" | safe_grep_qiE "pastebin\.com/raw"; then
         log_threat 40 "Pastebin raw content link - common payload hosting"
         cloud_findings+=("pastebin_raw")
         ((cloud_score += 25))
@@ -23521,7 +23573,7 @@ analyze_cloud_service_abuse() {
     
     # File sharing services analysis
     for service in "transfer.sh" "file.io" "gofile.io" "anonfiles" "mega.nz" "wetransfer"; do
-        if echo "$content" | grep -qi "$service"; then
+        if echo "$content" | safe_grep_qi "$service"; then
             log_warning "File sharing service detected: $service"
             cloud_findings+=("fileshare:$service")
             ((cloud_score += 20))
@@ -23568,8 +23620,8 @@ analyze_cloud_service_abuse() {
     # Check against EXTENDED_CLOUD_IOCS database
     for key in "${!EXTENDED_CLOUD_IOCS[@]}"; do
         local pattern="${EXTENDED_CLOUD_IOCS[$key]}"
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             log_warning "Extended cloud IOC detected ($key): $matched"
             record_ioc "cloud_abuse" "$key:$matched" "Extended cloud provider abuse"
             ((cloud_score += 20))
@@ -23579,8 +23631,8 @@ analyze_cloud_service_abuse() {
     # Check against DEV_PLATFORM_ABUSE_IOCS database
     for key in "${!DEV_PLATFORM_ABUSE_IOCS[@]}"; do
         local pattern="${DEV_PLATFORM_ABUSE_IOCS[$key]}"
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             log_warning "Developer platform abuse detected ($key): $matched"
             record_ioc "dev_platform" "$key:$matched" "Developer platform abuse"
             ((cloud_score += 25))
@@ -23590,8 +23642,8 @@ analyze_cloud_service_abuse() {
     # Check messaging platform abuse
     for key in "${!MESSAGING_PLATFORM_IOCS[@]}"; do
         local pattern="${MESSAGING_PLATFORM_IOCS[$key]}"
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             log_warning "Messaging platform abuse detected ($key): $matched"
             record_ioc "messaging_abuse" "$key:$matched" "Messaging platform C2/abuse"
             ((cloud_score += 30))
@@ -23615,8 +23667,8 @@ analyze_messaging_platform_abuse() {
     local msg_score=0
     
     # Check Slack webhooks
-    if echo "$content" | grep -qiE "hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+"; then
-        local matched=$(echo "$content" | grep -oiE "hooks\.slack\.com/services/[A-Za-z0-9/]+" | head -1)
+    if echo "$content" | safe_grep_qiE "hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+"; then
+        local matched=$(echo "$content" | safe_grep_oiE "hooks\.slack\.com/services/[A-Za-z0-9/]+" | head -1)
         msg_findings+=("slack_webhook:$matched")
         ((msg_score += 40))
         log_threat 45 "Slack webhook URL detected - potential C2 channel"
@@ -23624,8 +23676,8 @@ analyze_messaging_platform_abuse() {
     fi
     
     # Check Discord webhooks
-    if echo "$content" | grep -qiE "discord(app)?\.com/api/webhooks/[0-9]+"; then
-        local matched=$(echo "$content" | grep -oiE "discord(app)?\.com/api/webhooks/[0-9]+/[a-zA-Z0-9_-]+" | head -1)
+    if echo "$content" | safe_grep_qiE "discord(app)?\.com/api/webhooks/[0-9]+"; then
+        local matched=$(echo "$content" | safe_grep_oiE "discord(app)?\.com/api/webhooks/[0-9]+/[a-zA-Z0-9_-]+" | head -1)
         msg_findings+=("discord_webhook:$matched")
         ((msg_score += 45))
         log_threat 50 "Discord webhook URL detected - common malware C2"
@@ -23633,8 +23685,8 @@ analyze_messaging_platform_abuse() {
     fi
     
     # Check Microsoft Teams webhooks
-    if echo "$content" | grep -qiE "\.webhook\.office\.com"; then
-        local matched=$(echo "$content" | grep -oiE "[a-z0-9-]+\.webhook\.office\.com[^\s]*" | head -1)
+    if echo "$content" | safe_grep_qiE "\.webhook\.office\.com"; then
+        local matched=$(echo "$content" | safe_grep_oiE "[a-z0-9-]+\.webhook\.office\.com[^\s]*" | head -1)
         msg_findings+=("teams_webhook:$matched")
         ((msg_score += 40))
         log_warning "Microsoft Teams webhook detected"
@@ -23642,8 +23694,8 @@ analyze_messaging_platform_abuse() {
     fi
     
     # Check Telegram bot API
-    if echo "$content" | grep -qiE "api\.telegram\.org/bot[0-9]+:"; then
-        local matched=$(echo "$content" | grep -oiE "api\.telegram\.org/bot[0-9]+:[a-zA-Z0-9_-]+" | head -1)
+    if echo "$content" | safe_grep_qiE "api\.telegram\.org/bot[0-9]+:"; then
+        local matched=$(echo "$content" | safe_grep_oiE "api\.telegram\.org/bot[0-9]+:[a-zA-Z0-9_-]+" | head -1)
         msg_findings+=("telegram_bot:$matched")
         ((msg_score += 50))
         log_threat 55 "Telegram bot API endpoint - common stealer/C2 exfil"
@@ -23651,64 +23703,64 @@ analyze_messaging_platform_abuse() {
     fi
     
     # Check Telegram links
-    if echo "$content" | grep -qiE "t\.me/[a-zA-Z0-9_]+"; then
-        local matched=$(echo "$content" | grep -oiE "t\.me/[a-zA-Z0-9_]+" | head -1)
+    if echo "$content" | safe_grep_qiE "t\.me/[a-zA-Z0-9_]+"; then
+        local matched=$(echo "$content" | safe_grep_oiE "t\.me/[a-zA-Z0-9_]+" | head -1)
         msg_findings+=("telegram_link:$matched")
         ((msg_score += 20))
         log_info "Telegram link detected: $matched"
     fi
     
     # Check WhatsApp API abuse
-    if echo "$content" | grep -qiE "api\.whatsapp\.com/send|wa\.me/[0-9]+\?text="; then
-        local matched=$(echo "$content" | grep -oiE "(api\.whatsapp\.com/send|wa\.me/[0-9]+)[^\s]*" | head -1)
+    if echo "$content" | safe_grep_qiE "api\.whatsapp\.com/send|wa\.me/[0-9]+\?text="; then
+        local matched=$(echo "$content" | safe_grep_oiE "(api\.whatsapp\.com/send|wa\.me/[0-9]+)[^\s]*" | head -1)
         msg_findings+=("whatsapp_link:$matched")
         ((msg_score += 25))
         log_warning "WhatsApp API/link detected"
     fi
     
     # Check Signal links
-    if echo "$content" | grep -qiE "signal\.me/#p/|signal\.group/#"; then
-        local matched=$(echo "$content" | grep -oiE "signal\.(me|group)/#[a-zA-Z0-9_-]+" | head -1)
+    if echo "$content" | safe_grep_qiE "signal\.me/#p/|signal\.group/#"; then
+        local matched=$(echo "$content" | safe_grep_oiE "signal\.(me|group)/#[a-zA-Z0-9_-]+" | head -1)
         msg_findings+=("signal_link:$matched")
         ((msg_score += 20))
         log_info "Signal link detected: $matched"
     fi
     
     # Check Matrix/Element
-    if echo "$content" | grep -qiE "matrix\.to/#/|app\.element\.io/#/room"; then
-        local matched=$(echo "$content" | grep -oiE "(matrix\.to|app\.element\.io)/#[^\s]+" | head -1)
+    if echo "$content" | safe_grep_qiE "matrix\.to/#/|app\.element\.io/#/room"; then
+        local matched=$(echo "$content" | safe_grep_oiE "(matrix\.to|app\.element\.io)/#[^\s]+" | head -1)
         msg_findings+=("matrix_link:$matched")
         ((msg_score += 20))
         log_info "Matrix/Element room link detected"
     fi
     
     # Check Mattermost
-    if echo "$content" | grep -qiE "mattermost\.(com|cloud)/hooks/"; then
-        local matched=$(echo "$content" | grep -oiE "[a-z0-9-]+\.mattermost\.[a-z]+/hooks/[a-z0-9]+" | head -1)
+    if echo "$content" | safe_grep_qiE "mattermost\.(com|cloud)/hooks/"; then
+        local matched=$(echo "$content" | safe_grep_oiE "[a-z0-9-]+\.mattermost\.[a-z]+/hooks/[a-z0-9]+" | head -1)
         msg_findings+=("mattermost_webhook:$matched")
         ((msg_score += 35))
         log_warning "Mattermost webhook detected"
     fi
     
     # Check Rocket.Chat
-    if echo "$content" | grep -qiE "rocket\.chat/(hooks|api)/"; then
-        local matched=$(echo "$content" | grep -oiE "[a-z0-9-]+\.rocket\.chat/(hooks|api)[^\s]*" | head -1)
+    if echo "$content" | safe_grep_qiE "rocket\.chat/(hooks|api)/"; then
+        local matched=$(echo "$content" | safe_grep_oiE "[a-z0-9-]+\.rocket\.chat/(hooks|api)[^\s]*" | head -1)
         msg_findings+=("rocketchat:$matched")
         ((msg_score += 30))
         log_warning "Rocket.Chat API/webhook detected"
     fi
     
     # Check Zulip
-    if echo "$content" | grep -qiE "zulipchat\.com/api"; then
-        local matched=$(echo "$content" | grep -oiE "[a-z0-9-]+\.zulipchat\.com/api[^\s]*" | head -1)
+    if echo "$content" | safe_grep_qiE "zulipchat\.com/api"; then
+        local matched=$(echo "$content" | safe_grep_oiE "[a-z0-9-]+\.zulipchat\.com/api[^\s]*" | head -1)
         msg_findings+=("zulip:$matched")
         ((msg_score += 30))
         log_warning "Zulip API detected"
     fi
     
     # Check Keybase
-    if echo "$content" | grep -qiE "keybase\.io/(team|_/api)"; then
-        local matched=$(echo "$content" | grep -oiE "keybase\.io/(team|_/api)[^\s]*" | head -1)
+    if echo "$content" | safe_grep_qiE "keybase\.io/(team|_/api)"; then
+        local matched=$(echo "$content" | safe_grep_oiE "keybase\.io/(team|_/api)[^\s]*" | head -1)
         msg_findings+=("keybase:$matched")
         ((msg_score += 25))
         log_info "Keybase endpoint detected"
@@ -23754,9 +23806,9 @@ analyze_url_shortener_extended() {
     
     # Check against extended URL shortener patterns
     for shortener in "${URL_SHORTENERS[@]}"; do
-        if echo "$content" | grep -qiE "$shortener"; then
-            local matched=$(echo "$content" | grep -oiE "https?://[^\s]*$shortener[^\s]*" | head -1)
-            [ -z "$matched" ] && matched=$(echo "$content" | grep -oiE "$shortener[^\s]*" | head -1)
+        if echo "$content" | safe_grep_qiE "$shortener"; then
+            local matched=$(echo "$content" | safe_grep_oiE "https?://[^\s]*$shortener[^\s]*" | head -1)
+            [ -z "$matched" ] && matched=$(echo "$content" | safe_grep_oiE "$shortener[^\s]*" | head -1)
             shortener_findings+=("shortener:$matched")
             ((shortener_score += 15))
         fi
@@ -23765,29 +23817,29 @@ analyze_url_shortener_extended() {
     # Check against URL_SHORTENER_EXTENDED_IOCS
     for key in "${!URL_SHORTENER_EXTENDED_IOCS[@]}"; do
         local pattern="${URL_SHORTENER_EXTENDED_IOCS[$key]}"
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" | head -1)
             shortener_findings+=("$key:$matched")
             ((shortener_score += 20))
         fi
     done
     
     # High-risk shorteners (known malware distribution)
-    if echo "$content" | grep -qiE "ouo\.io|adf\.ly|shorte\.st|bc\.vc"; then
+    if echo "$content" | safe_grep_qiE "ouo\.io|adf\.ly|shorte\.st|bc\.vc"; then
         shortener_findings+=("high_risk_shortener")
         ((shortener_score += 35))
         log_threat 40 "High-risk URL shortener detected (known malware distribution)"
     fi
     
     # Link-in-bio services (used for phishing)
-    if echo "$content" | grep -qiE "linktr\.ee|beacons\.ai|lnk\.bio|taplink\.cc"; then
+    if echo "$content" | safe_grep_qiE "linktr\.ee|beacons\.ai|lnk\.bio|taplink\.cc"; then
         shortener_findings+=("link_in_bio")
         ((shortener_score += 20))
         log_warning "Link-in-bio service detected - verify destination"
     fi
     
     # QR-specific shorteners
-    if echo "$content" | grep -qiE "qrco\.de|qrfy\.com|qrtag\.net|qrs\.ly"; then
+    if echo "$content" | safe_grep_qiE "qrco\.de|qrfy\.com|qrtag\.net|qrs\.ly"; then
         shortener_findings+=("qr_shortener")
         ((shortener_score += 15))
         log_info "QR-specific shortener detected"
@@ -23829,8 +23881,8 @@ analyze_offensive_tools() {
     # Check for known offensive tools patterns
     for pattern in "${OFFENSIVE_TOOLS_PATTERNS[@]}"; do
         [ -z "$pattern" ] && continue
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             offensive_findings+=("offensive_tool:$matched")
             ((offensive_score += 50))
             log_threat 60 "🔴 OFFENSIVE TOOL DETECTED: $matched"
@@ -23843,8 +23895,8 @@ analyze_offensive_tools() {
     # Check for offensive file patterns
     for pattern in "${OFFENSIVE_FILE_PATTERNS[@]}"; do
         [ -z "$pattern" ] && continue
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             offensive_findings+=("offensive_file:$matched")
             ((offensive_score += 40))
             log_threat 50 "🔴 OFFENSIVE FILE SIGNATURE: $matched"
@@ -23856,8 +23908,8 @@ analyze_offensive_tools() {
     # Check for offensive infrastructure patterns
     for pattern in "${OFFENSIVE_INFRA_PATTERNS[@]}"; do
         [ -z "$pattern" ] && continue
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             offensive_findings+=("offensive_infra:$matched")
             ((offensive_score += 35))
             log_threat 45 "⚠️  OFFENSIVE INFRASTRUCTURE INDICATOR: $matched"
@@ -23867,7 +23919,7 @@ analyze_offensive_tools() {
     done
     
     # Specific high-confidence detections with detailed output
-    if echo "$content" | grep -qiE "cobalt.*strike|cobaltstrike|beacon\.(dll|exe)" 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE "cobalt.*strike|cobaltstrike|beacon\.(dll|exe)" 2>/dev/null; then
         log_critical "════════════════════════════════════════════════════════"
         log_critical "🚨 COBALT STRIKE DETECTED!"
         log_critical "════════════════════════════════════════════════════════"
@@ -23879,7 +23931,7 @@ analyze_offensive_tools() {
         ((offensive_score += 200))
     fi
     
-    if echo "$content" | grep -qiE "meterpreter|msfvenom|metasploit" 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE "meterpreter|msfvenom|metasploit" 2>/dev/null; then
         log_critical "════════════════════════════════════════════════════════"
         log_critical "🚨 METASPLOIT FRAMEWORK DETECTED!"
         log_critical "════════════════════════════════════════════════════════"
@@ -23891,7 +23943,7 @@ analyze_offensive_tools() {
         ((offensive_score += 150))
     fi
     
-    if echo "$content" | grep -qiE "mimikatz|sekurlsa|lsadump" 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE "mimikatz|sekurlsa|lsadump" 2>/dev/null; then
         log_critical "════════════════════════════════════════════════════════"
         log_critical "🚨 MIMIKATZ CREDENTIAL THEFT TOOL DETECTED!"
         log_critical "════════════════════════════════════════════════════════"
@@ -23903,7 +23955,7 @@ analyze_offensive_tools() {
         ((offensive_score += 200))
     fi
     
-    if echo "$content" | grep -qiE "bloodhound|sharphound" 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE "bloodhound|sharphound" 2>/dev/null; then
         log_threat 80 "🔴 BLOODHOUND/SHARPHOUND DETECTED!"
         log_error "    ├─ Tool: BloodHound Active Directory reconnaissance"
         log_error "    ├─ Purpose: AD privilege escalation path discovery"
@@ -23912,7 +23964,7 @@ analyze_offensive_tools() {
         ((offensive_score += 100))
     fi
     
-    if echo "$content" | grep -qiE "rubeus|kerberoast|asreproast" 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE "rubeus|kerberoast|asreproast" 2>/dev/null; then
         log_threat 80 "🔴 KERBEROS ATTACK TOOL DETECTED!"
         log_error "    ├─ Tool: Rubeus/Kerberoasting toolkit"
         log_error "    ├─ Purpose: Kerberos ticket attacks"
@@ -23921,7 +23973,7 @@ analyze_offensive_tools() {
         ((offensive_score += 100))
     fi
     
-    if echo "$content" | grep -qiE "empire.*agent|powershell.*empire" 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE "empire.*agent|powershell.*empire" 2>/dev/null; then
         log_threat 90 "🔴 POWERSHELL EMPIRE DETECTED!"
         log_error "    ├─ Tool: PowerShell Empire C2 Framework"
         log_error "    ├─ Purpose: Post-exploitation & C2"
@@ -23931,11 +23983,11 @@ analyze_offensive_tools() {
     fi
     
     # Check for webshell indicators
-    if echo "$content" | grep -qiE "c99|r57|wso.*shell|b374k|antsword|behinder|godzilla|china.*chopper" 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE "c99|r57|wso.*shell|b374k|antsword|behinder|godzilla|china.*chopper" 2>/dev/null; then
         log_critical "════════════════════════════════════════════════════════"
         log_critical "🚨 WEBSHELL DETECTED!"
         log_critical "════════════════════════════════════════════════════════"
-        local shell_name=$(echo "$content" | grep -oiE "c99|r57|wso|b374k|antsword|behinder|godzilla|china.*chopper" | head -1)
+        local shell_name=$(echo "$content" | safe_grep_oiE "c99|r57|wso|b374k|antsword|behinder|godzilla|china.*chopper" | head -1)
         log_error "    ├─ Type: $shell_name webshell"
         log_error "    ├─ Purpose: Remote server control"
         log_error "    ├─ Risk: CRITICAL - Server compromised"
@@ -23945,8 +23997,8 @@ analyze_offensive_tools() {
     fi
     
     # Check for RAT indicators
-    if echo "$content" | grep -qiE "asyncrat|quasar.*rat|nanocore|njrat|remcos|darkcomet|agent.*tesla|netwire" 2>/dev/null; then
-        local rat_name=$(echo "$content" | grep -oiE "asyncrat|quasar|nanocore|njrat|remcos|darkcomet|agent.*tesla|netwire" | head -1)
+    if echo "$content" | safe_grep_qiE "asyncrat|quasar.*rat|nanocore|njrat|remcos|darkcomet|agent.*tesla|netwire" 2>/dev/null; then
+        local rat_name=$(echo "$content" | safe_grep_oiE "asyncrat|quasar|nanocore|njrat|remcos|darkcomet|agent.*tesla|netwire" | head -1)
         log_critical "════════════════════════════════════════════════════════"
         log_critical "🚨 REMOTE ACCESS TROJAN (RAT) DETECTED!"
         log_critical "════════════════════════════════════════════════════════"
@@ -23959,8 +24011,8 @@ analyze_offensive_tools() {
     fi
     
     # Check for info stealers
-    if echo "$content" | grep -qiE "redline.*stealer|vidar|raccoon.*stealer|mars.*stealer|erbium|aurora.*stealer|formbook" 2>/dev/null; then
-        local stealer_name=$(echo "$content" | grep -oiE "redline|vidar|raccoon|mars|erbium|aurora|formbook" | head -1)
+    if echo "$content" | safe_grep_qiE "redline.*stealer|vidar|raccoon.*stealer|mars.*stealer|erbium|aurora.*stealer|formbook" 2>/dev/null; then
+        local stealer_name=$(echo "$content" | safe_grep_oiE "redline|vidar|raccoon|mars|erbium|aurora|formbook" | head -1)
         log_critical "════════════════════════════════════════════════════════"
         log_critical "🚨 INFO STEALER MALWARE DETECTED!"
         log_critical "════════════════════════════════════════════════════════"
@@ -24017,8 +24069,8 @@ analyze_service_abuse() {
     for key in "${!SERVICE_ABUSE_INDICATORS[@]}"; do
         local pattern="${SERVICE_ABUSE_INDICATORS[$key]}"
         [ -z "$pattern" ] && continue
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             abuse_findings+=("$key:$matched")
             ((abuse_score += 25))
             
@@ -24070,8 +24122,8 @@ analyze_service_abuse() {
     # Check callback patterns
     for pattern in "${CALLBACK_PATTERNS[@]}"; do
         [ -z "$pattern" ] && continue
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             log_threat 55 "🔴 C2 CALLBACK PATH DETECTED: $matched"
             log_error "    ├─ Pattern: Known C2/malware callback endpoint"
             log_error "    ├─ Examples: Cobalt Strike beacons, webshells"
@@ -24171,8 +24223,8 @@ analyze_mobile_deeplinks() {
     
     # iOS Deep Link Analysis
     for pattern in "${IOS_DEEPLINK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             mobile_findings+=("ios_deeplink:$matched")
             
             # Critical iOS threats
@@ -24188,8 +24240,8 @@ analyze_mobile_deeplinks() {
     
     # Android Deep Link Analysis
     for pattern in "${ANDROID_DEEPLINK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             mobile_findings+=("android_deeplink:$matched")
             
             # Critical Android threats
@@ -24206,14 +24258,14 @@ analyze_mobile_deeplinks() {
     # Specific mobile threat analysis
     
     # iOS Enterprise App Distribution (HIGHLY DANGEROUS)
-    if echo "$content" | grep -qiE "itms-services://.*action=download-manifest"; then
+    if echo "$content" | safe_grep_qiE "itms-services://.*action=download-manifest"; then
         log_threat 90 "iOS Enterprise App Distribution link detected - HIGH RISK"
         log_forensic "This type of link bypasses App Store and can install untrusted apps"
         mobile_findings+=("ios_enterprise_distribution")
         ((mobile_score += 60))
         
         # Try to extract manifest URL
-        local manifest_url=$(echo "$content" | grep -oiE "url=https?://[^&\"']+" | head -1)
+        local manifest_url=$(echo "$content" | safe_grep_oiE "url=https?://[^&\"']+" | head -1)
         if [ -n "$manifest_url" ]; then
             log_forensic "Manifest URL: $manifest_url"
             record_ioc "ios_manifest" "$manifest_url" "iOS enterprise distribution manifest"
@@ -24221,7 +24273,7 @@ analyze_mobile_deeplinks() {
     fi
     
     # iOS Configuration Profile (MDM/Malicious Profile)
-    if echo "$content" | grep -qiE "\.mobileconfig"; then
+    if echo "$content" | safe_grep_qiE "\.mobileconfig"; then
         log_threat 85 "iOS Configuration Profile link detected - CRITICAL"
         log_forensic "Mobileconfig files can install certificates, VPNs, and modify device settings"
         mobile_findings+=("ios_mobileconfig")
@@ -24229,31 +24281,31 @@ analyze_mobile_deeplinks() {
     fi
     
     # Android APK direct download
-    if echo "$content" | grep -qiE "https?://.*\.apk($|\?)"; then
+    if echo "$content" | safe_grep_qiE "https?://.*\.apk($|\?)"; then
         log_threat 70 "Direct APK download link detected"
         mobile_findings+=("android_apk_direct")
         ((mobile_score += 40))
         
-        local apk_url=$(echo "$content" | grep -oiE "https?://[^[[:space:]]\"']+\.apk" | head -1)
+        local apk_url=$(echo "$content" | safe_grep_oiE "https?://[^[[:space:]]\"']+\.apk" | head -1)
         record_ioc "apk_url" "$apk_url" "Direct APK download"
     fi
     
     # Android Intent with suspicious components
-    if echo "$content" | grep -qiE "intent://.*#Intent.*component="; then
+    if echo "$content" | safe_grep_qiE "intent://.*#Intent.*component="; then
         log_threat 75 "Android Intent with explicit component - potential app exploitation"
         mobile_findings+=("android_intent_component")
         ((mobile_score += 45))
     fi
     
     # Check for sideloading indicators
-    if echo "$content" | grep -qiE "enable.*unknown.*sources|settings.*security|sideload"; then
+    if echo "$content" | safe_grep_qiE "enable.*unknown.*sources|settings.*security|sideload"; then
         log_threat 60 "Sideloading instruction indicators detected"
         mobile_findings+=("sideloading_instructions")
         ((mobile_score += 35))
     fi
     
     # PWA/WebApp installation
-    if echo "$content" | grep -qiE "manifest\.json|service-worker|add.*to.*home.*screen"; then
+    if echo "$content" | safe_grep_qiE "manifest\.json|service-worker|add.*to.*home.*screen"; then
         log_warning "Progressive Web App indicators detected"
         mobile_findings+=("pwa_indicators")
         ((mobile_score += 15))
@@ -24321,8 +24373,8 @@ analyze_wireless_attacks() {
     
     # Bluetooth Pattern Analysis
     for pattern in "${BLUETOOTH_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             wireless_findings+=("bluetooth:$matched")
             ((wireless_score += 30))
             log_forensic_detection 35 \
@@ -24337,8 +24389,8 @@ analyze_wireless_attacks() {
     
     # NFC Pattern Analysis
     for pattern in "${NFC_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             wireless_findings+=("nfc:$matched")
             ((wireless_score += 25))
             log_forensic_detection 30 \
@@ -24353,12 +24405,12 @@ analyze_wireless_attacks() {
     
     # WiFi Configuration Analysis
     for pattern in "${WIFI_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             wireless_findings+=("wifi:$matched")
             
             # WiFi QR codes are common but analyze for risks
-            if echo "$content" | grep -qiE "WIFI:.*WEP"; then
+            if echo "$content" | safe_grep_qiE "WIFI:.*WEP"; then
                 log_forensic_detection 45 \
                     "WIRELESS Insecure WiFi (WEP)" \
                     "encryption:WEP" \
@@ -24367,7 +24419,7 @@ analyze_wireless_attacks() {
                     "WEP is broken - do NOT connect. This may be a rogue access point." \
                     "WEP Deprecation - IEEE 802.11i"
                 ((wireless_score += 30))
-            elif echo "$content" | grep -qiE "WIFI:.*T:nopass"; then
+            elif echo "$content" | safe_grep_qiE "WIFI:.*T:nopass"; then
                 log_forensic_detection 35 \
                     "WIRELESS Open WiFi Network" \
                     "encryption:none" \
@@ -24391,7 +24443,7 @@ analyze_wireless_attacks() {
     done
     
     # Bluetooth MAC address analysis
-    local bt_mac=$(echo "$content" | grep -oiE "[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}" | head -1)
+    local bt_mac=$(echo "$content" | safe_grep_oiE "[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}" | head -1)
     if [ -n "$bt_mac" ]; then
         wireless_findings+=("mac_address:$bt_mac")
         log_forensic_detection 15 \
@@ -24409,8 +24461,8 @@ analyze_wireless_attacks() {
     fi
     
     # Check for device pairing payloads
-    if echo "$content" | grep -qiE "pair|bond|connect.*device"; then
-        local pair_cmd=$(echo "$content" | grep -oiE "pair|bond|connect.*device" | head -1)
+    if echo "$content" | safe_grep_qiE "pair|bond|connect.*device"; then
+        local pair_cmd=$(echo "$content" | safe_grep_oiE "pair|bond|connect.*device" | head -1)
         wireless_findings+=("device_pairing:$pair_cmd")
         ((wireless_score += 15))
         log_forensic_detection 25 \
@@ -24423,8 +24475,8 @@ analyze_wireless_attacks() {
     fi
     
     # Check for RFID/smartcard patterns
-    if echo "$content" | grep -qiE "mifare|desfire|felica|nfc.*tag|rfid|smartcard"; then
-        local rfid_type=$(echo "$content" | grep -oiE "mifare|desfire|felica|nfc.*tag|rfid|smartcard" | head -1)
+    if echo "$content" | safe_grep_qiE "mifare|desfire|felica|nfc.*tag|rfid|smartcard"; then
+        local rfid_type=$(echo "$content" | safe_grep_oiE "mifare|desfire|felica|nfc.*tag|rfid|smartcard" | head -1)
         wireless_findings+=("rfid_smartcard:$rfid_type")
         ((wireless_score += 20))
         log_forensic_detection 30 \
@@ -24514,8 +24566,8 @@ analyze_telephony_attacks() {
     
     # Check for USSD codes
     for pattern in "${USSD_PATTERNS[@]}"; do
-        if echo "$content" | grep -qE "$pattern"; then
-            local matched=$(echo "$content" | grep -oE "$pattern" | head -1)
+        if echo "$content" | safe_grep_qE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oE "$pattern" | head -1)
             telephony_findings+=("ussd:$matched")
             ((telephony_score += 40))
             log_forensic_detection 50 \
@@ -24529,8 +24581,8 @@ analyze_telephony_attacks() {
     done
     
     # Check for tel: URI with suspicious patterns
-    if echo "$content" | grep -qiE "tel:[+*#0-9]{5,}"; then
-        local tel_uri=$(echo "$content" | grep -oiE "tel:[+*#0-9]{5,}" | head -1)
+    if echo "$content" | safe_grep_qiE "tel:[+*#0-9]{5,}"; then
+        local tel_uri=$(echo "$content" | safe_grep_oiE "tel:[+*#0-9]{5,}" | head -1)
         telephony_findings+=("tel_uri:$tel_uri")
         
         # Check for premium rate numbers
@@ -24568,13 +24620,13 @@ analyze_telephony_attacks() {
     fi
     
     # Check for SMS URI with suspicious content
-    if echo "$content" | grep -qiE "sms:[+0-9]{5,}"; then
-        local sms_uri=$(echo "$content" | grep -oiE "sms:[^?&[[:space:]]]+" | head -1)
+    if echo "$content" | safe_grep_qiE "sms:[+0-9]{5,}"; then
+        local sms_uri=$(echo "$content" | safe_grep_oiE "sms:[^?&[[:space:]]]+" | head -1)
         telephony_findings+=("sms_uri:$sms_uri")
         ((telephony_score += 10))
         
         # Check for SMS body with suspicious keywords
-        if echo "$content" | grep -qiE "sms:.*body=.*(subscribe|stop|yes|confirm|verify|code)"; then
+        if echo "$content" | safe_grep_qiE "sms:.*body=.*(subscribe|stop|yes|confirm|verify|code)"; then
             log_forensic_detection 30 \
                 "TELEPHONY SMS Subscription Scam" \
                 "uri:$sms_uri" \
@@ -24596,8 +24648,8 @@ analyze_telephony_attacks() {
     fi
     
     # Check for FaceTime/VoIP schemes
-    if echo "$content" | grep -qiE "facetime://|facetime-audio://|sip:|sips:"; then
-        local voip_uri=$(echo "$content" | grep -oiE "(facetime://|facetime-audio://|sips?:)[^[:space:]]+" | head -1)
+    if echo "$content" | safe_grep_qiE "facetime://|facetime-audio://|sip:|sips:"; then
+        local voip_uri=$(echo "$content" | safe_grep_oiE "(facetime://|facetime-audio://|sips?:)[^[:space:]]+" | head -1)
         log_forensic_detection 10 \
             "TELEPHONY VoIP/FaceTime Link" \
             "uri:$voip_uri" \
@@ -24659,8 +24711,8 @@ analyze_hardware_exploits() {
     for pattern in "${HARDWARE_EXPLOIT_PATTERNS[@]}"; do
         # Skip empty patterns
         [ -z "$pattern" ] && continue
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             hardware_findings+=("hardware_exploit:$matched")
             ((hardware_score += 35))
             log_forensic_detection 45 \
@@ -24674,7 +24726,7 @@ analyze_hardware_exploits() {
     done
     
     # Buffer overflow attempt detection
-    local long_strings=$(echo "$content" | grep -oE "[A-Za-z0-9]{200,}" | head -1)
+    local long_strings=$(echo "$content" | safe_grep_oE "[A-Za-z0-9]{200,}" | head -1)
     if [ -n "$long_strings" ]; then
         hardware_findings+=("buffer_overflow_attempt")
         ((hardware_score += 40))
@@ -24688,8 +24740,8 @@ analyze_hardware_exploits() {
     fi
     
     # Format string attack detection
-    if echo "$content" | grep -qE "%[nxsp]{5,}|%[0-9]*\$n"; then
-        local format_pattern=$(echo "$content" | grep -oE "%[nxsp]{5,}|%[0-9]*\$n" | head -1)
+    if echo "$content" | safe_grep_qE "%[nxsp]{5,}|%[0-9]*\$n"; then
+        local format_pattern=$(echo "$content" | safe_grep_oE "%[nxsp]{5,}|%[0-9]*\$n" | head -1)
         hardware_findings+=("format_string_attack")
         ((hardware_score += 45))
         log_forensic_detection 60 \
@@ -24702,7 +24754,7 @@ analyze_hardware_exploits() {
     fi
     
     # Null byte injection
-    if echo "$content" | grep -qE "%00|\\x00"; then
+    if echo "$content" | safe_grep_qE "%00|\\x00"; then
         hardware_findings+=("null_byte_injection")
         ((hardware_score += 25))
         log_forensic_detection 40 \
@@ -24715,8 +24767,8 @@ analyze_hardware_exploits() {
     fi
     
     # POS terminal specific
-    if echo "$content" | grep -qiE "verifone|ingenico|pax.*terminal|magtek|id.*tech"; then
-        local pos_brand=$(echo "$content" | grep -oiE "verifone|ingenico|pax.*terminal|magtek|id.*tech" | head -1)
+    if echo "$content" | safe_grep_qiE "verifone|ingenico|pax.*terminal|magtek|id.*tech"; then
+        local pos_brand=$(echo "$content" | safe_grep_oiE "verifone|ingenico|pax.*terminal|magtek|id.*tech" | head -1)
         hardware_findings+=("pos_terminal_reference:$pos_brand")
         ((hardware_score += 35))
         log_forensic_detection 50 \
@@ -24729,8 +24781,8 @@ analyze_hardware_exploits() {
     fi
     
     # IoT device specific
-    if echo "$content" | grep -qiE "hikvision|dahua|foscam|axis.*camera|ubiquiti|mikrotik|tp-link"; then
-        local iot_brand=$(echo "$content" | grep -oiE "hikvision|dahua|foscam|axis.*camera|ubiquiti|mikrotik|tp-link" | head -1)
+    if echo "$content" | safe_grep_qiE "hikvision|dahua|foscam|axis.*camera|ubiquiti|mikrotik|tp-link"; then
+        local iot_brand=$(echo "$content" | safe_grep_oiE "hikvision|dahua|foscam|axis.*camera|ubiquiti|mikrotik|tp-link" | head -1)
         hardware_findings+=("iot_device_brand:$iot_brand")
         ((hardware_score += 20))
         log_forensic_detection 35 \
@@ -24743,8 +24795,8 @@ analyze_hardware_exploits() {
     fi
     
     # RTSP stream hijacking
-    if echo "$content" | grep -qiE "rtsp://"; then
-        local rtsp_url=$(echo "$content" | grep -oiE "rtsp://[^[[:space:]]\"']+" | head -1)
+    if echo "$content" | safe_grep_qiE "rtsp://"; then
+        local rtsp_url=$(echo "$content" | safe_grep_oiE "rtsp://[^[[:space:]]\"']+" | head -1)
         hardware_findings+=("rtsp_stream:$rtsp_url")
         ((hardware_score += 30))
         log_forensic_detection 45 \
@@ -24758,8 +24810,8 @@ analyze_hardware_exploits() {
     fi
     
     # Printer exploit patterns
-    if echo "$content" | grep -qiE "@PJL|%-12345X|PostScript"; then
-        local printer_cmd=$(echo "$content" | grep -oiE "@PJL|%-12345X|PostScript" | head -1)
+    if echo "$content" | safe_grep_qiE "@PJL|%-12345X|PostScript"; then
+        local printer_cmd=$(echo "$content" | safe_grep_oiE "@PJL|%-12345X|PostScript" | head -1)
         hardware_findings+=("pjl_commands:$printer_cmd")
         ((hardware_score += 35))
         log_forensic_detection 45 \
@@ -24819,8 +24871,8 @@ analyze_geofencing_cloaking() {
     
     # Check geofencing patterns
     for pattern in "${GEOFENCING_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             geo_findings+=("geofencing:$matched")
             ((geo_score += 15))
             log_info "Geofencing indicator: $matched"
@@ -24829,8 +24881,8 @@ analyze_geofencing_cloaking() {
     
     # Check cloaking patterns
     for pattern in "${CLOAKING_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             geo_findings+=("cloaking:$matched")
             ((geo_score += 20))
             log_warning "Cloaking technique indicator: $matched"
@@ -24838,35 +24890,35 @@ analyze_geofencing_cloaking() {
     done
     
     # Canvas fingerprinting detection
-    if echo "$content" | grep -qiE "toDataURL.*canvas|getImageData|measureText"; then
+    if echo "$content" | safe_grep_qiE "toDataURL.*canvas|getImageData|measureText"; then
         log_threat 35 "Canvas fingerprinting detected"
         geo_findings+=("canvas_fingerprinting")
         ((geo_score += 25))
     fi
     
     # WebGL fingerprinting
-    if echo "$content" | grep -qiE "WEBGL.*renderer|getExtension.*WEBGL|getParameter"; then
+    if echo "$content" | safe_grep_qiE "WEBGL.*renderer|getExtension.*WEBGL|getParameter"; then
         log_warning "WebGL fingerprinting indicators"
         geo_findings+=("webgl_fingerprinting")
         ((geo_score += 20))
     fi
     
     # Audio fingerprinting
-    if echo "$content" | grep -qiE "AudioContext.*createOscillator|OfflineAudioContext"; then
+    if echo "$content" | safe_grep_qiE "AudioContext.*createOscillator|OfflineAudioContext"; then
         log_warning "Audio fingerprinting indicators"
         geo_findings+=("audio_fingerprinting")
         ((geo_score += 20))
     fi
     
     # User-Agent based cloaking
-    if echo "$content" | grep -qiE "Googlebot|Bingbot|facebookexternalhit|Twitterbot.*redirect"; then
+    if echo "$content" | safe_grep_qiE "Googlebot|Bingbot|facebookexternalhit|Twitterbot.*redirect"; then
         log_threat 40 "Bot detection with redirect - likely cloaking"
         geo_findings+=("bot_cloaking")
         ((geo_score += 30))
     fi
     
     # Time-based delivery
-    if echo "$content" | grep -qiE "setTimeout.*redirect|setInterval.*location|delay.*href"; then
+    if echo "$content" | safe_grep_qiE "setTimeout.*redirect|setInterval.*location|delay.*href"; then
         log_warning "Time-delayed redirect - potential cloaking"
         geo_findings+=("time_delayed_redirect")
         ((geo_score += 20))
@@ -25270,7 +25322,7 @@ detect_qrljacking() {
     local qrlj_score=0
     
     # WhatsApp Web QR login patterns
-    if echo "$content" | grep -qiE "web\.whatsapp\.com|wa\.me.*qr"; then
+    if echo "$content" | safe_grep_qiE "web\.whatsapp\.com|wa\.me.*qr"; then
         qrlj_findings+=("whatsapp_web_qr")
         ((qrlj_score += 60))
         log_forensic_detection 60 \
@@ -25283,7 +25335,7 @@ detect_qrljacking() {
     fi
     
     # WeChat QR login patterns
-    if echo "$content" | grep -qiE "wx\.qq\.com|wechat.*login.*qr"; then
+    if echo "$content" | safe_grep_qiE "wx\.qq\.com|wechat.*login.*qr"; then
         qrlj_findings+=("wechat_qr_login")
         ((qrlj_score += 55))
         log_forensic_detection 55 \
@@ -25296,7 +25348,7 @@ detect_qrljacking() {
     fi
     
     # Generic QR login session patterns
-    if echo "$content" | grep -qiE "qr.*login|login.*qr.*session|scan.*authenticate"; then
+    if echo "$content" | safe_grep_qiE "qr.*login|login.*qr.*session|scan.*authenticate"; then
         qrlj_findings+=("generic_qr_login")
         ((qrlj_score += 40))
         log_forensic_detection 40 \
@@ -25309,7 +25361,7 @@ detect_qrljacking() {
     fi
     
     # QR authentication token patterns
-    if echo "$content" | grep -qiE "auth.*token.*qr|qr.*session.*token"; then
+    if echo "$content" | safe_grep_qiE "auth.*token.*qr|qr.*session.*token"; then
         qrlj_findings+=("qr_auth_token")
         ((qrlj_score += 50))
         log_forensic_detection 50 \
@@ -25353,7 +25405,7 @@ detect_quishing_kits() {
     )
     
     for pattern in "${phishing_kit_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             quish_findings+=("kit_signature:$pattern")
             ((quish_score += 70))
             log_forensic_detection 70 \
@@ -25367,7 +25419,7 @@ detect_quishing_kits() {
     done
     
     # QR-specific phishing indicators
-    if echo "$content" | grep -qiE "qr.*phish|phish.*qr|quishing"; then
+    if echo "$content" | safe_grep_qiE "qr.*phish|phish.*qr|quishing"; then
         quish_findings+=("qr_phishing_term")
         ((quish_score += 80))
         log_forensic_detection 80 \
@@ -25380,7 +25432,7 @@ detect_quishing_kits() {
     fi
     
     # Multi-factor bypass indicators
-    if echo "$content" | grep -qiE "bypass.*2fa|mfa.*bypass|otp.*bypass"; then
+    if echo "$content" | safe_grep_qiE "bypass.*2fa|mfa.*bypass|otp.*bypass"; then
         quish_findings+=("mfa_bypass")
         ((quish_score += 75))
         log_forensic_detection 75 \
@@ -25411,7 +25463,7 @@ detect_qr_overlay_malware() {
     
     # Check against OVERLAY_ATTACK_PATTERNS array
     for pattern in "${OVERLAY_ATTACK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             overlay_findings+=("overlay_pattern:$pattern")
             ((overlay_score += 50))
             log_forensic_detection 50 \
@@ -25425,7 +25477,7 @@ detect_qr_overlay_malware() {
     done
     
     # JavaScript-based overlay patterns
-    if echo "$content" | grep -qiE "createElement.*overlay|appendChild.*overlay|z-index.*9999"; then
+    if echo "$content" | safe_grep_qiE "createElement.*overlay|appendChild.*overlay|z-index.*9999"; then
         overlay_findings+=("js_overlay_injection")
         ((overlay_score += 65))
         log_forensic_detection 65 \
@@ -25438,7 +25490,7 @@ detect_qr_overlay_malware() {
     fi
     
     # CSS-based overlay/clickjacking
-    if echo "$content" | grep -qiE "opacity:.*0|visibility:.*hidden.*position:.*absolute"; then
+    if echo "$content" | safe_grep_qiE "opacity:.*0|visibility:.*hidden.*position:.*absolute"; then
         overlay_findings+=("css_clickjacking")
         ((overlay_score += 55))
         log_forensic_detection 55 \
@@ -25468,7 +25520,7 @@ detect_qr_replacement() {
     local replacement_findings=()
     
     # Payment redirection indicators
-    if echo "$content" | grep -qiE "payment.*redirect|bitcoin.*address.*change|wallet.*modified"; then
+    if echo "$content" | safe_grep_qiE "payment.*redirect|bitcoin.*address.*change|wallet.*modified"; then
         replacement_findings+=("payment_redirection")
         ((replacement_score += 80))
         log_forensic_detection 80 \
@@ -25481,7 +25533,7 @@ detect_qr_replacement() {
     fi
     
     # Parking/toll payment QR indicators (common replacement target)
-    if echo "$content" | grep -qiE "parking.*payment|toll.*payment|meter.*payment|fine.*payment"; then
+    if echo "$content" | safe_grep_qiE "parking.*payment|toll.*payment|meter.*payment|fine.*payment"; then
         replacement_findings+=("parking_payment")
         ((replacement_score += 70))
         log_forensic_detection 70 \
@@ -25494,7 +25546,7 @@ detect_qr_replacement() {
     fi
     
     # Restaurant/menu QR replacement indicators
-    if echo "$content" | grep -qiE "menu.*order|restaurant.*payment|table.*service"; then
+    if echo "$content" | safe_grep_qiE "menu.*order|restaurant.*payment|table.*service"; then
         replacement_findings+=("restaurant_qr")
         ((replacement_score += 60))
         log_forensic_detection 60 \
@@ -25507,7 +25559,7 @@ detect_qr_replacement() {
     fi
     
     # Generic replacement indicators
-    if echo "$content" | grep -qiE "scan.*instead|updated.*qr|new.*qr.*code"; then
+    if echo "$content" | safe_grep_qiE "scan.*instead|updated.*qr|new.*qr.*code"; then
         replacement_findings+=("qr_update_notice")
         ((replacement_score += 50))
         log_forensic_detection 50 \
@@ -25537,7 +25589,7 @@ detect_invisible_qr() {
     local invisible_findings=()
     
     # Steganography indicators
-    if echo "$content" | grep -qiE "steg|watermark|hidden.*data|lsb.*embed"; then
+    if echo "$content" | safe_grep_qiE "steg|watermark|hidden.*data|lsb.*embed"; then
         invisible_findings+=("stego_indicator")
         ((invisible_score += 55))
         log_forensic_detection 55 \
@@ -25550,7 +25602,7 @@ detect_invisible_qr() {
     fi
     
     # Near-infrared QR indicators
-    if echo "$content" | grep -qiE "infrared|ir.*qr|invisible.*ink|uv.*qr"; then
+    if echo "$content" | safe_grep_qiE "infrared|ir.*qr|invisible.*ink|uv.*qr"; then
         invisible_findings+=("invisible_ink")
         ((invisible_score += 60))
         log_forensic_detection 60 \
@@ -25563,7 +25615,7 @@ detect_invisible_qr() {
     fi
     
     # Micro QR or high-density encoding
-    if echo "$content" | grep -qiE "micro.*qr|ultra.*dense|high.*density.*encoding"; then
+    if echo "$content" | safe_grep_qiE "micro.*qr|ultra.*dense|high.*density.*encoding"; then
         invisible_findings+=("micro_dense_qr")
         ((invisible_score += 45))
         log_forensic_detection 45 \
@@ -25593,7 +25645,7 @@ detect_animated_qr() {
     local animated_findings=()
     
     # Animated QR indicators
-    if echo "$content" | grep -qiE "animated.*qr|qr.*animation|video.*qr|gif.*qr"; then
+    if echo "$content" | safe_grep_qiE "animated.*qr|qr.*animation|video.*qr|gif.*qr"; then
         animated_findings+=("animated_qr")
         ((animated_score += 50))
         log_forensic_detection 50 \
@@ -25606,7 +25658,7 @@ detect_animated_qr() {
     fi
     
     # Frame-switching QR
-    if echo "$content" | grep -qiE "frame.*switch|qr.*sequence|multi.*frame"; then
+    if echo "$content" | safe_grep_qiE "frame.*switch|qr.*sequence|multi.*frame"; then
         animated_findings+=("frame_switching")
         ((animated_score += 55))
         log_forensic_detection 55 \
@@ -25619,7 +25671,7 @@ detect_animated_qr() {
     fi
     
     # Time-based QR rotation
-    if echo "$content" | grep -qiE "rotate.*qr|qr.*timer|timed.*qr|expiring.*qr"; then
+    if echo "$content" | safe_grep_qiE "rotate.*qr|qr.*timer|timed.*qr|expiring.*qr"; then
         animated_findings+=("time_based_rotation")
         ((animated_score += 60))
         log_forensic_detection 60 \
@@ -25649,7 +25701,7 @@ detect_multi_qr_chaining() {
     local chain_findings=()
     
     # QR redirect chains
-    if echo "$content" | grep -qiE "next.*qr|scan.*another|redirect.*qr|qr.*chain"; then
+    if echo "$content" | safe_grep_qiE "next.*qr|scan.*another|redirect.*qr|qr.*chain"; then
         chain_findings+=("qr_chain_redirect")
         ((chain_score += 65))
         log_forensic_detection 65 \
@@ -25662,7 +25714,7 @@ detect_multi_qr_chaining() {
     fi
     
     # Segmented payload delivery
-    if echo "$content" | grep -qiE "part.*[0-9].*of.*[0-9]|segment|fragment.*qr"; then
+    if echo "$content" | safe_grep_qiE "part.*[0-9].*of.*[0-9]|segment|fragment.*qr"; then
         chain_findings+=("segmented_payload")
         ((chain_score += 70))
         log_forensic_detection 70 \
@@ -25675,7 +25727,7 @@ detect_multi_qr_chaining() {
     fi
     
     # Progressive QR disclosure
-    if echo "$content" | grep -qiE "unlock.*next|complete.*sequence|qr.*puzzle"; then
+    if echo "$content" | safe_grep_qiE "unlock.*next|complete.*sequence|qr.*puzzle"; then
         chain_findings+=("progressive_disclosure")
         ((chain_score += 60))
         log_forensic_detection 60 \
@@ -25705,7 +25757,7 @@ detect_conditional_content() {
     local cond_findings=()
     
     # Geo-fencing patterns
-    if echo "$content" | grep -qiE "geolocation|geoip|location.*check|country.*block|region.*restrict"; then
+    if echo "$content" | safe_grep_qiE "geolocation|geoip|location.*check|country.*block|region.*restrict"; then
         cond_findings+=("geofencing")
         ((cond_score += 55))
         log_forensic_detection 55 \
@@ -25718,7 +25770,7 @@ detect_conditional_content() {
     fi
     
     # Time-based conditional delivery
-    if echo "$content" | grep -qiE "time.*expire|valid.*until|available.*between|schedule.*delivery"; then
+    if echo "$content" | safe_grep_qiE "time.*expire|valid.*until|available.*between|schedule.*delivery"; then
         cond_findings+=("time_conditional")
         ((cond_score += 60))
         log_forensic_detection 60 \
@@ -25731,7 +25783,7 @@ detect_conditional_content() {
     fi
     
     # User-agent/device detection
-    if echo "$content" | grep -qiE "user.*agent.*detect|device.*fingerprint|browser.*detect|mobile.*only"; then
+    if echo "$content" | safe_grep_qiE "user.*agent.*detect|device.*fingerprint|browser.*detect|mobile.*only"; then
         cond_findings+=("device_targeting")
         ((cond_score += 50))
         log_forensic_detection 50 \
@@ -25744,7 +25796,7 @@ detect_conditional_content() {
     fi
     
     # IP-based filtering
-    if echo "$content" | grep -qiE "ip.*whitelist|ip.*blacklist|ip.*filter|allow.*ip"; then
+    if echo "$content" | safe_grep_qiE "ip.*whitelist|ip.*blacklist|ip.*filter|allow.*ip"; then
         cond_findings+=("ip_filtering")
         ((cond_score += 55))
         log_forensic_detection 55 \
@@ -25774,7 +25826,7 @@ detect_browser_in_browser() {
     local bitb_findings=()
     
     # BITB window creation patterns
-    if echo "$content" | grep -qiE "window\.open|popup.*window|modal.*browser|fake.*chrome|fake.*address.*bar"; then
+    if echo "$content" | safe_grep_qiE "window\.open|popup.*window|modal.*browser|fake.*chrome|fake.*address.*bar"; then
         bitb_findings+=("bitb_window")
         ((bitb_score += 70))
         log_forensic_detection 70 \
@@ -25787,7 +25839,7 @@ detect_browser_in_browser() {
     fi
     
     # OAuth/SSO spoofing indicators
-    if echo "$content" | grep -qiE "oauth.*popup|sso.*window|sign.*in.*with.*google|login.*microsoft|facebook.*login.*popup"; then
+    if echo "$content" | safe_grep_qiE "oauth.*popup|sso.*window|sign.*in.*with.*google|login.*microsoft|facebook.*login.*popup"; then
         bitb_findings+=("oauth_spoof")
         ((bitb_score += 75))
         log_forensic_detection 75 \
@@ -25800,7 +25852,7 @@ detect_browser_in_browser() {
     fi
     
     # CSS-based fake browser chrome
-    if echo "$content" | grep -qiE "address.*bar.*css|url.*bar.*fake|browser.*chrome.*div"; then
+    if echo "$content" | safe_grep_qiE "address.*bar.*css|url.*bar.*fake|browser.*chrome.*div"; then
         bitb_findings+=("css_browser_chrome")
         ((bitb_score += 65))
         log_forensic_detection 65 \
@@ -25828,7 +25880,7 @@ detect_reverse_proxy_phish() {
     local proxy_findings=()
     
     # Evilginx indicators
-    if echo "$content" | grep -qiE "evilginx|phishlet|mitm.*proxy|reverse.*proxy.*auth"; then
+    if echo "$content" | safe_grep_qiE "evilginx|phishlet|mitm.*proxy|reverse.*proxy.*auth"; then
         proxy_findings+=("evilginx_pattern")
         ((proxy_score += 85))
         log_forensic_detection 85 \
@@ -25841,7 +25893,7 @@ detect_reverse_proxy_phish() {
     fi
     
     # Modlishka indicators
-    if echo "$content" | grep -qiE "modlishka|muraena|necrobrowser"; then
+    if echo "$content" | safe_grep_qiE "modlishka|muraena|necrobrowser"; then
         proxy_findings+=("modlishka_pattern")
         ((proxy_score += 85))
         log_forensic_detection 85 \
@@ -25854,7 +25906,7 @@ detect_reverse_proxy_phish() {
     fi
     
     # Generic reverse proxy phishing patterns
-    if echo "$content" | grep -qiE "mitm.*session|proxy.*intercept|session.*relay|cookie.*replay"; then
+    if echo "$content" | safe_grep_qiE "mitm.*session|proxy.*intercept|session.*relay|cookie.*replay"; then
         proxy_findings+=("generic_proxy_mitm")
         ((proxy_score += 70))
         log_forensic_detection 70 \
@@ -25867,7 +25919,7 @@ detect_reverse_proxy_phish() {
     fi
     
     # Real-time phishing indicators
-    if echo "$content" | grep -qiE "real.*time.*phish|live.*phish|session.*forward"; then
+    if echo "$content" | safe_grep_qiE "real.*time.*phish|live.*phish|session.*forward"; then
         proxy_findings+=("realtime_phishing")
         ((proxy_score += 75))
         log_forensic_detection 75 \
@@ -25895,7 +25947,7 @@ detect_adversary_in_middle() {
     local aitm_findings=()
     
     # Token theft indicators
-    if echo "$content" | grep -qiE "token.*theft|steal.*token|session.*hijack|cookie.*theft"; then
+    if echo "$content" | safe_grep_qiE "token.*theft|steal.*token|session.*hijack|cookie.*theft"; then
         aitm_findings+=("token_theft")
         ((aitm_score += 75))
         log_forensic_detection 75 \
@@ -25908,7 +25960,7 @@ detect_adversary_in_middle() {
     fi
     
     # MFA interception
-    if echo "$content" | grep -qiE "mfa.*intercept|2fa.*bypass.*proxy|otp.*relay"; then
+    if echo "$content" | safe_grep_qiE "mfa.*intercept|2fa.*bypass.*proxy|otp.*relay"; then
         aitm_findings+=("mfa_intercept")
         ((aitm_score += 80))
         log_forensic_detection 80 \
@@ -25921,7 +25973,7 @@ detect_adversary_in_middle() {
     fi
     
     # SSL/TLS interception
-    if echo "$content" | grep -qiE "ssl.*strip|tls.*downgrade|https.*intercept|certificate.*pin.*bypass"; then
+    if echo "$content" | safe_grep_qiE "ssl.*strip|tls.*downgrade|https.*intercept|certificate.*pin.*bypass"; then
         aitm_findings+=("ssl_intercept")
         ((aitm_score += 70))
         log_forensic_detection 70 \
@@ -25934,7 +25986,7 @@ detect_adversary_in_middle() {
     fi
     
     # Session fixation
-    if echo "$content" | grep -qiE "session.*fixation|session.*id.*predict|cookie.*fixation"; then
+    if echo "$content" | safe_grep_qiE "session.*fixation|session.*id.*predict|cookie.*fixation"; then
         aitm_findings+=("session_fixation")
         ((aitm_score += 65))
         log_forensic_detection 65 \
@@ -25967,7 +26019,7 @@ detect_lolbin_windows() {
     
     # Check against existing LOLBAS_PATTERNS
     for pattern in "${LOLBAS_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             win_lolbin_findings+=("lolbas:$pattern")
             ((win_lolbin_score += 45))
             log_forensic_detection 45 \
@@ -25991,7 +26043,7 @@ detect_lolbin_windows() {
     )
     
     for pattern in "${win_specific[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             win_lolbin_findings+=("windows_native:$pattern")
             ((win_lolbin_score += 50))
             log_forensic_detection 50 \
@@ -26022,7 +26074,7 @@ detect_lolbin_linux() {
     # Check against existing GTFOBINS_PATTERNS if available
     if [ ${#GTFOBINS_PATTERNS[@]} -gt 0 ]; then
         for pattern in "${GTFOBINS_PATTERNS[@]}"; do
-            if echo "$content" | grep -qiE "$pattern"; then
+            if echo "$content" | safe_grep_qiE "$pattern"; then
                 linux_lolbin_findings+=("gtfobins:$pattern")
                 ((linux_lolbin_score += 45))
                 log_forensic_detection 45 \
@@ -26050,7 +26102,7 @@ detect_lolbin_linux() {
     )
     
     for pattern in "${linux_specific[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             linux_lolbin_findings+=("linux_native:$pattern")
             ((linux_lolbin_score += 50))
             log_forensic_detection 50 \
@@ -26091,7 +26143,7 @@ detect_lolbin_macos() {
     )
     
     for pattern in "${macos_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             macos_lolbin_findings+=("macos_native:$pattern")
             ((macos_lolbin_score += 50))
             log_forensic_detection 50 \
@@ -26105,7 +26157,7 @@ detect_lolbin_macos() {
     done
     
     # macOS-specific privilege escalation
-    if echo "$content" | grep -qiE "sudo.*-S|osascript.*administrator|applescript.*password"; then
+    if echo "$content" | safe_grep_qiE "sudo.*-S|osascript.*administrator|applescript.*password"; then
         macos_lolbin_findings+=("macos_privesc")
         ((macos_lolbin_score += 60))
         log_forensic_detection 60 \
@@ -26133,7 +26185,7 @@ detect_lolbas_scripts() {
     local script_lolbin_findings=()
     
     # PowerShell scripts
-    if echo "$content" | grep -qiE "\.ps1|powershell.*-file.*\.ps1|import-module"; then
+    if echo "$content" | safe_grep_qiE "\.ps1|powershell.*-file.*\.ps1|import-module"; then
         script_lolbin_findings+=("powershell_script")
         ((script_lolbin_score += 45))
         log_forensic_detection 45 \
@@ -26146,7 +26198,7 @@ detect_lolbas_scripts() {
     fi
     
     # VBScript/JScript
-    if echo "$content" | grep -qiE "\.vbs|\.js|wscript|cscript|activexobject"; then
+    if echo "$content" | safe_grep_qiE "\.vbs|\.js|wscript|cscript|activexobject"; then
         script_lolbin_findings+=("vbscript_jscript")
         ((script_lolbin_score += 50))
         log_forensic_detection 50 \
@@ -26159,7 +26211,7 @@ detect_lolbas_scripts() {
     fi
     
     # Batch scripts
-    if echo "$content" | grep -qiE "\.bat|\.cmd|@echo.*off|cmd\.exe.*/c"; then
+    if echo "$content" | safe_grep_qiE "\.bat|\.cmd|@echo.*off|cmd\.exe.*/c"; then
         script_lolbin_findings+=("batch_script")
         ((script_lolbin_score += 40))
         log_forensic_detection 40 \
@@ -26172,7 +26224,7 @@ detect_lolbas_scripts() {
     fi
     
     # Shell scripts
-    if echo "$content" | grep -qiE "\.sh|#!/bin/(bash|sh)|bash.*-c|sh.*-c"; then
+    if echo "$content" | safe_grep_qiE "\.sh|#!/bin/(bash|sh)|bash.*-c|sh.*-c"; then
         script_lolbin_findings+=("shell_script")
         ((script_lolbin_score += 40))
         log_forensic_detection 40 \
@@ -26202,7 +26254,7 @@ detect_living_off_cloud() {
     local cloud_lol_findings=()
     
     # AWS CLI abuse
-    if echo "$content" | grep -qiE "aws.*s3.*cp|aws.*lambda.*invoke|aws.*ec2.*run-instances"; then
+    if echo "$content" | safe_grep_qiE "aws.*s3.*cp|aws.*lambda.*invoke|aws.*ec2.*run-instances"; then
         cloud_lol_findings+=("aws_cli_abuse")
         ((cloud_lol_score += 55))
         log_forensic_detection 55 \
@@ -26215,7 +26267,7 @@ detect_living_off_cloud() {
     fi
     
     # Azure CLI abuse
-    if echo "$content" | grep -qiE "az.*vm.*create|az.*storage.*upload|az.*functionapp"; then
+    if echo "$content" | safe_grep_qiE "az.*vm.*create|az.*storage.*upload|az.*functionapp"; then
         cloud_lol_findings+=("azure_cli_abuse")
         ((cloud_lol_score += 55))
         log_forensic_detection 55 \
@@ -26228,7 +26280,7 @@ detect_living_off_cloud() {
     fi
     
     # Google Cloud SDK abuse
-    if echo "$content" | grep -qiE "gcloud.*compute.*instances.*create|gsutil.*cp.*gs://|gcloud.*functions"; then
+    if echo "$content" | safe_grep_qiE "gcloud.*compute.*instances.*create|gsutil.*cp.*gs://|gcloud.*functions"; then
         cloud_lol_findings+=("gcp_sdk_abuse")
         ((cloud_lol_score += 55))
         log_forensic_detection 55 \
@@ -26241,7 +26293,7 @@ detect_living_off_cloud() {
     fi
     
     # Serverless function abuse
-    if echo "$content" | grep -qiE "lambda.*function|azure.*function|cloud.*function|serverless.*deploy"; then
+    if echo "$content" | safe_grep_qiE "lambda.*function|azure.*function|cloud.*function|serverless.*deploy"; then
         cloud_lol_findings+=("serverless_abuse")
         ((cloud_lol_score += 60))
         log_forensic_detection 60 \
@@ -26254,7 +26306,7 @@ detect_living_off_cloud() {
     fi
     
     # Cloud storage abuse
-    if echo "$content" | grep -qiE "s3.*bucket.*public|blob.*storage.*write|cloud.*storage.*upload.*public"; then
+    if echo "$content" | safe_grep_qiE "s3.*bucket.*public|blob.*storage.*write|cloud.*storage.*upload.*public"; then
         cloud_lol_findings+=("cloud_storage_abuse")
         ((cloud_lol_score += 50))
         log_forensic_detection 50 \
@@ -26346,7 +26398,7 @@ analyze_ransomware_notes() {
     # Check ransomware note patterns
     local pattern_matches=0
     for pattern in "${RANSOMWARE_NOTE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             ((pattern_matches++))
             ransom_findings+=("note_pattern:$pattern")
         fi
@@ -26378,7 +26430,7 @@ analyze_ransomware_notes() {
         IFS=',' read -ra ind_array <<< "$indicators"
         
         for indicator in "${ind_array[@]}"; do
-            if echo "$content" | grep -qiE "$indicator"; then
+            if echo "$content" | safe_grep_qiE "$indicator"; then
                 ransom_family="$family"
                 ransom_findings+=("family:$family:$indicator")
                 ((ransom_score += 50))
@@ -26395,8 +26447,8 @@ analyze_ransomware_notes() {
     done
     
     # Check for ransom payment methods
-    if echo "$content" | grep -qiE "bitcoin|btc|monero|xmr|cryptocurrency"; then
-        local crypto=$(echo "$content" | grep -oiE "bitcoin|btc|monero|xmr|cryptocurrency" | head -1)
+    if echo "$content" | safe_grep_qiE "bitcoin|btc|monero|xmr|cryptocurrency"; then
+        local crypto=$(echo "$content" | safe_grep_oiE "bitcoin|btc|monero|xmr|cryptocurrency" | head -1)
         log_forensic_detection 30 \
             "RANSOMWARE Cryptocurrency Payment Reference" \
             "cryptocurrency:$crypto" \
@@ -26409,8 +26461,8 @@ analyze_ransomware_notes() {
     fi
     
     # Check for .onion contact
-    if echo "$content" | grep -qiE "\.onion"; then
-        local onion=$(echo "$content" | grep -oiE "[a-z2-7]{16,56}\.onion" | head -1)
+    if echo "$content" | safe_grep_qiE "\.onion"; then
+        local onion=$(echo "$content" | safe_grep_oiE "[a-z2-7]{16,56}\.onion" | head -1)
         log_forensic_detection 40 \
             "RANSOMWARE Tor Hidden Service" \
             "onion:${onion:-detected}" \
@@ -26423,8 +26475,8 @@ analyze_ransomware_notes() {
     fi
     
     # Check for victim ID patterns
-    if echo "$content" | grep -qiE "(victim|personal|unique).*id.*[A-Za-z0-9]{8,}"; then
-        local victim_id=$(echo "$content" | grep -oiE "(victim|personal|unique).*id.*[A-Za-z0-9]{8,}" | head -1)
+    if echo "$content" | safe_grep_qiE "(victim|personal|unique).*id.*[A-Za-z0-9]{8,}"; then
+        local victim_id=$(echo "$content" | safe_grep_oiE "(victim|personal|unique).*id.*[A-Za-z0-9]{8,}" | head -1)
         log_forensic_detection 25 \
             "RANSOMWARE Victim ID Pattern" \
             "pattern:victim_id" \
@@ -26437,8 +26489,8 @@ analyze_ransomware_notes() {
     fi
     
     # Check for encryption algorithm mentions
-    if echo "$content" | grep -qiE "RSA-[0-9]{4}|AES-[0-9]{3}|ChaCha20|Salsa20"; then
-        local algo=$(echo "$content" | grep -oiE "RSA-[0-9]{4}|AES-[0-9]{3}|ChaCha20|Salsa20" | head -1)
+    if echo "$content" | safe_grep_qiE "RSA-[0-9]{4}|AES-[0-9]{3}|ChaCha20|Salsa20"; then
+        local algo=$(echo "$content" | safe_grep_oiE "RSA-[0-9]{4}|AES-[0-9]{3}|ChaCha20|Salsa20" | head -1)
         log_forensic_detection 15 \
             "RANSOMWARE Encryption Algorithm Reference" \
             "algorithm:$algo" \
@@ -26452,7 +26504,7 @@ analyze_ransomware_notes() {
     fi
     
     # Check for file extension changes
-    local extension_pattern=$(echo "$content" | grep -oiE "\.[a-z0-9]{4,8}" | head -5)
+    local extension_pattern=$(echo "$content" | safe_grep_oiE "\.[a-z0-9]{4,8}" | head -5)
     if [ -n "$extension_pattern" ]; then
         # Compare against known ransomware extensions
         for ext in ".lockbit" ".conti" ".revil" ".ryuk" ".maze" ".encrypt" ".locked"; do
@@ -26528,8 +26580,8 @@ analyze_tor_vpn() {
     
     # Check Tor patterns
     for pattern in "${TOR_EXIT_INDICATORS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             anon_findings+=("tor:$matched")
             ((anon_score += 35))
             log_warning "Tor/Darknet indicator: $matched"
@@ -26538,8 +26590,8 @@ analyze_tor_vpn() {
     
     # Check VPN/Proxy patterns
     for pattern in "${VPN_PROXY_DOMAINS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             anon_findings+=("vpn:$matched")
             ((anon_score += 15))
             log_info "VPN service reference: $matched"
@@ -26548,8 +26600,8 @@ analyze_tor_vpn() {
     
     # Check anonymizing proxy patterns
     for pattern in "${ANONYMIZING_PROXIES[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             anon_findings+=("proxy:$matched")
             ((anon_score += 25))
             log_warning "Anonymizing proxy reference: $matched"
@@ -26557,7 +26609,7 @@ analyze_tor_vpn() {
     done
     
     # .onion URL extraction
-    local onion_urls=$(echo "$content" | grep -oiE "[a-z2-7]{56}\.onion|[a-z2-7]{16}\.onion")
+    local onion_urls=$(echo "$content" | safe_grep_oiE "[a-z2-7]{56}\.onion|[a-z2-7]{16}\.onion")
     if [ -n "$onion_urls" ]; then
         for onion_url in $onion_urls; do
             log_threat 50 "Tor hidden service URL: $onion_url"
@@ -26568,14 +26620,14 @@ analyze_tor_vpn() {
     fi
     
     # Check for tor2web gateways (clearnet access to .onion)
-    if echo "$content" | grep -qiE "tor2web|onion\.(to|ws|ly|sh|city|link|direct)"; then
+    if echo "$content" | safe_grep_qiE "tor2web|onion\.(to|ws|ly|sh|city|link|direct)"; then
         log_threat 45 "Tor2Web gateway detected - clearnet access to hidden service"
         anon_findings+=("tor2web_gateway")
         ((anon_score += 35))
     fi
     
     # Check for I2P references
-    if echo "$content" | grep -qiE "\.i2p|i2p.*router|eepsite"; then
+    if echo "$content" | safe_grep_qiE "\.i2p|i2p.*router|eepsite"; then
         log_warning "I2P network reference detected"
         anon_findings+=("i2p_network")
         ((anon_score += 30))
@@ -26627,7 +26679,7 @@ check_tor_exit_nodes() {
     local content="$1"
     
     # Extract IPs from content
-    local ips=$(echo "$content" | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
+    local ips=$(echo "$content" | safe_grep_oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
     
     if [ -z "$ips" ]; then
         return
@@ -26696,8 +26748,8 @@ analyze_dns_tunneling() {
     )
     
     for pattern in "${DNS_TUNNEL_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -3)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -3)
             for m in $matched; do
                 dns_findings+=("dns_tunnel_pattern:$m")
                 ((dns_score += 25))
@@ -26707,8 +26759,8 @@ analyze_dns_tunneling() {
     done
     
     for domain in "${DNS_TUNNEL_DOMAINS[@]}"; do
-        if echo "$content" | grep -qiE "$domain"; then
-            local matched=$(echo "$content" | grep -oiE "$domain" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$domain"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$domain" 2>/dev/null | head -1)
             dns_findings+=("dns_tunnel_domain:$matched")
             ((dns_score += 35))
             log_threat 40 "DNS tunnel domain: $matched"
@@ -26716,7 +26768,7 @@ analyze_dns_tunneling() {
     done
     
     # Check for excessive subdomain length (entropy check)
-    local subdomains=$(echo "$content" | grep -oE "[a-zA-Z0-9-]{40,}\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}")
+    local subdomains=$(echo "$content" | safe_grep_oE "[a-zA-Z0-9-]{40,}\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}")
     if [ -n "$subdomains" ]; then
         for sub in $subdomains; do
             local sub_len=${#sub}
@@ -26729,8 +26781,8 @@ analyze_dns_tunneling() {
     fi
     
     # Check for DNS rebinding patterns
-    if echo "$content" | grep -qiE "rebind\.|rbndr\.|1u\.ms|nip\.io|sslip\.io|xip\.io"; then
-        local rebind=$(echo "$content" | grep -oiE "(rebind|rbndr|1u\.ms|nip\.io|sslip\.io|xip\.io)[^\s]*" | head -1)
+    if echo "$content" | safe_grep_qiE "rebind\.|rbndr\.|1u\.ms|nip\.io|sslip\.io|xip\.io"; then
+        local rebind=$(echo "$content" | safe_grep_oiE "(rebind|rbndr|1u\.ms|nip\.io|sslip\.io|xip\.io)[^\s]*" | head -1)
         dns_findings+=("dns_rebinding:$rebind")
         ((dns_score += 45))
         log_threat 50 "DNS rebinding service detected: $rebind"
@@ -26789,8 +26841,8 @@ analyze_icmp_tunneling() {
     
     # Check for ICMP tool references
     for pattern in "${ICMP_TUNNEL_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             icmp_findings+=("icmp_tunnel_tool:$matched")
             ((icmp_score += 40))
             log_threat 45 "ICMP tunneling tool reference: $matched"
@@ -26798,14 +26850,14 @@ analyze_icmp_tunneling() {
     done
     
     # Check for ping-based exfiltration patterns
-    if echo "$content" | grep -qiE "ping\s+-[pc]\s+.*\$\(|ping.*\|.*base64|ping.*data="; then
+    if echo "$content" | safe_grep_qiE "ping\s+-[pc]\s+.*\$\(|ping.*\|.*base64|ping.*data="; then
         icmp_findings+=("ping_exfil_command")
         ((icmp_score += 35))
         log_warning "Ping-based data exfiltration pattern detected"
     fi
     
     # Check for encoded ping payloads
-    if echo "$content" | grep -qiE "echo\s+.*\|\s*xxd.*ping|ping.*-p\s+[0-9a-f]{16,}"; then
+    if echo "$content" | safe_grep_qiE "echo\s+.*\|\s*xxd.*ping|ping.*-p\s+[0-9a-f]{16,}"; then
         icmp_findings+=("encoded_ping_payload")
         ((icmp_score += 30))
         log_warning "Encoded ping payload detected"
@@ -26865,8 +26917,8 @@ analyze_websocket_abuse() {
     )
     
     # Check WebSocket URL patterns
-    if echo "$content" | grep -qiE "wss?://"; then
-        local ws_urls=$(echo "$content" | grep -oiE "wss?://[^\s\"'<>]+" | head -5)
+    if echo "$content" | safe_grep_qiE "wss?://"; then
+        local ws_urls=$(echo "$content" | safe_grep_oiE "wss?://[^\s\"'<>]+" | head -5)
         for ws_url in $ws_urls; do
             ws_findings+=("websocket_url:$ws_url")
             ((ws_score += 15))
@@ -26886,21 +26938,21 @@ analyze_websocket_abuse() {
     fi
     
     # Check for WebSocket upgrade injection
-    if echo "$content" | grep -qiE "upgrade:\s*websocket|connection:\s*upgrade"; then
+    if echo "$content" | safe_grep_qiE "upgrade:\s*websocket|connection:\s*upgrade"; then
         ws_findings+=("ws_upgrade_header")
         ((ws_score += 10))
     fi
     
     # Check for WebSocket in data URIs (evasion technique)
-    if echo "$content" | grep -qiE "data:.*websocket|javascript:.*WebSocket"; then
+    if echo "$content" | safe_grep_qiE "data:.*websocket|javascript:.*WebSocket"; then
         ws_findings+=("ws_in_data_uri")
         ((ws_score += 30))
         log_warning "WebSocket initialization in data URI detected"
     fi
     
     for pattern in "${WS_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ws_findings+=("ws_abuse_pattern:$matched")
             ((ws_score += 25))
         fi
@@ -26964,8 +27016,8 @@ analyze_grpc_abuse() {
     )
     
     # Check for gRPC URLs
-    if echo "$content" | grep -qiE "grpcs?://"; then
-        local grpc_urls=$(echo "$content" | grep -oiE "grpcs?://[^\s\"'<>]+" | head -5)
+    if echo "$content" | safe_grep_qiE "grpcs?://"; then
+        local grpc_urls=$(echo "$content" | safe_grep_oiE "grpcs?://[^\s\"'<>]+" | head -5)
         for grpc_url in $grpc_urls; do
             grpc_findings+=("grpc_endpoint:$grpc_url")
             ((grpc_score += 20))
@@ -26980,15 +27032,15 @@ analyze_grpc_abuse() {
     fi
     
     for pattern in "${GRPC_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             grpc_findings+=("grpc_abuse:$matched")
             ((grpc_score += 25))
         fi
     done
     
     # Check for gRPC reflection exploitation
-    if echo "$content" | grep -qiE "grpcurl|grpc_cli|evans\s+cli"; then
+    if echo "$content" | safe_grep_qiE "grpcurl|grpc_cli|evans\s+cli"; then
         grpc_findings+=("grpc_recon_tool")
         ((grpc_score += 30))
         log_warning "gRPC reconnaissance tool reference detected"
@@ -27057,8 +27109,8 @@ analyze_graphql_injection() {
     )
     
     # Check for GraphQL endpoints
-    if echo "$content" | grep -qiE "/graphql|/gql|/query"; then
-        local gql_endpoints=$(echo "$content" | grep -oiE "https?://[^\s]+/(graphql|gql|query)[^\s]*" | head -5)
+    if echo "$content" | safe_grep_qiE "/graphql|/gql|/query"; then
+        local gql_endpoints=$(echo "$content" | safe_grep_oiE "https?://[^\s]+/(graphql|gql|query)[^\s]*" | head -5)
         for endpoint in $gql_endpoints; do
             graphql_findings+=("graphql_endpoint:$endpoint")
             ((graphql_score += 10))
@@ -27066,8 +27118,8 @@ analyze_graphql_injection() {
     fi
     
     for pattern in "${GRAPHQL_INJECTION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             graphql_findings+=("graphql_injection:$matched")
             ((graphql_score += 30))
             log_warning "GraphQL injection pattern: ${matched:0:50}"
@@ -27075,14 +27127,14 @@ analyze_graphql_injection() {
     done
     
     # Check for GraphQL batching attacks
-    if echo "$content" | grep -qE "\[\s*\{[^]]*query[^]]*\}\s*,\s*\{[^]]*query"; then
+    if echo "$content" | safe_grep_qE "\[\s*\{[^]]*query[^]]*\}\s*,\s*\{[^]]*query"; then
         graphql_findings+=("graphql_batch_attack")
         ((graphql_score += 35))
         log_threat 40 "GraphQL batch query attack detected"
     fi
     
     # Check for deeply nested queries (DoS)
-    local nesting_depth=$(echo "$content" | grep -oE "\{" | wc -l)
+    local nesting_depth=$(echo "$content" | safe_grep_oE "\{" | wc -l)
     if [ "$nesting_depth" -gt 10 ]; then
         graphql_findings+=("deep_nesting:$nesting_depth")
         ((graphql_score += 25))
@@ -27171,8 +27223,8 @@ analyze_mqtt_iot_abuse() {
     )
     
     # Check for MQTT URLs
-    if echo "$content" | grep -qiE "mqtts?://|tcp://[^\s]+:1883"; then
-        local mqtt_urls=$(echo "$content" | grep -oiE "(mqtts?://|tcp://)[^\s\"'<>]+" | head -5)
+    if echo "$content" | safe_grep_qiE "mqtts?://|tcp://[^\s]+:1883"; then
+        local mqtt_urls=$(echo "$content" | safe_grep_oiE "(mqtts?://|tcp://)[^\s\"'<>]+" | head -5)
         for mqtt_url in $mqtt_urls; do
             mqtt_findings+=("mqtt_endpoint:$mqtt_url")
             ((mqtt_score += 20))
@@ -27181,16 +27233,16 @@ analyze_mqtt_iot_abuse() {
     fi
     
     for pattern in "${MQTT_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             mqtt_findings+=("mqtt_abuse:$matched")
             ((mqtt_score += 25))
         fi
     done
     
     for pattern in "${IOT_PLATFORM_ABUSE[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             mqtt_findings+=("iot_platform_abuse:$matched")
             ((mqtt_score += 35))
             log_threat 40 "IoT platform abuse detected: $matched"
@@ -27198,7 +27250,7 @@ analyze_mqtt_iot_abuse() {
     done
     
     # Check for Shodan/Censys IoT queries
-    if echo "$content" | grep -qiE "shodan.*mqtt|censys.*1883|shodan.*iot"; then
+    if echo "$content" | safe_grep_qiE "shodan.*mqtt|censys.*1883|shodan.*iot"; then
         mqtt_findings+=("iot_recon_query")
         ((mqtt_score += 30))
         log_warning "IoT reconnaissance query detected"
@@ -27260,16 +27312,16 @@ analyze_coap_attacks() {
     )
     
     for pattern in "${COAP_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             coap_findings+=("coap_pattern:$matched")
             ((coap_score += 25))
         fi
     done
     
     # Check for CoAP URLs
-    if echo "$content" | grep -qiE "coaps?://"; then
-        local coap_urls=$(echo "$content" | grep -oiE "coaps?://[^\s\"'<>]+" | head -5)
+    if echo "$content" | safe_grep_qiE "coaps?://"; then
+        local coap_urls=$(echo "$content" | safe_grep_oiE "coaps?://[^\s\"'<>]+" | head -5)
         for coap_url in $coap_urls; do
             coap_findings+=("coap_endpoint:$coap_url")
             ((coap_score += 20))
@@ -27278,7 +27330,7 @@ analyze_coap_attacks() {
     fi
     
     # Check for CoAP amplification attack indicators
-    if echo "$content" | grep -qiE "coap.*amplif|coap.*ddos|coap.*reflect"; then
+    if echo "$content" | safe_grep_qiE "coap.*amplif|coap.*ddos|coap.*reflect"; then
         coap_findings+=("coap_amplification")
         ((coap_score += 40))
         log_threat 45 "CoAP amplification attack indicator"
@@ -27342,16 +27394,16 @@ analyze_quic_tunneling() {
     )
     
     for pattern in "${QUIC_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             quic_findings+=("quic_pattern:$matched")
             ((quic_score += 25))
         fi
     done
     
     # Check for QUIC protocol references
-    if echo "$content" | grep -qiE "quic://"; then
-        local quic_urls=$(echo "$content" | grep -oiE "quic://[^\s\"'<>]+" | head -5)
+    if echo "$content" | safe_grep_qiE "quic://"; then
+        local quic_urls=$(echo "$content" | safe_grep_oiE "quic://[^\s\"'<>]+" | head -5)
         for quic_url in $quic_urls; do
             quic_findings+=("quic_endpoint:$quic_url")
             ((quic_score += 20))
@@ -27359,7 +27411,7 @@ analyze_quic_tunneling() {
     fi
     
     # Check for HTTP/3 indicators
-    if echo "$content" | grep -qiE "h3-[0-9]+|:protocol=.*h3"; then
+    if echo "$content" | safe_grep_qiE "h3-[0-9]+|:protocol=.*h3"; then
         quic_findings+=("http3_indicator")
         ((quic_score += 15))
     fi
@@ -27420,15 +27472,15 @@ analyze_http3_fingerprinting() {
     )
     
     for pattern in "${HTTP3_EVASION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             http3_findings+=("http3_pattern:$matched")
             ((http3_score += 20))
         fi
     done
     
     # Check for HTTP/3 server fingerprinting
-    if echo "$content" | grep -qiE "ja3.*quic|quic.*fingerprint"; then
+    if echo "$content" | safe_grep_qiE "ja3.*quic|quic.*fingerprint"; then
         http3_findings+=("http3_fingerprinting")
         ((http3_score += 30))
         log_warning "HTTP/3 fingerprinting technique detected"
@@ -27507,15 +27559,15 @@ analyze_ipfs_threats() {
     )
     
     for pattern in "${IPFS_THREAT_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ipfs_findings+=("ipfs_resource:$matched")
             ((ipfs_score += 15))
         fi
     done
     
     # Check for IPFS CIDs
-    local ipfs_cids=$(echo "$content" | grep -oE "Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-z0-9]{50,}")
+    local ipfs_cids=$(echo "$content" | safe_grep_oE "Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-z0-9]{50,}")
     if [ -n "$ipfs_cids" ]; then
         for cid in $ipfs_cids; do
             ipfs_findings+=("ipfs_cid:$cid")
@@ -27525,8 +27577,8 @@ analyze_ipfs_threats() {
     fi
     
     for pattern in "${IPFS_MALWARE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ipfs_findings+=("ipfs_malware:$matched")
             ((ipfs_score += 40))
             log_threat 50 "IPFS malware indicator: $matched"
@@ -27534,7 +27586,7 @@ analyze_ipfs_threats() {
     done
     
     # Check for decentralized hosting abuse
-    if echo "$content" | grep -qiE "(fleek|netlify|vercel).*ipfs|(ipfs|dweb)\.link.*\.(exe|dll|scr|bat|ps1)"; then
+    if echo "$content" | safe_grep_qiE "(fleek|netlify|vercel).*ipfs|(ipfs|dweb)\.link.*\.(exe|dll|scr|bat|ps1)"; then
         ipfs_findings+=("decentralized_hosting_abuse")
         ((ipfs_score += 35))
         log_threat 45 "Decentralized hosting abuse detected"
@@ -27586,8 +27638,8 @@ analyze_sse_abuse() {
     )
     
     for pattern in "${SSE_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             sse_findings+=("sse_abuse:$matched")
             ((sse_score += 25))
         fi
@@ -27634,16 +27686,16 @@ analyze_webrtc_abuse() {
     )
     
     for pattern in "${WEBRTC_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             webrtc_findings+=("webrtc_pattern:$matched")
             ((webrtc_score += 20))
         fi
     done
     
     # Check for STUN/TURN server URLs
-    if echo "$content" | grep -qiE "stun:|turn:"; then
-        local stun_urls=$(echo "$content" | grep -oiE "(stun|turn)s?:[^\s\"'<>]+" | head -5)
+    if echo "$content" | safe_grep_qiE "stun:|turn:"; then
+        local stun_urls=$(echo "$content" | safe_grep_oiE "(stun|turn)s?:[^\s\"'<>]+" | head -5)
         for stun_url in $stun_urls; do
             webrtc_findings+=("stun_turn_server:$stun_url")
             ((webrtc_score += 15))
@@ -27651,7 +27703,7 @@ analyze_webrtc_abuse() {
     fi
     
     # WebRTC IP leak exploitation
-    if echo "$content" | grep -qiE "webrtc.*ip.*leak|rtc.*local.*ip|getusermedia.*deny"; then
+    if echo "$content" | safe_grep_qiE "webrtc.*ip.*leak|rtc.*local.*ip|getusermedia.*deny"; then
         webrtc_findings+=("webrtc_ip_leak")
         ((webrtc_score += 35))
         log_warning "WebRTC IP leak exploitation detected"
@@ -27730,8 +27782,8 @@ analyze_blockchain_attacks() {
     )
     
     for pattern in "${BLOCKCHAIN_ATTACK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             blockchain_findings+=("blockchain_attack:$matched")
             ((blockchain_score += 30))
             log_warning "Blockchain attack pattern: $matched"
@@ -27739,7 +27791,7 @@ analyze_blockchain_attacks() {
     done
     
     # Check for Ethereum addresses
-    local eth_addresses=$(echo "$content" | grep -oiE "0x[a-fA-F0-9]{40}")
+    local eth_addresses=$(echo "$content" | safe_grep_oiE "0x[a-fA-F0-9]{40}")
     if [ -n "$eth_addresses" ]; then
         for addr in $eth_addresses; do
             blockchain_findings+=("eth_address:$addr")
@@ -27748,14 +27800,14 @@ analyze_blockchain_attacks() {
     fi
     
     # Check for wallet connection phishing
-    if echo "$content" | grep -qiE "connect.*wallet|sign.*message|approve.*token"; then
+    if echo "$content" | safe_grep_qiE "connect.*wallet|sign.*message|approve.*token"; then
         blockchain_findings+=("wallet_phishing")
         ((blockchain_score += 35))
         log_threat 40 "Wallet phishing attempt detected"
     fi
     
     # Check for seed phrase phishing
-    if echo "$content" | grep -qiE "seed.*phrase|recovery.*phrase|mnemonic|12.*words|24.*words"; then
+    if echo "$content" | safe_grep_qiE "seed.*phrase|recovery.*phrase|mnemonic|12.*words|24.*words"; then
         blockchain_findings+=("seed_phrase_phishing")
         ((blockchain_score += 50))
         log_threat 60 "Seed phrase phishing attempt detected"
@@ -27829,8 +27881,8 @@ analyze_oauth_attacks() {
     )
     
     for pattern in "${OAUTH_ATTACK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             oauth_findings+=("oauth_attack:$matched")
             ((oauth_score += 35))
             log_warning "OAuth attack pattern: ${matched:0:50}"
@@ -27838,8 +27890,8 @@ analyze_oauth_attacks() {
     done
     
     # Check for OAuth URLs
-    if echo "$content" | grep -qiE "oauth|authorize|token"; then
-        local oauth_urls=$(echo "$content" | grep -oiE "https?://[^\s]*/(oauth|authorize|token)[^\s]*" | head -5)
+    if echo "$content" | safe_grep_qiE "oauth|authorize|token"; then
+        local oauth_urls=$(echo "$content" | safe_grep_oiE "https?://[^\s]*/(oauth|authorize|token)[^\s]*" | head -5)
         for oauth_url in $oauth_urls; do
             oauth_findings+=("oauth_endpoint:$oauth_url")
             ((oauth_score += 10))
@@ -27911,8 +27963,8 @@ analyze_saml_attacks() {
     )
     
     for pattern in "${SAML_ATTACK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             saml_findings+=("saml_attack:$matched")
             ((saml_score += 40))
             log_warning "SAML attack pattern: $matched"
@@ -27920,12 +27972,12 @@ analyze_saml_attacks() {
     done
     
     # Check for SAML endpoints
-    if echo "$content" | grep -qiE "SAMLRequest|SAMLResponse|saml2|SingleSignOn"; then
+    if echo "$content" | safe_grep_qiE "SAMLRequest|SAMLResponse|saml2|SingleSignOn"; then
         saml_findings+=("saml_endpoint")
         ((saml_score += 15))
         
         # Check for base64 SAML assertions
-        if echo "$content" | grep -qiE "SAMLResponse=[A-Za-z0-9+/=]{100,}"; then
+        if echo "$content" | safe_grep_qiE "SAMLResponse=[A-Za-z0-9+/=]{100,}"; then
             saml_findings+=("saml_assertion")
             ((saml_score += 20))
         fi
@@ -27999,8 +28051,8 @@ analyze_container_attacks() {
     )
     
     for pattern in "${CONTAINER_ATTACK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             container_findings+=("container_attack:$matched")
             ((container_score += 35))
             log_warning "Container attack pattern: $matched"
@@ -28008,13 +28060,13 @@ analyze_container_attacks() {
     done
     
     # Check for Docker Hub malicious images
-    if echo "$content" | grep -qiE "docker\.io/[^\s]+:(latest|dev|test|crypto|miner)"; then
+    if echo "$content" | safe_grep_qiE "docker\.io/[^\s]+:(latest|dev|test|crypto|miner)"; then
         container_findings+=("suspicious_image")
         ((container_score += 25))
     fi
     
     # Check for container runtime socket exposure
-    if echo "$content" | grep -qiE "/var/run/docker\.sock|/var/run/containerd/containerd\.sock"; then
+    if echo "$content" | safe_grep_qiE "/var/run/docker\.sock|/var/run/containerd/containerd\.sock"; then
         container_findings+=("socket_exposure")
         ((container_score += 40))
         log_threat 50 "Container runtime socket exposure detected"
@@ -28087,16 +28139,16 @@ analyze_serverless_attacks() {
     )
     
     for pattern in "${SERVERLESS_ATTACK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             serverless_findings+=("serverless_attack:$matched")
             ((serverless_score += 30))
         fi
     done
     
     # Check for serverless function URLs
-    if echo "$content" | grep -qiE "lambda-url\..*\.on\.aws|execute-api\..*\.amazonaws\.com|cloudfunctions\.net|azurewebsites\.net/api"; then
-        local func_urls=$(echo "$content" | grep -oiE "https?://[^\s]*(lambda-url|execute-api|cloudfunctions|azurewebsites)[^\s]*" | head -5)
+    if echo "$content" | safe_grep_qiE "lambda-url\..*\.on\.aws|execute-api\..*\.amazonaws\.com|cloudfunctions\.net|azurewebsites\.net/api"; then
+        local func_urls=$(echo "$content" | safe_grep_oiE "https?://[^\s]*(lambda-url|execute-api|cloudfunctions|azurewebsites)[^\s]*" | head -5)
         for func_url in $func_urls; do
             serverless_findings+=("serverless_url:$func_url")
             ((serverless_score += 15))
@@ -28177,8 +28229,8 @@ analyze_fast_flux() {
     )
     
     for pattern in "${FAST_FLUX_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ff_findings+=("fast_flux:$matched")
             ((ff_score += 30))
             log_warning "Fast-flux indicator: $matched"
@@ -28186,15 +28238,15 @@ analyze_fast_flux() {
     done
     
     for pattern in "${FF_NS_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ff_findings+=("suspicious_ns:$matched")
             ((ff_score += 20))
         fi
     done
     
     # Check for multiple IP addresses in content (potential flux indicators)
-    local ip_count=$(echo "$content" | grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" | sort -u | wc -l)
+    local ip_count=$(echo "$content" | safe_grep_oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" | sort -u | wc -l)
     if [ "$ip_count" -gt 5 ]; then
         ff_findings+=("multiple_ips:$ip_count")
         ((ff_score += 25))
@@ -28202,7 +28254,7 @@ analyze_fast_flux() {
     fi
     
     # Check for domain age indicators (new domains are suspicious)
-    if echo "$content" | grep -qiE "registered.*today|created.*[0-9]{4}-[0-9]{2}-[0-9]{2}|whois.*new"; then
+    if echo "$content" | safe_grep_qiE "registered.*today|created.*[0-9]{4}-[0-9]{2}-[0-9]{2}|whois.*new"; then
         ff_findings+=("new_domain")
         ((ff_score += 20))
     fi
@@ -28288,8 +28340,8 @@ analyze_domain_fronting() {
     )
     
     for pattern in "${DOMAIN_FRONTING_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             df_findings+=("domain_fronting:$matched")
             ((df_score += 35))
             log_warning "Domain fronting indicator: $matched"
@@ -28298,8 +28350,8 @@ analyze_domain_fronting() {
     
     # Check for frontable CDN with suspicious paths
     for cdn in "${FRONTABLE_CDNS[@]}"; do
-        if echo "$content" | grep -qiE "$cdn.*(c2|beacon|shell|cmd|exec)"; then
-            local matched=$(echo "$content" | grep -oiE "$cdn[^\s]+" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$cdn.*(c2|beacon|shell|cmd|exec)"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$cdn[^\s]+" 2>/dev/null | head -1)
             df_findings+=("frontable_cdn_abuse:$matched")
             ((df_score += 40))
             log_threat 50 "Suspicious CDN endpoint: $matched"
@@ -28307,7 +28359,7 @@ analyze_domain_fronting() {
     done
     
     # Check for Tor meek bridges
-    if echo "$content" | grep -qiE "meek.*bridge|meek-client|meek.*obfs4"; then
+    if echo "$content" | safe_grep_qiE "meek.*bridge|meek-client|meek.*obfs4"; then
         df_findings+=("tor_meek_fronting")
         ((df_score += 30))
         log_warning "Tor meek bridge (domain fronting) detected"
@@ -28393,13 +28445,13 @@ analyze_dns_over_https() {
     
     # Check for DoH endpoints
     for endpoint in "${DOH_ENDPOINTS[@]}"; do
-        if echo "$content" | grep -qiE "$endpoint"; then
-            local matched=$(echo "$content" | grep -oiE "https?://[^\s]*$endpoint[^\s]*" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$endpoint"; then
+            local matched=$(echo "$content" | safe_grep_oiE "https?://[^\s]*$endpoint[^\s]*" 2>/dev/null | head -1)
             doh_findings+=("doh_endpoint:$matched")
             ((doh_score += 15))
             
             # Check if combined with suspicious patterns
-            if echo "$content" | grep -qiE "$endpoint.*(tunnel|c2|beacon|exfil)"; then
+            if echo "$content" | safe_grep_qiE "$endpoint.*(tunnel|c2|beacon|exfil)"; then
                 ((doh_score += 30))
                 log_threat 45 "DoH C2 abuse detected"
             fi
@@ -28407,15 +28459,15 @@ analyze_dns_over_https() {
     done
     
     for pattern in "${DOH_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             doh_findings+=("doh_abuse:$matched")
             ((doh_score += 25))
         fi
     done
     
     # Check for base64/hex encoded DNS queries
-    if echo "$content" | grep -qiE "dns-query\?dns=[A-Za-z0-9+/=]{20,}"; then
+    if echo "$content" | safe_grep_qiE "dns-query\?dns=[A-Za-z0-9+/=]{20,}"; then
         doh_findings+=("encoded_doh_query")
         ((doh_score += 30))
         log_warning "Encoded DoH query detected"
@@ -28483,15 +28535,15 @@ analyze_dns_over_tls() {
     )
     
     for pattern in "${DOT_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             dot_findings+=("dot_pattern:$matched")
             ((dot_score += 20))
         fi
     done
     
     # Check for DoT combined with suspicious activity
-    if echo "$content" | grep -qiE ":853.*(beacon|shell|cmd|exec|tunnel)"; then
+    if echo "$content" | safe_grep_qiE ":853.*(beacon|shell|cmd|exec|tunnel)"; then
         dot_findings+=("dot_abuse")
         ((dot_score += 35))
         log_warning "DoT abuse pattern detected"
@@ -28558,15 +28610,15 @@ analyze_esni_sni_bypass() {
     )
     
     for pattern in "${ESNI_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             esni_findings+=("esni_technique:$matched")
             ((esni_score += 25))
         fi
     done
     
     # Check for TLS fingerprint evasion
-    if echo "$content" | grep -qiE "curl.*cipher|openssl.*s_client.*servername"; then
+    if echo "$content" | safe_grep_qiE "curl.*cipher|openssl.*s_client.*servername"; then
         esni_findings+=("tls_fingerprint_evasion")
         ((esni_score += 20))
     fi
@@ -28634,15 +28686,15 @@ analyze_traffic_fragmentation() {
     )
     
     for pattern in "${FRAGMENTATION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             frag_findings+=("fragmentation:$matched")
             ((frag_score += 25))
         fi
     done
     
     # Check for MTU manipulation
-    if echo "$content" | grep -qiE "mtu[=:]\s*[0-9]+|set.*mtu.*[0-9]+"; then
+    if echo "$content" | safe_grep_qiE "mtu[=:]\s*[0-9]+|set.*mtu.*[0-9]+"; then
         frag_findings+=("mtu_manipulation")
         ((frag_score += 20))
     fi
@@ -28710,22 +28762,22 @@ analyze_protocol_switching() {
     )
     
     for pattern in "${PROTOCOL_SWITCH_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             proto_findings+=("protocol_switch:$matched")
             ((proto_score += 25))
         fi
     done
     
     # Check for HTTP CONNECT tunneling
-    if echo "$content" | grep -qiE "connect\s+[^\s]+:[0-9]+\s+http"; then
+    if echo "$content" | safe_grep_qiE "connect\s+[^\s]+:[0-9]+\s+http"; then
         proto_findings+=("http_connect_tunnel")
         ((proto_score += 30))
         log_warning "HTTP CONNECT tunneling detected"
     fi
     
     # Check for protocol confusion
-    if echo "$content" | grep -qiE "sslstrip|ssl.*downgrade|https.*http.*redirect"; then
+    if echo "$content" | safe_grep_qiE "sslstrip|ssl.*downgrade|https.*http.*redirect"; then
         proto_findings+=("protocol_downgrade")
         ((proto_score += 35))
         log_threat 40 "Protocol downgrade attack indicator"
@@ -28795,15 +28847,15 @@ analyze_timing_channels() {
     )
     
     for pattern in "${TIMING_CHANNEL_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             timing_findings+=("timing_channel:$matched")
             ((timing_score += 30))
         fi
     done
     
     # Check for C2 jitter/beacon timing
-    if echo "$content" | grep -qiE "beacon.*interval|jitter.*[0-9]+%|sleep.*random"; then
+    if echo "$content" | safe_grep_qiE "beacon.*interval|jitter.*[0-9]+%|sleep.*random"; then
         timing_findings+=("c2_timing_pattern")
         ((timing_score += 35))
         log_warning "C2 beacon timing pattern detected"
@@ -28876,22 +28928,22 @@ analyze_steganographic_dns() {
     )
     
     for pattern in "${DNS_STEG_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             steg_findings+=("dns_steg:$matched")
             ((steg_score += 30))
         fi
     done
     
     # Check for base32/base64 in DNS-like patterns
-    if echo "$content" | grep -qiE "[A-Z2-7]{32,}\.[a-z]+\.[a-z]+|[A-Za-z0-9+/]{40,}=*\.[a-z]+"; then
+    if echo "$content" | safe_grep_qiE "[A-Z2-7]{32,}\.[a-z]+\.[a-z]+|[A-Za-z0-9+/]{40,}=*\.[a-z]+"; then
         steg_findings+=("encoded_subdomain")
         ((steg_score += 35))
         log_warning "Encoded DNS subdomain detected"
     fi
     
     # Check for NULL byte or unusual characters in DNS
-    if echo "$content" | grep -qE "\\x00.*\.[a-z]+|\..*\\x00"; then
+    if echo "$content" | safe_grep_qE "\\x00.*\.[a-z]+|\..*\\x00"; then
         steg_findings+=("dns_null_byte")
         ((steg_score += 25))
     fi
@@ -28978,29 +29030,29 @@ analyze_dependency_confusion() {
     )
     
     for pattern in "${DEP_CONFUSION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE -e "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE -e "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE -e "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE -e "$pattern" 2>/dev/null | head -1)
             dc_findings+=("dep_confusion:$matched")
             ((dc_score += 25))
         fi
     done
     
     # Check for package.json with suspicious scripts
-    if echo "$content" | grep -qiE '"preinstall".*:.*"curl\|wget\|nc\|bash\|sh\|python"'; then
+    if echo "$content" | safe_grep_qiE '"preinstall".*:.*"curl\|wget\|nc\|bash\|sh\|python"'; then
         dc_findings+=("malicious_install_script")
         ((dc_score += 45))
         log_threat 50 "Malicious package install script detected"
     fi
     
     # Check for setup.py abuse
-    if echo "$content" | grep -qiE "setup\.py.*cmdclass\|install.*exec\|os\.system"; then
+    if echo "$content" | safe_grep_qiE "setup\.py.*cmdclass\|install.*exec\|os\.system"; then
         dc_findings+=("malicious_setup_py")
         ((dc_score += 45))
         log_threat 50 "Malicious setup.py detected"
     fi
     
     # Check for version number abuse (very high version to override)
-    if echo "$content" | grep -qiE '"version".*:.*"[0-9]{3,}\.|version.*=.*[0-9]{3,}\.'; then
+    if echo "$content" | safe_grep_qiE '"version".*:.*"[0-9]{3,}\.|version.*=.*[0-9]{3,}\.'; then
         dc_findings+=("version_number_abuse")
         ((dc_score += 30))
         log_warning "Suspicious high version number (dependency confusion)"
@@ -29095,8 +29147,8 @@ analyze_typosquatting_packages() {
     )
     
     for pattern in "${TYPOSQUAT_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "(npm.*install|pip.*install|require\(|import)\s*['\"]?$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "(npm.*install|pip.*install|require\(|import)\s*['\"]?$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             typo_findings+=("typosquat:$matched")
             ((typo_score += 40))
             log_threat 45 "Typosquatted package: $matched"
@@ -29104,14 +29156,14 @@ analyze_typosquatting_packages() {
     done
     
     # Check for suspicious package name patterns
-    if echo "$content" | grep -qiE "install.*[a-z]+-[a-z]+-[a-z]+-js|install.*[a-z]+[0-9]+[a-z]+"; then
+    if echo "$content" | safe_grep_qiE "install.*[a-z]+-[a-z]+-[a-z]+-js|install.*[a-z]+[0-9]+[a-z]+"; then
         typo_findings+=("suspicious_pkg_name")
         ((typo_score += 20))
     fi
     
     # Check for known malicious package indicators
-    if echo "$content" | grep -qiE "event-stream|flatmap-stream|eslint-scope|getcookies|electron-native-notify"; then
-        local matched=$(echo "$content" | grep -oiE "(event-stream|flatmap-stream|eslint-scope|getcookies|electron-native-notify)" | head -1)
+    if echo "$content" | safe_grep_qiE "event-stream|flatmap-stream|eslint-scope|getcookies|electron-native-notify"; then
+        local matched=$(echo "$content" | safe_grep_oiE "(event-stream|flatmap-stream|eslint-scope|getcookies|electron-native-notify)" | head -1)
         typo_findings+=("known_malicious_pkg:$matched")
         ((typo_score += 50))
         log_threat 60 "Known malicious package: $matched"
@@ -29190,16 +29242,16 @@ analyze_compromised_cdn() {
     )
     
     for pattern in "${CDN_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             cdn_findings+=("cdn_abuse:$matched")
             ((cdn_score += 25))
         fi
     done
     
     for pattern in "${SUSPICIOUS_CDN_RESOURCES[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             cdn_findings+=("suspicious_cdn:$matched")
             ((cdn_score += 40))
             log_threat 45 "Suspicious CDN resource: $matched"
@@ -29207,14 +29259,14 @@ analyze_compromised_cdn() {
     done
     
     # Check for CDN URLs with unusual parameters
-    if echo "$content" | grep -qiE "cdn[^\s]+\.(js|css)\?[a-z]+=[a-z0-9+/=]{50,}"; then
+    if echo "$content" | safe_grep_qiE "cdn[^\s]+\.(js|css)\?[a-z]+=[a-z0-9+/=]{50,}"; then
         cdn_findings+=("cdn_payload_param")
         ((cdn_score += 35))
         log_warning "CDN resource with encoded payload parameter"
     fi
     
     # Check for known CDN compromises
-    if echo "$content" | grep -qiE "polyfill\.io|cdn\.polyfill\.io"; then
+    if echo "$content" | safe_grep_qiE "polyfill\.io|cdn\.polyfill\.io"; then
         cdn_findings+=("known_compromised_cdn:polyfill.io")
         ((cdn_score += 50))
         log_threat 60 "Known compromised CDN: polyfill.io"
@@ -29281,37 +29333,37 @@ analyze_subresource_integrity() {
     )
     
     for pattern in "${SRI_BYPASS_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE -e "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE -e "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE -e "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE -e "$pattern" 2>/dev/null | head -1)
             sri_findings+=("sri_bypass:$matched")
             ((sri_score += 25))
         fi
     done
     
     # Check for CDN scripts without integrity (two-step check replaces PCRE negative lookahead)
-    if echo "$content" | grep -qiE "<script.*src=.*cdn" && \
-       ! echo "$content" | grep -qiE "<script.*src=.*cdn.*integrity"; then
+    if echo "$content" | safe_grep_qiE "<script.*src=.*cdn" && \
+       ! echo "$content" | safe_grep_qiE "<script.*src=.*cdn.*integrity"; then
         sri_findings+=("missing_integrity:cdn_script")
         ((sri_score += 30))
     fi
     
     # Check for CDN links without integrity
-    if echo "$content" | grep -qiE "<link.*href=.*cdn" && \
-       ! echo "$content" | grep -qiE "<link.*href=.*cdn.*integrity"; then
+    if echo "$content" | safe_grep_qiE "<link.*href=.*cdn" && \
+       ! echo "$content" | safe_grep_qiE "<link.*href=.*cdn.*integrity"; then
         sri_findings+=("missing_integrity:cdn_link")
         ((sri_score += 25))
     fi
     
     # Check for crossorigin without integrity
-    if echo "$content" | grep -qiE "crossorigin.*anonymous" && \
-       ! echo "$content" | grep -qiE "crossorigin.*anonymous.*integrity"; then
+    if echo "$content" | safe_grep_qiE "crossorigin.*anonymous" && \
+       ! echo "$content" | safe_grep_qiE "crossorigin.*anonymous.*integrity"; then
         sri_findings+=("missing_integrity:crossorigin")
         ((sri_score += 20))
     fi
     
     # Check for script tags without integrity
-    local script_count=$(echo "$content" | grep -ciE "<script.*src=.*(cdn|unpkg|jsdelivr|cloudflare)")
-    local sri_count=$(echo "$content" | grep -ciE "<script.*integrity=.*sha")
+    local script_count=$(echo "$content" | safe_grep_ciE "<script.*src=.*(cdn|unpkg|jsdelivr|cloudflare)")
+    local sri_count=$(echo "$content" | safe_grep_ciE "<script.*integrity=.*sha")
     
     if [ "$script_count" -gt 0 ] && [ "$sri_count" -eq 0 ]; then
         sri_findings+=("missing_sri:$script_count scripts")
@@ -29320,7 +29372,7 @@ analyze_subresource_integrity() {
     fi
     
     # Check for inline script injection patterns
-    if echo "$content" | grep -qiE "innerHTML.*=.*<script|outerHTML.*=.*<script"; then
+    if echo "$content" | safe_grep_qiE "innerHTML.*=.*<script|outerHTML.*=.*<script"; then
         sri_findings+=("inline_script_injection")
         ((sri_score += 35))
         log_warning "Inline script injection (bypasses SRI)"
@@ -29408,8 +29460,8 @@ analyze_package_manifest_abuse() {
     )
     
     for pattern in "${PACKAGE_JSON_ABUSE[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             manifest_findings+=("package_json_abuse:${matched:0:80}")
             ((manifest_score += 40))
             log_threat 45 "Malicious package.json pattern"
@@ -29417,16 +29469,16 @@ analyze_package_manifest_abuse() {
     done
     
     for pattern in "${REQUIREMENTS_TXT_ABUSE[@]}"; do
-        if echo "$content" | grep -qiE -e "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE -e "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE -e "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE -e "$pattern" 2>/dev/null | head -1)
             manifest_findings+=("requirements_abuse:${matched:0:80}")
             ((manifest_score += 35))
         fi
     done
     
     for pattern in "${SETUP_PY_ABUSE[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             manifest_findings+=("setup_py_abuse:${matched:0:80}")
             ((manifest_score += 45))
             log_threat 50 "Malicious setup.py pattern"
@@ -29434,13 +29486,13 @@ analyze_package_manifest_abuse() {
     done
     
     # Check for known malicious maintainer patterns
-    if echo "$content" | grep -qiE '"maintainers?".*:.*\[\s*\]|"author".*:.*""'; then
+    if echo "$content" | safe_grep_qiE '"maintainers?".*:.*\[\s*\]|"author".*:.*""'; then
         manifest_findings+=("missing_maintainer")
         ((manifest_score += 15))
     fi
     
     # Check for suspicious dependency versions
-    if echo "$content" | grep -qiE '"[a-z-]+".*:.*"\*"|"[a-z-]+".*:.*"latest"'; then
+    if echo "$content" | safe_grep_qiE '"[a-z-]+".*:.*"\*"|"[a-z-]+".*:.*"latest"'; then
         manifest_findings+=("wildcard_version")
         ((manifest_score += 20))
         log_warning "Wildcard package version (security risk)"
@@ -29496,8 +29548,8 @@ analyze_social_engineering() {
     
     # Check social engineering patterns
     for pattern in "${SOCIAL_ENGINEERING_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             se_findings+=("social_eng:$matched")
             ((se_score += 15))
         fi
@@ -29505,8 +29557,8 @@ analyze_social_engineering() {
     
     # Check BEC patterns
     for pattern in "${BEC_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             se_findings+=("bec:$matched")
             ((se_score += 30))
             log_threat 45 "Business Email Compromise indicator: $matched"
@@ -29518,7 +29570,7 @@ analyze_social_engineering() {
     # URGENCY
     local urgency_count=0
     for phrase in "urgent" "immediate" "act now" "expires" "deadline" "limited time" "hours left" "final notice"; do
-        if echo "$content" | grep -qiE "$phrase"; then
+        if echo "$content" | safe_grep_qiE "$phrase"; then
             ((urgency_count++))
         fi
     done
@@ -29531,7 +29583,7 @@ analyze_social_engineering() {
     # AUTHORITY
     local authority_count=0
     for phrase in "official" "government" "bank" "security department" "legal" "court" "police" "irs" "fbi"; do
-        if echo "$content" | grep -qiE "$phrase"; then
+        if echo "$content" | safe_grep_qiE "$phrase"; then
             ((authority_count++))
         fi
     done
@@ -29544,7 +29596,7 @@ analyze_social_engineering() {
     # FEAR
     local fear_count=0
     for phrase in "compromised" "suspended" "breach" "stolen" "hacked" "virus" "locked" "terminated" "legal action"; do
-        if echo "$content" | grep -qiE "$phrase"; then
+        if echo "$content" | safe_grep_qiE "$phrase"; then
             ((fear_count++))
         fi
     done
@@ -29557,7 +29609,7 @@ analyze_social_engineering() {
     # REWARD/GREED
     local reward_count=0
     for phrase in "winner" "prize" "congratulations" "won" "free" "bonus" "reward" "million"; do
-        if echo "$content" | grep -qiE "$phrase"; then
+        if echo "$content" | safe_grep_qiE "$phrase"; then
             ((reward_count++))
         fi
     done
@@ -29568,21 +29620,21 @@ analyze_social_engineering() {
     fi
     
     # Check for impersonation patterns
-    if echo "$content" | grep -qiE "(from|signed|regards).*@.*(bank|paypal|amazon|apple|microsoft|google)"; then
+    if echo "$content" | safe_grep_qiE "(from|signed|regards).*@.*(bank|paypal|amazon|apple|microsoft|google)"; then
         log_threat 40 "Brand impersonation signature detected"
         se_findings+=("brand_impersonation")
         ((se_score += 30))
     fi
     
     # Check for fake invoice patterns
-    if echo "$content" | grep -qiE "invoice.*#.*[0-9]+|order.*#.*[0-9]+|payment.*due"; then
+    if echo "$content" | safe_grep_qiE "invoice.*#.*[0-9]+|order.*#.*[0-9]+|payment.*due"; then
         log_warning "Invoice/Payment reference pattern"
         se_findings+=("fake_invoice")
         ((se_score += 15))
     fi
     
     # Check for credential harvesting language
-    if echo "$content" | grep -qiE "(verify|confirm|update).*your.*(account|password|information|details)"; then
+    if echo "$content" | safe_grep_qiE "(verify|confirm|update).*your.*(account|password|information|details)"; then
         log_threat 35 "Credential harvesting language detected"
         se_findings+=("credential_harvest")
         ((se_score += 25))
@@ -29657,16 +29709,16 @@ analyze_asn_infrastructure() {
     local analyzed_count=0
     
     # Extract domains from URLs - more robust pattern
-    local domains=$(echo "$content" | grep -oiE 'https?://([a-zA-Z0-9][-a-zA-Z0-9]*[.])+[a-zA-Z]{2,}' | \
+    local domains=$(echo "$content" | safe_grep_oiE 'https?://([a-zA-Z0-9][-a-zA-Z0-9]*[.])+[a-zA-Z]{2,}' | \
         sed 's|https\?://||i' | sed 's|/.*||' | sort -u)
     
     # Also try to extract standalone domains
-    local standalone_domains=$(echo "$content" | grep -oiE '([a-zA-Z0-9][-a-zA-Z0-9]*[.])+[a-zA-Z]{2,}' | sort -u)
+    local standalone_domains=$(echo "$content" | safe_grep_oiE '([a-zA-Z0-9][-a-zA-Z0-9]*[.])+[a-zA-Z]{2,}' | sort -u)
     domains="$domains $standalone_domains"
     domains=$(echo "$domains" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     
     # Extract IPs
-    local ips=$(echo "$content" | grep -oE "[0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}" | sort -u)
+    local ips=$(echo "$content" | safe_grep_oE "[0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}" | sort -u)
     
     # Display extracted targets
     if [ -n "$domains" ] || [ -n "$ips" ]; then
@@ -30273,7 +30325,7 @@ analyze_zero_day_anomalies() {
     check_known_cve_patterns "$content"
     
     # Check for protocol confusion attacks
-    if echo "$content" | grep -qE "^(http|https)://.*:(ftp|ssh|telnet|smtp)"; then
+    if echo "$content" | safe_grep_qE "^(http|https)://.*:(ftp|ssh|telnet|smtp)"; then
         log_threat 50 "Potential protocol confusion pattern"
         anomaly_findings+=("protocol_confusion")
         ((anomaly_score += 40))
@@ -30320,10 +30372,10 @@ analyze_encoding_anomalies() {
     local has_url=false
     local has_unicode=false
     
-    echo "$content" | grep -qE "[A-Za-z0-9+/=]{20,}" && has_base64=true
-    echo "$content" | grep -qE "\\\\x[0-9a-fA-F]{2}" && has_hex=true
-    echo "$content" | grep -qE "%[0-9a-fA-F]{2}" && has_url=true
-    echo "$content" | grep -qE "\\\\u[0-9a-fA-F]{4}" && has_unicode=true
+    echo "$content" | safe_grep_qE "[A-Za-z0-9+/=]{20,}" && has_base64=true
+    echo "$content" | safe_grep_qE "\\\\x[0-9a-fA-F]{2}" && has_hex=true
+    echo "$content" | safe_grep_qE "%[0-9a-fA-F]{2}" && has_url=true
+    echo "$content" | safe_grep_qE "\\\\u[0-9a-fA-F]{4}" && has_unicode=true
     
     local encoding_count=0
     [ "$has_base64" = true ] && ((encoding_count++))
@@ -30344,22 +30396,22 @@ analyze_polyglot_content() {
     # Check for polyglot file signatures in content
     
     # PDF header in URL/content
-    if echo "$content" | grep -qE "%PDF-|JVBERi0"; then
+    if echo "$content" | safe_grep_qE "%PDF-|JVBERi0"; then
         log_threat 55 "PDF signature detected in content - possible polyglot"
     fi
     
     # ZIP header
-    if echo "$content" | grep -qE "PK\x03\x04|UEsDB"; then
+    if echo "$content" | safe_grep_qE "PK\x03\x04|UEsDB"; then
         log_threat 50 "ZIP signature detected in content - possible polyglot"
     fi
     
     # PE header
-    if echo "$content" | grep -qE "MZ.*This program|TVqQ"; then
+    if echo "$content" | safe_grep_qE "MZ.*This program|TVqQ"; then
         log_threat 70 "PE executable signature detected - possible polyglot"
     fi
     
     # HTML in non-HTML context
-    if echo "$content" | grep -qE "<html|<script|<iframe" && ! echo "$content" | grep -qE "^https?://"; then
+    if echo "$content" | safe_grep_qE "<html|<script|<iframe" && ! echo "$content" | safe_grep_qE "^https?://"; then
         log_warning "HTML content in non-URL context - possible injection"
     fi
 }
@@ -30401,31 +30453,31 @@ check_known_cve_patterns() {
     local content="$1"
     
     # CVE-2021-44228 (Log4Shell)
-    if echo "$content" | grep -qiE "\\\$\{jndi:(ldap|rmi|dns|corba)://"; then
+    if echo "$content" | safe_grep_qiE "\\\$\{jndi:(ldap|rmi|dns|corba)://"; then
         log_threat 90 "Log4Shell (CVE-2021-44228) pattern detected"
         record_ioc "cve" "CVE-2021-44228" "Log4Shell exploit pattern"
     fi
     
     # CVE-2021-34473/31207/34523 (ProxyShell)
-    if echo "$content" | grep -qiE "autodiscover.*powershell|mapi/nspi"; then
+    if echo "$content" | safe_grep_qiE "autodiscover.*powershell|mapi/nspi"; then
         log_threat 85 "ProxyShell pattern detected"
         record_ioc "cve" "ProxyShell" "Exchange exploit pattern"
     fi
     
     # CVE-2022-30190 (Follina)
-    if echo "$content" | grep -qiE "ms-msdt:.*IT_"; then
+    if echo "$content" | safe_grep_qiE "ms-msdt:.*IT_"; then
         log_threat 90 "Follina (CVE-2022-30190) pattern detected"
         record_ioc "cve" "CVE-2022-30190" "Follina exploit pattern"
     fi
     
     # CVE-2021-40444 (MSHTML)
-    if echo "$content" | grep -qiE "\.cpl.*\.inf|\.cab.*\.inf"; then
+    if echo "$content" | safe_grep_qiE "\.cpl.*\.inf|\.cab.*\.inf"; then
         log_threat 80 "MSHTML (CVE-2021-40444) pattern detected"
         record_ioc "cve" "CVE-2021-40444" "MSHTML exploit pattern"
     fi
     
     # Spring4Shell
-    if echo "$content" | grep -qiE "class\.module\.classLoader"; then
+    if echo "$content" | safe_grep_qiE "class\.module\.classLoader"; then
         log_threat 85 "Spring4Shell pattern detected"
         record_ioc "cve" "Spring4Shell" "Spring exploit pattern"
     fi
@@ -30453,7 +30505,7 @@ analyze_ml_heuristics() {
     # Feature extraction and scoring
     
     # 1. URL Structure Analysis
-    if echo "$content" | grep -qiE "^https?://"; then
+    if echo "$content" | safe_grep_qiE "^https?://"; then
         local url="$content"
         
         # URL length feature
@@ -30517,7 +30569,7 @@ analyze_ml_heuristics() {
     # 4. Keyword density scoring
     local phishing_keywords=0
     for keyword in "login" "verify" "account" "password" "secure" "update" "confirm" "suspended" "urgent"; do
-        if echo "$content" | grep -qiE "$keyword"; then
+        if echo "$content" | safe_grep_qiE "$keyword"; then
             ((phishing_keywords++))
         fi
     done
@@ -30635,7 +30687,7 @@ analyze_ngram_patterns() {
     
     for ngram in "${suspicious_ngrams[@]}"; do
         # Use -F for fixed string matching (not regex)
-        local count=$(echo "$content" | grep -oF "$ngram" 2>/dev/null | wc -l | tr -d ' ')
+        local count=$(echo "$content" | safe_grep_oF "$ngram" 2>/dev/null | wc -l | tr -d ' ')
         count=${count:-0}
         if [ "${count:-0}" -gt 3 ] 2>/dev/null; then
             log_info "Suspicious n-gram pattern: '$ngram' appears $count times"
@@ -30649,12 +30701,12 @@ calculate_brand_similarity() {
     
     # Check similarity to known brands
     for brand in "paypal" "amazon" "google" "microsoft" "apple" "facebook" "netflix" "bank" "chase" "wells"; do
-        if echo "$content" | grep -qiE "$brand" 2>/dev/null; then
+        if echo "$content" | safe_grep_qiE "$brand" 2>/dev/null; then
             # Check for typosquatting variations (use variables to avoid shell parsing issues)
             local prefix="${brand:0:3}"
             local suffix="${brand:${#brand}-3}"
             local pattern="${prefix}[a-z]*${suffix}"
-            local variations=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | wc -l)
+            local variations=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | wc -l)
             if [ "$variations" -gt 0 ] 2>/dev/null; then
                 max_similarity=80
             else
@@ -30752,7 +30804,7 @@ analyze_industry_threats() {
     # Healthcare
     local healthcare_matches=0
     for pattern in "${HEALTHCARE_THREAT_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             ((healthcare_matches++))
         fi
     done
@@ -30766,7 +30818,7 @@ analyze_industry_threats() {
     # Financial
     local financial_matches=0
     for pattern in "${FINANCIAL_THREAT_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             ((financial_matches++))
         fi
     done
@@ -30780,7 +30832,7 @@ analyze_industry_threats() {
     # Government
     local government_matches=0
     for pattern in "${GOVERNMENT_THREAT_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             ((government_matches++))
         fi
     done
@@ -30794,7 +30846,7 @@ analyze_industry_threats() {
     # Education
     local education_matches=0
     for pattern in "${EDUCATION_THREAT_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             ((education_matches++))
         fi
     done
@@ -30808,7 +30860,7 @@ analyze_industry_threats() {
     # E-commerce
     local ecommerce_matches=0
     for pattern in "${ECOMMERCE_THREAT_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             ((ecommerce_matches++))
         fi
     done
@@ -30842,8 +30894,8 @@ analyze_url_obfuscation() {
     
     # Check obfuscation patterns
     for pattern in "${URL_OBFUSCATION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             obfuscation_findings+=("obfuscation:$matched")
             ((obfuscation_score += 20))
             log_warning "URL obfuscation technique: $matched"
@@ -30851,20 +30903,20 @@ analyze_url_obfuscation() {
     done
     
     # Check for IP address obfuscation
-    if echo "$content" | grep -qE "0x[0-9a-fA-F]+\.[0-9]|[0-9]{10,}|0[0-7]+\."; then
+    if echo "$content" | safe_grep_qE "0x[0-9a-fA-F]+\.[0-9]|[0-9]{10,}|0[0-7]+\."; then
         log_threat 45 "IP address obfuscation detected (hex/decimal/octal)"
         obfuscation_findings+=("ip_obfuscation")
         ((obfuscation_score += 35))
     fi
     
     # Check for punycode domains
-    if echo "$content" | grep -qiE "xn--[a-z0-9]+"; then
+    if echo "$content" | safe_grep_qiE "xn--[a-z0-9]+"; then
         log_warning "Punycode domain detected - verify actual characters"
         obfuscation_findings+=("punycode_domain")
         ((obfuscation_score += 25))
         
         # Try to decode punycode
-        local punycode=$(echo "$content" | grep -oiE "xn--[a-z0-9.-]+" | head -1)
+        local punycode=$(echo "$content" | safe_grep_oiE "xn--[a-z0-9.-]+" | head -1)
         if [ -n "$punycode" ] && command -v idn &> /dev/null; then
             local decoded=$(echo "$punycode" | idn --idna-to-unicode 2>/dev/null)
             log_forensic "Decoded punycode: $decoded"
@@ -30872,28 +30924,28 @@ analyze_url_obfuscation() {
     fi
     
     # Check for data URI
-    if echo "$content" | grep -qiE "data:(text|application)"; then
+    if echo "$content" | safe_grep_qiE "data:(text|application)"; then
         log_threat 50 "Data URI detected - embedded content"
         obfuscation_findings+=("data_uri")
         ((obfuscation_score += 40))
     fi
     
     # Check for javascript URI
-    if echo "$content" | grep -qiE "javascript:"; then
+    if echo "$content" | safe_grep_qiE "javascript:"; then
         log_threat 55 "JavaScript URI detected"
         obfuscation_findings+=("javascript_uri")
         ((obfuscation_score += 45))
     fi
     
     # Check for double encoding
-    if echo "$content" | grep -qE "%25[0-9a-fA-F]{2}"; then
+    if echo "$content" | safe_grep_qE "%25[0-9a-fA-F]{2}"; then
         log_threat 40 "Double URL encoding detected"
         obfuscation_findings+=("double_encoding")
         ((obfuscation_score += 30))
     fi
     
     # Check for open redirect abuse
-    if echo "$content" | grep -qiE "(redirect|url|next|goto|redir)=https?://"; then
+    if echo "$content" | safe_grep_qiE "(redirect|url|next|goto|redir)=https?://"; then
         log_warning "Potential open redirect parameter"
         obfuscation_findings+=("open_redirect")
         ((obfuscation_score += 25))
@@ -31193,8 +31245,8 @@ analyze_injection_attacks() {
     
     # Check command injection patterns
     for pattern in "${COMMAND_INJECTION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             injection_findings+=("cmd_injection:$matched")
             ((injection_score += 40))
             log_threat 55 "Command injection pattern: $matched"
@@ -31202,21 +31254,21 @@ analyze_injection_attacks() {
     done
     
     # Template injection (SSTI)
-    if echo "$content" | grep -qE "\{\{.*\}\}|\{%.*%\}|\$\{.*\}" 2>/dev/null; then
+    if echo "$content" | safe_grep_qE "\{\{.*\}\}|\{%.*%\}|\$\{.*\}" 2>/dev/null; then
         log_threat 50 "Template injection pattern detected"
         injection_findings+=("template_injection")
         ((injection_score += 40))
     fi
     
     # XXE patterns
-    if echo "$content" | grep -qiE "<!ENTITY|SYSTEM.*file:|DOCTYPE.*ENTITY" 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE "<!ENTITY|SYSTEM.*file:|DOCTYPE.*ENTITY" 2>/dev/null; then
         log_threat 60 "XXE (XML External Entity) pattern detected"
         injection_findings+=("xxe_attack")
         ((injection_score += 50))
     fi
     
     # SSRF patterns
-    if echo "$content" | grep -qiE "file:///|gopher://|dict://|php://" 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE "file:///|gopher://|dict://|php://" 2>/dev/null; then
         log_threat 55 "SSRF-related protocol scheme detected"
         injection_findings+=("ssrf_protocol")
         ((injection_score += 45))
@@ -31234,8 +31286,8 @@ analyze_injection_attacks() {
     local ssti_critical_count=0
     
     for pattern in "${SSTI_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ssti_engine_hits+=("$matched")
             
             # Check for critical patterns (RCE capable)
@@ -31256,17 +31308,17 @@ analyze_injection_attacks() {
         local engine_guess="unknown"
         
         # Attempt to identify the templating engine
-        if echo "$content" | grep -qE '\{\{.*\}\}.*\{%.*%\}' 2>/dev/null || echo "$content" | grep -qE '\{\{.*\}\}' 2>/dev/null; then
+        if echo "$content" | safe_grep_qE '\{\{.*\}\}.*\{%.*%\}' 2>/dev/null || echo "$content" | safe_grep_qE '\{\{.*\}\}' 2>/dev/null; then
             engine_guess="Jinja2/Twig/Django"
-        elif echo "$content" | grep -qE '<#assign|#set.*\$' 2>/dev/null; then
+        elif echo "$content" | safe_grep_qE '<#assign|#set.*\$' 2>/dev/null; then
             engine_guess="Freemarker/Velocity"
-        elif echo "$content" | grep -qE '\$\{T\(.*\)\}|__\$\{.*\}' 2>/dev/null; then
+        elif echo "$content" | safe_grep_qE '\$\{T\(.*\)\}|__\$\{.*\}' 2>/dev/null; then
             engine_guess="Thymeleaf"
-        elif echo "$content" | grep -qE '\{php\}|{literal}' 2>/dev/null; then
+        elif echo "$content" | safe_grep_qE '\{php\}|{literal}' 2>/dev/null; then
             engine_guess="Smarty"
-        elif echo "$content" | grep -qE '<%=.*%>' 2>/dev/null; then
+        elif echo "$content" | safe_grep_qE '<%=.*%>' 2>/dev/null; then
             engine_guess="ERB/JSP"
-        elif echo "$content" | grep -qE '\$\{.*\}.*<%' 2>/dev/null; then
+        elif echo "$content" | safe_grep_qE '\$\{.*\}.*<%' 2>/dev/null; then
             engine_guess="Mako"
         fi
         
@@ -31284,8 +31336,8 @@ analyze_injection_attacks() {
     local xxe_blind_indicators=0
     
     for pattern in "${XXE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ((xxe_variant_count++))
             
             # Check for blind XXE indicators (external connections)
@@ -31303,14 +31355,14 @@ analyze_injection_attacks() {
     done
     
     # Check for XInclude attacks
-    if echo "$content" | grep -qiE 'xmlns:xi=.*XInclude|<xi:include' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE 'xmlns:xi=.*XInclude|<xi:include' 2>/dev/null; then
         log_threat 60 "XInclude-based XXE attack pattern detected"
         injection_findings+=("xxe_xinclude")
         ((injection_score += 50))
     fi
     
     # Check for XSLT injection (related to XXE)
-    if echo "$content" | grep -qiE '<xsl:value-of|<xsl:variable|document[[:space:]]*\(' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '<xsl:value-of|<xsl:variable|document[[:space:]]*\(' 2>/dev/null; then
         log_threat 55 "XSLT injection pattern detected"
         injection_findings+=("xslt_injection")
         ((injection_score += 45))
@@ -31332,7 +31384,7 @@ analyze_injection_attacks() {
     
     # Extended protocol detection
     for protocol in "${SSRF_PROTOCOLS[@]}"; do
-        if echo "$content" | grep -qiF "$protocol" 2>/dev/null; then
+        if echo "$content" | safe_grep_qiF "$protocol" 2>/dev/null; then
             ((ssrf_protocol_count++))
             ((injection_score += ${INJECTION_SEVERITY["ssrf_protocol"]}))
             log_threat 55 "SSRF protocol detected: $protocol"
@@ -31342,8 +31394,8 @@ analyze_injection_attacks() {
     
     # SSRF bypass technique detection
     for bypass in "${SSRF_BYPASS_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$bypass" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$bypass" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$bypass" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$bypass" 2>/dev/null | head -1)
             ((ssrf_bypass_count++))
             
             # Check for cloud metadata endpoints (critical)
@@ -31361,14 +31413,14 @@ analyze_injection_attacks() {
     done
     
     # DNS rebinding detection
-    if echo "$content" | grep -qiE '\.(xip|nip|sslip)\.io|localtest\.me' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '\.(xip|nip|sslip)\.io|localtest\.me' 2>/dev/null; then
         log_threat 60 "DNS rebinding service detected (potential SSRF bypass)"
         injection_findings+=("ssrf_dns_rebinding")
         ((injection_score += 50))
     fi
     
     # URL obfuscation detection
-    if echo "$content" | grep -qiE '@.*@|%40.*%40|\\\\|%5c%5c' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '@.*@|%40.*%40|\\\\|%5c%5c' 2>/dev/null; then
         log_threat 55 "URL obfuscation detected (potential SSRF bypass)"
         injection_findings+=("ssrf_url_obfuscation")
         ((injection_score += 45))
@@ -31398,7 +31450,7 @@ analyze_injection_attacks() {
     )
     
     for pattern in "${ldap_fixed_patterns[@]}"; do
-        if echo "$content" | grep -qiF "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qiF "$pattern" 2>/dev/null; then
             ((injection_score += ${INJECTION_SEVERITY["ldap_injection"]}))
             log_threat 50 "LDAP injection pattern: $pattern"
             injection_findings+=("ldap_injection:$pattern")
@@ -31406,7 +31458,7 @@ analyze_injection_attacks() {
     done
     
     # LDAP URL injection
-    if echo "$content" | grep -qiE 'ldap://[^[:space:]]*\)|ldaps://[^[:space:]]*\)' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE 'ldap://[^[:space:]]*\)|ldaps://[^[:space:]]*\)' 2>/dev/null; then
         log_threat 55 "LDAP URL injection pattern detected"
         injection_findings+=("ldap_url_injection")
         ((injection_score += 50))
@@ -31419,8 +31471,8 @@ analyze_injection_attacks() {
     log_info "Analyzing for XPath injection patterns..."
     
     for pattern in "${XPATH_INJECTION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ((injection_score += ${INJECTION_SEVERITY["xpath_injection"]}))
             log_threat 50 "XPath injection pattern: $matched"
             injection_findings+=("xpath_injection:$matched")
@@ -31428,7 +31480,7 @@ analyze_injection_attacks() {
     done
     
     # XPath blind injection (boolean-based)
-    if echo "$content" | grep -qiE "'[[:space:]]*(and|or)[[:space:]]+(1|true|false)[[:space:]]*=[[:space:]]*(1|true|false)|substring[[:space:]]*\(.*,[[:space:]]*[0-9]+[[:space:]]*,[[:space:]]*1[[:space:]]*\)[[:space:]]*=" 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE "'[[:space:]]*(and|or)[[:space:]]+(1|true|false)[[:space:]]*=[[:space:]]*(1|true|false)|substring[[:space:]]*\(.*,[[:space:]]*[0-9]+[[:space:]]*,[[:space:]]*1[[:space:]]*\)[[:space:]]*=" 2>/dev/null; then
         log_threat 55 "Blind XPath injection pattern detected"
         injection_findings+=("xpath_blind_injection")
         ((injection_score += 50))
@@ -31443,8 +31495,8 @@ analyze_injection_attacks() {
     local el_critical_count=0
     
     for pattern in "${EL_INJECTION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ((el_critical_count++))
             ((injection_score += ${INJECTION_SEVERITY["el_injection"]}))
             log_threat 65 "Expression Language injection (RCE capable): $matched"
@@ -31453,7 +31505,7 @@ analyze_injection_attacks() {
     done
     
     # OGNL-specific patterns (Struts vulnerabilities)
-    if echo "$content" | grep -qiE '#_memberAccess|@java\.lang\.Runtime|#context\[' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '#_memberAccess|@java\.lang\.Runtime|#context\[' 2>/dev/null; then
         log_threat 70 "CRITICAL: OGNL injection detected (CVE-style Struts attack)"
         injection_findings+=("ognl_injection")
         ((injection_score += 70))
@@ -31472,7 +31524,7 @@ analyze_injection_attacks() {
     local crlf_count=0
     
     for pattern in "${CRLF_INJECTION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
             ((crlf_count++))
             ((injection_score += ${INJECTION_SEVERITY["crlf_injection"]}))
             log_threat 45 "CRLF injection pattern detected"
@@ -31481,14 +31533,14 @@ analyze_injection_attacks() {
     done
     
     # HTTP response splitting detection
-    if echo "$content" | grep -qiE '(%0d%0a|\\r\\n).*(Set-Cookie|Location|Content-Type):' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '(%0d%0a|\\r\\n).*(Set-Cookie|Location|Content-Type):' 2>/dev/null; then
         log_threat 60 "HTTP Response Splitting attack pattern detected"
         injection_findings+=("http_response_splitting")
         ((injection_score += 55))
     fi
     
     # Email header injection
-    if echo "$content" | grep -qiE '(%0d%0a|\\r\\n).*(Bcc|Cc|To|From|Subject):' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '(%0d%0a|\\r\\n).*(Bcc|Cc|To|From|Subject):' 2>/dev/null; then
         log_threat 50 "Email header injection pattern detected"
         injection_findings+=("email_header_injection")
         ((injection_score += 45))
@@ -31508,8 +31560,8 @@ analyze_injection_attacks() {
     local nosql_js_injection=false
     
     for pattern in "${NOSQL_INJECTION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ((nosql_operator_count++))
             
             # Check for JavaScript injection in NoSQL
@@ -31527,14 +31579,14 @@ analyze_injection_attacks() {
     done
     
     # MongoDB-specific patterns
-    if echo "$content" | grep -qiE '\{[[:space:]]*"\$[[:alnum:]_]+"[[:space:]]*:[[:space:]]*\{.*\}\}' 2>/dev/null || echo "$content" | grep -qiE '\[[[:space:]]*\{[[:space:]]*"\$.*\}\]' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '\{[[:space:]]*"\$[[:alnum:]_]+"[[:space:]]*:[[:space:]]*\{.*\}\}' 2>/dev/null || echo "$content" | safe_grep_qiE '\[[[:space:]]*\{[[:space:]]*"\$.*\}\]' 2>/dev/null; then
         log_threat 55 "MongoDB injection pattern structure detected"
         injection_findings+=("mongodb_injection")
         ((injection_score += 50))
     fi
     
     # CouchDB injection
-    if echo "$content" | grep -qiE '/_all_docs|/_find|startkey=.*endkey=' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '/_all_docs|/_find|startkey=.*endkey=' 2>/dev/null; then
         log_threat 50 "CouchDB injection pattern detected"
         injection_findings+=("couchdb_injection")
         ((injection_score += 45))
@@ -31554,8 +31606,8 @@ analyze_injection_attacks() {
     local graphql_attack_count=0
     
     for pattern in "${GRAPHQL_INJECTION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             
             if [[ "$matched" =~ (__schema|__type|__typename|IntrospectionQuery) ]]; then
                 graphql_introspection=true
@@ -31572,14 +31624,14 @@ analyze_injection_attacks() {
     done
     
     # GraphQL batching attack detection
-    if echo "$content" | grep -qiE '\[[[:space:]]*\{[[:space:]]*"query"[[:space:]]*:.*\},[[:space:]]*\{[[:space:]]*"query".*\}' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '\[[[:space:]]*\{[[:space:]]*"query"[[:space:]]*:.*\},[[:space:]]*\{[[:space:]]*"query".*\}' 2>/dev/null; then
         log_threat 45 "GraphQL batching attack pattern detected"
         injection_findings+=("graphql_batching")
         ((injection_score += 40))
     fi
     
     # GraphQL alias-based DoS - simplified check
-    local alias_count=$(echo "$content" | grep -coE '[[:alnum:]_]+[[:space:]]*:[[:space:]]*[[:alnum:]_]+[[:space:]]*\(' 2>/dev/null || echo 0)
+    local alias_count=$(echo "$content" | safe_grep_coE '[[:alnum:]_]+[[:space:]]*:[[:space:]]*[[:alnum:]_]+[[:space:]]*\(' 2>/dev/null || echo 0)
     if [ "$alias_count" -gt 10 ] 2>/dev/null; then
         log_threat 50 "Potential GraphQL alias-based DoS (excessive aliases)"
         injection_findings+=("graphql_alias_dos")
@@ -31600,8 +31652,8 @@ analyze_injection_attacks() {
     local log_injection_count=0
     
     for pattern in "${LOG_INJECTION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ((log_injection_count++))
             
             if [[ "$matched" =~ jndi ]]; then
@@ -31618,7 +31670,7 @@ analyze_injection_attacks() {
     done
     
     # Log4j bypass variations
-    if echo "$content" | grep -qiE '\$\{j\$\{.*\}n\$\{.*\}di\}|\$\{\$\{:-j\}\}|\$\{lower:j\}\$\{lower:n\}\$\{lower:d\}\$\{lower:i\}' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '\$\{j\$\{.*\}n\$\{.*\}di\}|\$\{\$\{:-j\}\}|\$\{lower:j\}\$\{lower:n\}\$\{lower:d\}\$\{lower:i\}' 2>/dev/null; then
         log_threat 75 "CRITICAL: Log4Shell bypass/obfuscation detected"
         injection_findings+=("log4shell_bypass")
         ((injection_score += 75))
@@ -31626,7 +31678,7 @@ analyze_injection_attacks() {
     fi
     
     # URL-encoded Log4j patterns
-    if echo "$content" | grep -qiE '%24%7Bjndi|%24%7Blower|%24%7Benv' 2>/dev/null; then
+    if echo "$content" | safe_grep_qiE '%24%7Bjndi|%24%7Blower|%24%7Benv' 2>/dev/null; then
         log_threat 75 "CRITICAL: URL-encoded Log4Shell pattern detected"
         injection_findings+=("log4shell_urlencoded")
         ((injection_score += 75))
@@ -31659,7 +31711,7 @@ analyze_injection_attacks() {
     local polyglot_count=0
     
     for pattern in "${polyglot_patterns[@]}"; do
-        if echo "$content" | grep -qF -e "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qF -e "$pattern" 2>/dev/null; then
             ((polyglot_count++))
             ((injection_score += ${INJECTION_SEVERITY["polyglot"]}))
             log_threat 75 "CRITICAL: Polyglot injection detected: $pattern"
@@ -31668,7 +31720,7 @@ analyze_injection_attacks() {
     done
     
     # Multi-context escape sequences
-    if echo "$content" | grep -qE '(\}\}|\]\]|\x27\x27|"").*(\{\{|\[\[|<%|<\?)' 2>/dev/null; then
+    if echo "$content" | safe_grep_qE '(\}\}|\]\]|\x27\x27|"").*(\{\{|\[\[|<%|<\?)' 2>/dev/null; then
         log_threat 65 "Multi-context escape sequence detected (potential polyglot)"
         injection_findings+=("multi_context_escape")
         ((injection_score += 55))
@@ -31698,8 +31750,8 @@ analyze_injection_attacks() {
     )
     
     for pattern in "${proto_pollution_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ((injection_score += 55))
             log_threat 55 "Prototype Pollution pattern: $matched"
             injection_findings+=("prototype_pollution:$matched")
@@ -31745,8 +31797,8 @@ analyze_injection_attacks() {
     )
     
     for pattern in "${deserial_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ((injection_score += 65))
             log_threat 65 "Deserialization injection pattern: $matched"
             injection_findings+=("deserialization:$matched")
@@ -31779,7 +31831,7 @@ analyze_injection_attacks() {
     
     for pattern in "${formula_injection_patterns[@]}"; do
         # Use grep -F for fixed string matching (these are literal patterns, not regex)
-        if echo "$content" | grep -qF -e "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qF -e "$pattern" 2>/dev/null; then
             ((injection_score += 45))
             log_threat 45 "Formula/CSV injection pattern detected: $pattern"
             injection_findings+=("formula_injection:$pattern")
@@ -31998,8 +32050,8 @@ analyze_c2_beacons() {
     
     # Check callback/beacon patterns
     for pattern in "${CALLBACK_BEACON_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             beacon_findings+=("beacon:$matched")
             ((beacon_score += 35))
             log_threat 50 "C2/Beacon pattern: $matched"
@@ -32007,21 +32059,21 @@ analyze_c2_beacons() {
     done
     
     # Check for known C2 framework indicators
-    if echo "$content" | grep -qiE "cobalt.*strike|meterpreter|empire|covenant|sliver"; then
+    if echo "$content" | safe_grep_qiE "cobalt.*strike|meterpreter|empire|covenant|sliver"; then
         log_threat 80 "Known C2 framework indicator detected"
         beacon_findings+=("known_c2_framework")
         ((beacon_score += 60))
     fi
     
     # DNS beaconing indicators
-    if echo "$content" | grep -qiE "dns.*tunnel|dnscat|iodine"; then
+    if echo "$content" | safe_grep_qiE "dns.*tunnel|dnscat|iodine"; then
         log_threat 65 "DNS tunneling/beaconing indicator"
         beacon_findings+=("dns_beacon")
         ((beacon_score += 50))
     fi
     
     # HTTP-based C2 patterns
-    if echo "$content" | grep -qiE "/api/beacon|/c2/|/implant/|/stage[0-9]|/payload"; then
+    if echo "$content" | safe_grep_qiE "/api/beacon|/c2/|/implant/|/stage[0-9]|/payload"; then
         log_threat 55 "HTTP-based C2 endpoint pattern"
         beacon_findings+=("http_c2_endpoint")
         ((beacon_score += 45))
@@ -32050,8 +32102,8 @@ analyze_crypto_scams() {
     local crypto_findings=()
     
     for pattern in "${CRYPTO_SCAM_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             ((crypto_scam_score += 15))
             crypto_findings+=("pattern:$matched")
             log_warning "Crypto scam pattern: $matched"
@@ -32059,20 +32111,20 @@ analyze_crypto_scams() {
     done
     
     # High-confidence scam combinations
-    if echo "$content" | grep -qiE "giveaway|airdrop" && \
-       echo "$content" | grep -qiE "elon|vitalik|satoshi|official"; then
+    if echo "$content" | safe_grep_qiE "giveaway|airdrop" && \
+       echo "$content" | safe_grep_qiE "elon|vitalik|satoshi|official"; then
         log_threat 70 "Celebrity crypto giveaway scam pattern"
         crypto_findings+=("celebrity_giveaway_scam")
         ((crypto_scam_score += 40))
     fi
     
-    if echo "$content" | grep -qiE "send.*receive.*double|2x.*return"; then
+    if echo "$content" | safe_grep_qiE "send.*receive.*double|2x.*return"; then
         log_threat 80 "Crypto doubling scam detected"
         crypto_findings+=("doubling_scam")
         ((crypto_scam_score += 50))
     fi
     
-    if echo "$content" | grep -qiE "connect.*wallet.*approve"; then
+    if echo "$content" | safe_grep_qiE "connect.*wallet.*approve"; then
         log_threat 60 "Wallet drainer pattern detected"
         crypto_findings+=("wallet_drainer")
         ((crypto_scam_score += 35))
@@ -32116,40 +32168,40 @@ analyze_decoded_qr_content() {
     # Determine content type
     local content_type="unknown"
     
-    if echo "$content" | grep -qE "^https?://"; then
+    if echo "$content" | safe_grep_qE "^https?://"; then
         content_type="url"
         log_info "Content type: URL"
         echo -e "  ${CYAN}├─${NC} Protocol: $(echo "$content" | sed -n 's/^\([a-z]*\):.*/\1/p')"
         echo -e "  ${CYAN}└─${NC} Domain: $(echo "$content" | sed -E 's|^https?://||' | cut -d'/' -f1)"
-    elif echo "$content" | grep -qE "^mailto:"; then
+    elif echo "$content" | safe_grep_qE "^mailto:"; then
         content_type="email"
         log_info "Content type: Email link"
         local email_addr=$(echo "$content" | sed 's/^mailto://' | cut -d'?' -f1)
         echo -e "  ${CYAN}└─${NC} Email: $email_addr"
-    elif echo "$content" | grep -qE "^tel:|^sms:"; then
+    elif echo "$content" | safe_grep_qE "^tel:|^sms:"; then
         content_type="phone"
         log_info "Content type: Phone/SMS link"
         local phone_num=$(echo "$content" | sed 's/^tel:\|^sms://' | cut -d'?' -f1)
         echo -e "  ${CYAN}└─${NC} Number: $phone_num"
-    elif echo "$content" | grep -qE "^WIFI:"; then
+    elif echo "$content" | safe_grep_qE "^WIFI:"; then
         content_type="wifi"
         log_info "Content type: WiFi configuration"
         local wifi_ssid=$(echo "$content" | sed -n 's/.*S:\([^;]*\).*/\1/p')
         echo -e "  ${CYAN}└─${NC} SSID: $wifi_ssid"
-    elif echo "$content" | grep -qE "^BEGIN:VCARD"; then
+    elif echo "$content" | safe_grep_qE "^BEGIN:VCARD"; then
         content_type="vcard"
         log_info "Content type: vCard contact"
-    elif echo "$content" | grep -qE "^BEGIN:VEVENT"; then
+    elif echo "$content" | safe_grep_qE "^BEGIN:VEVENT"; then
         content_type="vevent"
         log_info "Content type: Calendar event"
-    elif echo "$content" | grep -qE "^otpauth://"; then
+    elif echo "$content" | safe_grep_qE "^otpauth://"; then
         content_type="otp"
         log_info "Content type: OTP/2FA code"
         log_threat 30 "⚠️  2FA/OTP configuration exposed!"
-    elif echo "$content" | grep -qE "^bitcoin:|^ethereum:|^litecoin:"; then
+    elif echo "$content" | safe_grep_qE "^bitcoin:|^ethereum:|^litecoin:"; then
         content_type="crypto_payment"
         log_info "Content type: Cryptocurrency payment"
-    elif echo "$content" | grep -qE "^(bc1|1|3)[a-zA-Z0-9]{25,}$|^0x[a-fA-F0-9]{40}$"; then
+    elif echo "$content" | safe_grep_qE "^(bc1|1|3)[a-zA-Z0-9]{25,}$|^0x[a-fA-F0-9]{40}$"; then
         content_type="crypto_address"
         log_info "Content type: Cryptocurrency address"
     else
@@ -32374,7 +32426,7 @@ analyze_decoded_qr_content() {
     # =========================================================================
     # Run all 22 audit-recommended analysis modules
     if [ "$AUDIT_ENHANCED_ANALYSIS" != false ]; then
-        local extracted_url=$(echo "$content" | grep -oiE 'https?://[^[:space:]]+' | head -1)
+        local extracted_url=$(echo "$content" | safe_grep_oiE 'https?://[^[:space:]]+' | head -1)
         run_all_audit_enhancements "$content" "$extracted_url" "$INPUT_IMAGE" ""
     fi
     
@@ -32434,10 +32486,10 @@ analyze_vcard() {
     log_info "Analyzing vCard content..."
     
     # Extract fields (POSIX compatible)
-    local name=$(echo "$content" | grep -i "^FN:" | cut -d: -f2- | head -1)
-    local email=$(echo "$content" | grep -i "^EMAIL" | cut -d: -f2- | head -1)
-    local phone=$(echo "$content" | grep -i "^TEL" | cut -d: -f2- | head -1)
-    local url=$(echo "$content" | grep -i "^URL" | cut -d: -f2- | head -1)
+    local name=$(echo "$content" | safe_grep_iE "^FN:" | cut -d: -f2- | head -1)
+    local email=$(echo "$content" | safe_grep_iE "^EMAIL" | cut -d: -f2- | head -1)
+    local phone=$(echo "$content" | safe_grep_iE "^TEL" | cut -d: -f2- | head -1)
+    local url=$(echo "$content" | safe_grep_iE "^URL" | cut -d: -f2- | head -1)
     
     [ -n "$name" ] && log_forensic "vCard Name: $name"
     [ -n "$email" ] && log_forensic "vCard Email: $email"
@@ -33936,7 +33988,7 @@ analyze_pdf_document() {
     
     # Check content for document-related patterns
     for pattern in "${OFFICE_MACRO_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             doc_findings+=("macro_pattern:$pattern")
             ((doc_score += 15))
         fi
@@ -34043,8 +34095,8 @@ analyze_nlp_content() {
     echo "Scam Pattern Detection:" >> "$nlp_report"
     
     for pattern in "${NLP_SCAM_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             nlp_findings+=("scam_pattern:$matched")
             ((nlp_score += 10))
             echo "  ⚠ DETECTED: $pattern" >> "$nlp_report"
@@ -34296,13 +34348,13 @@ analyze_mobile_static() {
     echo "Mobile Pattern Detection:" >> "$mobile_report"
     
     # Android patterns
-    if echo "$content" | grep -qiE 'market://|play\.google\.com/store|android\.intent'; then
+    if echo "$content" | safe_grep_qiE 'market://|play\.google\.com/store|android\.intent'; then
         mobile_findings+=("android_market")
         ((mobile_score += 15))
         echo "  ✓ Android Market/Play Store reference" >> "$mobile_report"
     fi
     
-    if echo "$content" | grep -qiE 'intent://|android-app://'; then
+    if echo "$content" | safe_grep_qiE 'intent://|android-app://'; then
         mobile_findings+=("android_intent_scheme")
         ((mobile_score += 25))
         log_warning "Android intent scheme detected"
@@ -34310,13 +34362,13 @@ analyze_mobile_static() {
     fi
     
     # iOS patterns
-    if echo "$content" | grep -qiE 'itms-apps://|itms-appss://|apps\.apple\.com'; then
+    if echo "$content" | safe_grep_qiE 'itms-apps://|itms-appss://|apps\.apple\.com'; then
         mobile_findings+=("ios_appstore")
         ((mobile_score += 15))
         echo "  ✓ iOS App Store reference" >> "$mobile_report"
     fi
     
-    if echo "$content" | grep -qiE '\.mobileconfig|configuration profile'; then
+    if echo "$content" | safe_grep_qiE '\.mobileconfig|configuration profile'; then
         mobile_findings+=("ios_mobileconfig")
         ((mobile_score += 45))
         log_threat 50 "iOS MDM configuration profile detected"
@@ -34961,7 +35013,7 @@ EOF
         fi
         
         # 3. Check for DNS over HTTPS indicators
-        if echo "$content" | grep -qiE 'dns-query|application/dns-message|cloudflare-dns|dns\.google'; then
+        if echo "$content" | safe_grep_qiE 'dns-query|application/dns-message|cloudflare-dns|dns\.google'; then
             covert_findings+=("doh_indicator")
             ((covert_score += 15))
             log_info "DNS-over-HTTPS indicator detected"
@@ -34972,14 +35024,14 @@ EOF
     echo "Protocol Covert Channel Analysis:" >> "$covert_report"
     
     # 4. ICMP covert channel patterns
-    if echo "$content" | grep -qiE 'icmp|ping.*-p.*[a-f0-9]{16}|ping.*data'; then
+    if echo "$content" | safe_grep_qiE 'icmp|ping.*-p.*[a-f0-9]{16}|ping.*data'; then
         covert_findings+=("icmp_covert")
         ((covert_score += 30))
         log_warning "ICMP covert channel indicator"
     fi
     
     # 5. HTTP header covert channels
-    if echo "$content" | grep -qiE 'X-[A-Za-z0-9-]*:[[:space:]]*[A-Za-z0-9+/=]{32,}'; then
+    if echo "$content" | safe_grep_qiE 'X-[A-Za-z0-9-]*:[[:space:]]*[A-Za-z0-9+/=]{32,}'; then
         covert_findings+=("http_header_covert")
         ((covert_score += 25))
         log_warning "HTTP header covert channel pattern"
@@ -35045,8 +35097,8 @@ analyze_qr_chaining() {
     echo "Sequence Pattern Detection:" >> "$chain_report"
     
     # Part X of Y patterns
-    if echo "$content" | grep -qiE 'part[[:space:]]*[0-9]+[[:space:]]*(of|/)[[:space:]]*[0-9]+'; then
-        local sequence_info=$(echo "$content" | grep -oiE 'part[[:space:]]*[0-9]+[[:space:]]*(of|/)[[:space:]]*[0-9]+' | head -1)
+    if echo "$content" | safe_grep_qiE 'part[[:space:]]*[0-9]+[[:space:]]*(of|/)[[:space:]]*[0-9]+'; then
+        local sequence_info=$(echo "$content" | safe_grep_oiE 'part[[:space:]]*[0-9]+[[:space:]]*(of|/)[[:space:]]*[0-9]+' | head -1)
         chain_findings+=("sequence_marker:$sequence_info")
         ((chain_score += 40))
         log_threat 45 "QR sequence marker detected: $sequence_info"
@@ -35054,14 +35106,14 @@ analyze_qr_chaining() {
     fi
     
     # Fragment patterns
-    if echo "$content" | grep -qiE '\[fragment\]|\[chunk\]|\[segment\]|##[0-9]+##'; then
+    if echo "$content" | safe_grep_qiE '\[fragment\]|\[chunk\]|\[segment\]|##[0-9]+##'; then
         chain_findings+=("fragment_marker")
         ((chain_score += 35))
         log_warning "Fragment marker detected in QR"
     fi
     
     # 2. Check for base64 fragment patterns
-    local base64_fragment=$(echo "$content" | grep -oE '^[A-Za-z0-9+/]+={0,2}$')
+    local base64_fragment=$(echo "$content" | safe_grep_oE '^[A-Za-z0-9+/]+={0,2}$')
     if [ -n "$base64_fragment" ] && [ ${#base64_fragment} -gt 50 ]; then
         # Pure base64 content suggests it might be a fragment
         local decoded=$(echo "$base64_fragment" | base64 -d 2>/dev/null | head -c 100)
@@ -35080,7 +35132,7 @@ analyze_qr_chaining() {
     fi
     
     # 3. Check for hex fragment patterns
-    if echo "$content" | grep -qE '^[0-9a-fA-F]{64,}$'; then
+    if echo "$content" | safe_grep_qE '^[0-9a-fA-F]{64,}$'; then
         chain_findings+=("hex_fragment")
         ((chain_score += 25))
         log_warning "Hex-encoded fragment pattern detected"
@@ -35119,7 +35171,7 @@ analyze_qr_chaining() {
     fi
     
     # 5. Concatenation instruction patterns
-    if echo "$content" | grep -qiE 'concat|append|combine|merge|join.*next'; then
+    if echo "$content" | safe_grep_qiE 'concat|append|combine|merge|join.*next'; then
         chain_findings+=("concatenation_instruction")
         ((chain_score += 35))
         log_warning "Concatenation instruction detected"
@@ -35227,7 +35279,7 @@ analyze_template_spoofing() {
     
     for template_name in "${!TEMPLATE_SIGNATURES[@]}"; do
         local pattern="${TEMPLATE_SIGNATURES[$template_name]}"
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             matched_templates+=("$template_name")
             template_findings+=("template_match:$template_name")
             ((template_score += 20))
@@ -35255,7 +35307,7 @@ analyze_template_spoofing() {
         
         if [ -n "$expected_domain" ]; then
             # Check if URL in content matches expected domain
-            local actual_domain=$(echo "$content" | grep -oiE 'https?://[^/]+' | head -1 | sed 's|https\?://||')
+            local actual_domain=$(echo "$content" | safe_grep_oiE 'https?://[^/]+' | head -1 | sed 's|https\?://||')
             
             if [ -n "$actual_domain" ] && ! echo "$actual_domain" | grep -qi "$expected_domain"; then
                 template_findings+=("domain_mismatch:$template:$actual_domain")
@@ -35271,7 +35323,7 @@ analyze_template_spoofing() {
     echo "Malicious Pattern Detection:" >> "$template_report"
     
     for pattern in "${MALICIOUS_TEMPLATE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             template_findings+=("malicious_template:$pattern")
             ((template_score += 35))
             log_warning "Malicious template pattern: $pattern"
@@ -35290,7 +35342,7 @@ analyze_template_spoofing() {
         
         # COVID pass QR codes are typically specific sizes
         if [ "$dimensions" = "300x300" ] || [ "$dimensions" = "400x400" ]; then
-            if echo "$content" | grep -qiE "covid|vaccin|certificate|pass"; then
+            if echo "$content" | safe_grep_qiE "covid|vaccin|certificate|pass"; then
                 template_findings+=("possible_covid_pass_template")
                 ((template_score += 30))
             fi
@@ -35305,18 +35357,18 @@ analyze_template_spoofing() {
     fi
     
     # 5. COVID-specific checks
-    if echo "$content" | grep -qiE "covid|vaccin|certificate|immuniz"; then
+    if echo "$content" | safe_grep_qiE "covid|vaccin|certificate|immuniz"; then
         echo "" >> "$template_report"
         echo "COVID Certificate Analysis:" >> "$template_report"
         
         # Check for fake EU DCC format
-        if echo "$content" | grep -qE "HC1:"; then
+        if echo "$content" | safe_grep_qE "HC1:"; then
             template_findings+=("eu_dcc_format")
             log_info "EU Digital COVID Certificate format detected"
             echo "  Format: EU DCC (HC1:)" >> "$template_report"
             
             # Validate structure
-            local dcc_payload=$(echo "$content" | grep -oE "HC1:.*" | head -1)
+            local dcc_payload=$(echo "$content" | safe_grep_oE "HC1:.*" | head -1)
             if [ ${#dcc_payload} -lt 100 ]; then
                 template_findings+=("invalid_dcc_short")
                 ((template_score += 40))
@@ -35416,7 +35468,7 @@ analyze_social_marketing_links() {
     echo "Marketing Service Detection:" >> "$marketing_report"
     
     for service in "${MARKETING_LINK_SERVICES[@]}"; do
-        if echo "$content" | grep -qiE "$service"; then
+        if echo "$content" | safe_grep_qiE "$service"; then
             social_findings+=("marketing_service:$service")
             ((social_score += 15))
             echo "  ✓ Detected: $service" >> "$marketing_report"
@@ -35430,7 +35482,7 @@ analyze_social_marketing_links() {
     
     local tracking_count=0
     for param in "${TRACKING_PARAMS[@]}"; do
-        if echo "$content" | grep -qiE "[?&]$param="; then
+        if echo "$content" | safe_grep_qiE "[?&]$param="; then
             ((tracking_count++))
             social_findings+=("tracking_param:$param")
             echo "  ✓ $param" >> "$marketing_report"
@@ -35446,15 +35498,15 @@ analyze_social_marketing_links() {
     echo "" >> "$marketing_report"
     echo "Redirect Chain Analysis:" >> "$marketing_report"
     
-    if echo "$content" | grep -qiE "https?://[^/]+/(redirect|redir|go|click|track|link|out)"; then
+    if echo "$content" | safe_grep_qiE "https?://[^/]+/(redirect|redir|go|click|track|link|out)"; then
         social_findings+=("redirect_path")
         ((social_score += 15))
         echo "  ⚠ Redirect path pattern detected" >> "$marketing_report"
     fi
     
     # 4. Follow and analyze short URLs
-    if echo "$content" | grep -qiE "bit\.ly|tinyurl|ow\.ly|t\.co|goo\.gl|is\.gd"; then
-        local short_url=$(echo "$content" | grep -oiE "https?://(bit\.ly|tinyurl\.com|ow\.ly|t\.co|goo\.gl|is\.gd)/[A-Za-z0-9]+" | head -1)
+    if echo "$content" | safe_grep_qiE "bit\.ly|tinyurl|ow\.ly|t\.co|goo\.gl|is\.gd"; then
+        local short_url=$(echo "$content" | safe_grep_oiE "https?://(bit\.ly|tinyurl\.com|ow\.ly|t\.co|goo\.gl|is\.gd)/[A-Za-z0-9]+" | head -1)
         
         if [ -n "$short_url" ]; then
             echo "  Short URL: $short_url" >> "$marketing_report"
@@ -35480,11 +35532,11 @@ analyze_social_marketing_links() {
     fi
     
     # 5. Linktree/bio link analysis
-    if echo "$content" | grep -qiE "linktr\.ee|linktree|link\.bio|beacons\.ai"; then
+    if echo "$content" | safe_grep_qiE "linktr\.ee|linktree|link\.bio|beacons\.ai"; then
         echo "" >> "$marketing_report"
         echo "Bio Link Analysis:" >> "$marketing_report"
         
-        local bio_url=$(echo "$content" | grep -oiE "https?://(linktr\.ee|link\.bio|beacons\.ai)/[A-Za-z0-9_]+" | head -1)
+        local bio_url=$(echo "$content" | safe_grep_oiE "https?://(linktr\.ee|link\.bio|beacons\.ai)/[A-Za-z0-9_]+" | head -1)
         
         if [ -n "$bio_url" ]; then
             social_findings+=("bio_link:$bio_url")
@@ -35627,14 +35679,14 @@ analyze_ux_redress_attacks() {
     echo "" >> "$ux_report"
     echo "Data URI Analysis:" >> "$ux_report"
     
-    if echo "$content" | grep -qiE "^data:(text/html|application/x-javascript)"; then
+    if echo "$content" | safe_grep_qiE "^data:(text/html|application/x-javascript)"; then
         ux_findings+=("data_uri_attack")
         ((ux_score += 50))
         log_threat 55 "Data URI with executable content"
         echo "  ⚠ DATA URI ATTACK DETECTED" >> "$ux_report"
         
         # Decode and analyze
-        local encoded_part=$(echo "$content" | grep -oE ";base64,.*" | cut -c9-)
+        local encoded_part=$(echo "$content" | safe_grep_oE ";base64,.*" | cut -c9-)
         if [ -n "$encoded_part" ]; then
             local decoded=$(echo "$encoded_part" | base64 -d 2>/dev/null | head -c 5000)
             echo "  Decoded content (preview):" >> "$ux_report"
@@ -35759,7 +35811,7 @@ analyze_dga_domains() {
     
     # Extract domain from content
     local domain=""
-    if echo "$content" | grep -qiE "^https?://"; then
+    if echo "$content" | safe_grep_qiE "^https?://"; then
         domain=$(echo "$content" | sed -E 's|^https?://||' | cut -d'/' -f1 | cut -d':' -f1)
     fi
     
@@ -36444,11 +36496,11 @@ analyze_blockchain_scams() {
     echo "Cryptocurrency Address Detection:" >> "$blockchain_report"
     
     # Ethereum addresses (0x...)
-    local eth_addresses=$(echo "$content" | grep -oiE '0x[a-fA-F0-9]{40}' | sort -u)
+    local eth_addresses=$(echo "$content" | safe_grep_oiE '0x[a-fA-F0-9]{40}' | sort -u)
     # Bitcoin addresses
-    local btc_addresses=$(echo "$content" | grep -oE '(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}' | sort -u)
+    local btc_addresses=$(echo "$content" | safe_grep_oE '(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}' | sort -u)
     # Solana addresses
-    local sol_addresses=$(echo "$content" | grep -oE '[1-9A-HJ-NP-Za-km-z]{32,44}' | sort -u)
+    local sol_addresses=$(echo "$content" | safe_grep_oE '[1-9A-HJ-NP-Za-km-z]{32,44}' | sort -u)
     
     if [ -n "$eth_addresses" ]; then
         echo "  Ethereum Addresses:" >> "$blockchain_report"
@@ -36487,7 +36539,7 @@ analyze_blockchain_scams() {
     echo "Smart Contract Pattern Analysis:" >> "$blockchain_report"
     
     for pattern in "${CRYPTO_SCAM_CONTRACT_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             blockchain_findings+=("contract_pattern:$pattern")
             ((blockchain_score += 30))
             log_warning "Suspicious contract pattern: $pattern"
@@ -36500,7 +36552,7 @@ analyze_blockchain_scams() {
     echo "DeFi Scam Indicators:" >> "$blockchain_report"
     
     # Check for fake swap/DEX URLs
-    if echo "$content" | grep -qiE "uniswap.*claim|pancakeswap.*free|sushiswap.*bonus"; then
+    if echo "$content" | safe_grep_qiE "uniswap.*claim|pancakeswap.*free|sushiswap.*bonus"; then
         blockchain_findings+=("fake_dex")
         ((blockchain_score += 50))
         log_threat 55 "Fake DEX claim pattern detected"
@@ -36508,7 +36560,7 @@ analyze_blockchain_scams() {
     fi
     
     # Check for fake wallet connect
-    if echo "$content" | grep -qiE "walletconnect.*verify|connect.*wallet.*claim"; then
+    if echo "$content" | safe_grep_qiE "walletconnect.*verify|connect.*wallet.*claim"; then
         blockchain_findings+=("fake_wallet_connect")
         ((blockchain_score += 45))
         log_threat 50 "Fake wallet connect pattern"
@@ -36516,7 +36568,7 @@ analyze_blockchain_scams() {
     fi
     
     # 4. NFT scam patterns
-    if echo "$content" | grep -qiE "free.*nft|nft.*mint.*0|claim.*nft|airdrop.*nft"; then
+    if echo "$content" | safe_grep_qiE "free.*nft|nft.*mint.*0|claim.*nft|airdrop.*nft"; then
         blockchain_findings+=("nft_scam")
         ((blockchain_score += 40))
         log_warning "NFT scam pattern detected"
@@ -36592,10 +36644,10 @@ analyze_contact_events() {
     local is_vcard=false
     local is_ical=false
     
-    if echo "$content" | grep -qi "BEGIN:VCARD"; then
+    if echo "$content" | safe_grep_qi "BEGIN:VCARD"; then
         is_vcard=true
     fi
-    if echo "$content" | grep -qi "BEGIN:VCALENDAR\|BEGIN:VEVENT"; then
+    if echo "$content" | safe_grep_qi "BEGIN:VCALENDAR\|BEGIN:VEVENT"; then
         is_ical=true
     fi
     
@@ -36623,11 +36675,11 @@ analyze_contact_events() {
         log_info "  Analyzing vCard content..."
         
         # Extract fields
-        local name=$(echo "$content" | grep -iE "^(FN|N):" | head -1 | cut -d':' -f2-)
-        local email=$(echo "$content" | grep -iE "^EMAIL" | cut -d':' -f2- | head -1)
-        local phone=$(echo "$content" | grep -iE "^TEL" | cut -d':' -f2- | head -1)
-        local url=$(echo "$content" | grep -iE "^URL" | cut -d':' -f2- | head -1)
-        local note=$(echo "$content" | grep -iE "^NOTE" | cut -d':' -f2- | head -1)
+        local name=$(echo "$content" | safe_grep_iE "^(FN|N):" | head -1 | cut -d':' -f2-)
+        local email=$(echo "$content" | safe_grep_iE "^EMAIL" | cut -d':' -f2- | head -1)
+        local phone=$(echo "$content" | safe_grep_iE "^TEL" | cut -d':' -f2- | head -1)
+        local url=$(echo "$content" | safe_grep_iE "^URL" | cut -d':' -f2- | head -1)
+        local note=$(echo "$content" | safe_grep_iE "^NOTE" | cut -d':' -f2- | head -1)
         
         echo "  Name: ${name:-N/A}" >> "$contact_report"
         echo "  Email: ${email:-N/A}" >> "$contact_report"
@@ -36637,7 +36689,7 @@ analyze_contact_events() {
         
         # Check for suspicious patterns
         for pattern in "${SUSPICIOUS_VCARD_PATTERNS[@]}"; do
-            if echo "$content" | grep -qiE "$pattern"; then
+            if echo "$content" | safe_grep_qiE "$pattern"; then
                 contact_findings+=("vcard_suspicious:$pattern")
                 ((contact_score += 25))
                 log_warning "Suspicious vCard pattern: $pattern"
@@ -36680,10 +36732,10 @@ analyze_contact_events() {
         log_info "  Analyzing iCalendar content..."
         
         # Extract fields
-        local summary=$(echo "$content" | grep -iE "^SUMMARY:" | cut -d':' -f2- | head -1)
-        local description=$(echo "$content" | grep -iE "^DESCRIPTION:" | cut -d':' -f2- | head -1)
-        local location=$(echo "$content" | grep -iE "^LOCATION:" | cut -d':' -f2- | head -1)
-        local organizer=$(echo "$content" | grep -iE "^ORGANIZER" | head -1)
+        local summary=$(echo "$content" | safe_grep_iE "^SUMMARY:" | cut -d':' -f2- | head -1)
+        local description=$(echo "$content" | safe_grep_iE "^DESCRIPTION:" | cut -d':' -f2- | head -1)
+        local location=$(echo "$content" | safe_grep_iE "^LOCATION:" | cut -d':' -f2- | head -1)
+        local organizer=$(echo "$content" | safe_grep_iE "^ORGANIZER" | head -1)
         
         echo "  Summary: ${summary:-N/A}" >> "$contact_report"
         echo "  Description: ${description:0:100}..." >> "$contact_report"
@@ -36692,7 +36744,7 @@ analyze_contact_events() {
         
         # Check for suspicious patterns
         for pattern in "${SUSPICIOUS_ICAL_PATTERNS[@]}"; do
-            if echo "$content" | grep -qiE "$pattern"; then
+            if echo "$content" | safe_grep_qiE "$pattern"; then
                 contact_findings+=("ical_suspicious:$pattern")
                 ((contact_score += 25))
                 log_warning "Suspicious calendar pattern: $pattern"
@@ -37016,7 +37068,7 @@ analyze_emerging_protocols() {
     
     for scheme_name in "${!PAYMENT_QR_SCHEMES[@]}"; do
         local pattern="${PAYMENT_QR_SCHEMES[$scheme_name]}"
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             protocol_findings+=("payment_qr:$scheme_name")
             ((protocol_score += 15))
             log_info "Payment QR scheme detected: $scheme_name"
@@ -37026,13 +37078,13 @@ analyze_emerging_protocols() {
             case "$scheme_name" in
                 "pix_brazil")
                     # PIX QR validation
-                    if echo "$content" | grep -qE "^00020126"; then
+                    if echo "$content" | safe_grep_qE "^00020126"; then
                         echo "    PIX format: Valid structure" >> "$protocol_report"
                     fi
                     ;;
                 "upi_india")
                     # Extract UPI ID
-                    local upi_id=$(echo "$content" | grep -oiE "pa=[^&]+" | cut -d'=' -f2)
+                    local upi_id=$(echo "$content" | safe_grep_oiE "pa=[^&]+" | cut -d'=' -f2)
                     if [ -n "$upi_id" ]; then
                         echo "    UPI ID: $upi_id" >> "$protocol_report"
                         record_ioc "upi_id" "$upi_id" "UPI payment ID from QR"
@@ -37044,7 +37096,7 @@ analyze_emerging_protocols() {
                     ;;
                 "lightning")
                     # Extract Lightning invoice
-                    local ln_invoice=$(echo "$content" | grep -oiE "lnbc[a-z0-9]+" | head -1)
+                    local ln_invoice=$(echo "$content" | safe_grep_oiE "lnbc[a-z0-9]+" | head -1)
                     if [ -n "$ln_invoice" ]; then
                         record_ioc "lightning_invoice" "$ln_invoice" "Lightning Network invoice"
                     fi
@@ -37058,7 +37110,7 @@ analyze_emerging_protocols() {
     echo "Emerging Protocol Detection:" >> "$protocol_report"
     
     for pattern in "${EMERGING_PROTOCOL_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             protocol_findings+=("protocol:$pattern")
             ((protocol_score += 20))
             log_warning "Emerging protocol detected: $pattern"
@@ -37067,13 +37119,13 @@ analyze_emerging_protocols() {
     done
     
     # 3. WebRTC-specific analysis
-    if echo "$content" | grep -qiE "stun:|turn:|webrtc"; then
+    if echo "$content" | safe_grep_qiE "stun:|turn:|webrtc"; then
         echo "" >> "$protocol_report"
         echo "WebRTC Analysis:" >> "$protocol_report"
         
         # Extract STUN/TURN servers
-        local stun_servers=$(echo "$content" | grep -oiE "stun:[^[[:space:]]]+" | head -5)
-        local turn_servers=$(echo "$content" | grep -oiE "turn:[^[[:space:]]]+" | head -5)
+        local stun_servers=$(echo "$content" | safe_grep_oiE "stun:[^[[:space:]]]+" | head -5)
+        local turn_servers=$(echo "$content" | safe_grep_oiE "turn:[^[[:space:]]]+" | head -5)
         
         if [ -n "$stun_servers" ]; then
             echo "  STUN Servers:" >> "$protocol_report"
@@ -37091,12 +37143,12 @@ analyze_emerging_protocols() {
     fi
     
     # 4. Bluetooth LE analysis
-    if echo "$content" | grep -qiE "bluetooth:|ble:|gatt:"; then
+    if echo "$content" | safe_grep_qiE "bluetooth:|ble:|gatt:"; then
         echo "" >> "$protocol_report"
         echo "Bluetooth LE Analysis:" >> "$protocol_report"
         
         # Extract UUIDs
-        local ble_uuids=$(echo "$content" | grep -oiE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -5)
+        local ble_uuids=$(echo "$content" | safe_grep_oiE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -5)
         if [ -n "$ble_uuids" ]; then
             echo "  BLE UUIDs:" >> "$protocol_report"
             echo "$ble_uuids" >> "$protocol_report"
@@ -37108,7 +37160,7 @@ analyze_emerging_protocols() {
     fi
     
     # 5. IoT protocol analysis
-    if echo "$content" | grep -qiE "mqtt://|coap://|zigbee:|zwave:"; then
+    if echo "$content" | safe_grep_qiE "mqtt://|coap://|zigbee:|zwave:"; then
         protocol_findings+=("iot_protocol")
         ((protocol_score += 30))
         log_warning "IoT protocol in QR - verify device trust"
@@ -37121,8 +37173,8 @@ analyze_emerging_protocols() {
     echo "Payment Fraud Analysis:" >> "$protocol_report"
     
     # Check for payment request without proper merchant info
-    if echo "$content" | grep -qiE "pay|amount|money|transfer" && \
-       ! echo "$content" | grep -qiE "merchant|store|shop|company"; then
+    if echo "$content" | safe_grep_qiE "pay|amount|money|transfer" && \
+       ! echo "$content" | safe_grep_qiE "merchant|store|shop|company"; then
         protocol_findings+=("suspicious_payment")
         ((protocol_score += 25))
         log_warning "Payment request without merchant identification"
@@ -37130,7 +37182,7 @@ analyze_emerging_protocols() {
     fi
     
     # Check for unusually high amounts
-    local amounts=$(echo "$content" | grep -oE "[0-9]+(\.[0-9]+)?" | head -5)
+    local amounts=$(echo "$content" | safe_grep_oE "[0-9]+(\.[0-9]+)?" | head -5)
     while IFS= read -r amount; do
         if [ -n "$amount" ]; then
             # Check if amount > 10000 (could be scam)
@@ -37951,7 +38003,7 @@ analyze_emerging_protocols() {
     
     for scheme_name in "${!PAYMENT_QR_SCHEMES[@]}"; do
         local pattern="${PAYMENT_QR_SCHEMES[$scheme_name]}"
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             protocol_findings+=("payment_qr:$scheme_name")
             ((protocol_score += 15))
             log_info "Payment QR detected: $scheme_name"
@@ -37961,10 +38013,10 @@ analyze_emerging_protocols() {
             case "$scheme_name" in
                 "pix")
                     # Brazilian PIX QR code analysis
-                    if echo "$content" | grep -qE "^00020126"; then
+                    if echo "$content" | safe_grep_qE "^00020126"; then
                         echo "    Format: EMVCo PIX" >> "$protocol_report"
                         # Extract PIX key if present
-                        local pix_key=$(echo "$content" | grep -oE "[0-9]{11}|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+                        local pix_key=$(echo "$content" | safe_grep_oE "[0-9]{11}|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
                         if [ -n "$pix_key" ]; then
                             echo "    PIX Key: $pix_key" >> "$protocol_report"
                             record_ioc "pix_key" "$pix_key" "PIX payment key"
@@ -37973,9 +38025,9 @@ analyze_emerging_protocols() {
                     ;;
                 "upi")
                     # Indian UPI analysis
-                    local upi_id=$(echo "$content" | grep -oiE "pa=[^&]+" | cut -d'=' -f2)
-                    local upi_name=$(echo "$content" | grep -oiE "pn=[^&]+" | cut -d'=' -f2)
-                    local upi_amount=$(echo "$content" | grep -oiE "am=[^&]+" | cut -d'=' -f2)
+                    local upi_id=$(echo "$content" | safe_grep_oiE "pa=[^&]+" | cut -d'=' -f2)
+                    local upi_name=$(echo "$content" | safe_grep_oiE "pn=[^&]+" | cut -d'=' -f2)
+                    local upi_amount=$(echo "$content" | safe_grep_oiE "am=[^&]+" | cut -d'=' -f2)
                     echo "    UPI ID: ${upi_id:-N/A}" >> "$protocol_report"
                     echo "    Name: ${upi_name:-N/A}" >> "$protocol_report"
                     echo "    Amount: ${upi_amount:-N/A}" >> "$protocol_report"
@@ -37999,7 +38051,7 @@ analyze_emerging_protocols() {
     
     local webrtc_found=0
     for pattern in "${WEBRTC_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             ((webrtc_found++))
             protocol_findings+=("webrtc:$pattern")
             echo "  ✓ $pattern" >> "$protocol_report"
@@ -38011,7 +38063,7 @@ analyze_emerging_protocols() {
         log_warning "WebRTC connection setup detected ($webrtc_found indicators)"
         
         # Check for potential WebRTC IP leak
-        if echo "$content" | grep -qiE "stun:.*\.google\.com|stun:.*\.cloudflare\.com"; then
+        if echo "$content" | safe_grep_qiE "stun:.*\.google\.com|stun:.*\.cloudflare\.com"; then
             protocol_findings+=("webrtc_stun_public")
             echo "  ⚠ Public STUN server (IP leak potential)" >> "$protocol_report"
         fi
@@ -38023,7 +38075,7 @@ analyze_emerging_protocols() {
     
     local ble_found=0
     for pattern in "${BLE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             ((ble_found++))
             protocol_findings+=("ble:$pattern")
             echo "  ✓ $pattern" >> "$protocol_report"
@@ -38035,7 +38087,7 @@ analyze_emerging_protocols() {
         log_info "Bluetooth/BLE protocol detected"
         
         # Extract UUIDs
-        local uuids=$(echo "$content" | grep -oiE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | sort -u)
+        local uuids=$(echo "$content" | safe_grep_oiE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | sort -u)
         if [ -n "$uuids" ]; then
             echo "  BLE UUIDs:" >> "$protocol_report"
             echo "$uuids" >> "$protocol_report"
@@ -38047,7 +38099,7 @@ analyze_emerging_protocols() {
     echo "IoT Protocol Detection:" >> "$protocol_report"
     
     # MQTT
-    if echo "$content" | grep -qiE "mqtt://|mqtts://|ws.*mqtt|:1883|:8883"; then
+    if echo "$content" | safe_grep_qiE "mqtt://|mqtts://|ws.*mqtt|:1883|:8883"; then
         protocol_findings+=("mqtt")
         ((protocol_score += 20))
         echo "  ✓ MQTT protocol detected" >> "$protocol_report"
@@ -38055,14 +38107,14 @@ analyze_emerging_protocols() {
     fi
     
     # CoAP
-    if echo "$content" | grep -qiE "coap://|coaps://|:5683|:5684"; then
+    if echo "$content" | safe_grep_qiE "coap://|coaps://|:5683|:5684"; then
         protocol_findings+=("coap")
         ((protocol_score += 20))
         echo "  ✓ CoAP protocol detected" >> "$protocol_report"
     fi
     
     # Zigbee/Z-Wave references
-    if echo "$content" | grep -qiE "zigbee|z-wave|zwave|802\.15\.4"; then
+    if echo "$content" | safe_grep_qiE "zigbee|z-wave|zwave|802\.15\.4"; then
         protocol_findings+=("zigbee_zwave")
         ((protocol_score += 15))
         echo "  ✓ Zigbee/Z-Wave reference detected" >> "$protocol_report"
@@ -38073,19 +38125,19 @@ analyze_emerging_protocols() {
     echo "Modern Web Protocol Detection:" >> "$protocol_report"
     
     # HTTP/3 QUIC
-    if echo "$content" | grep -qiE "h3://|quic://|alt-svc.*h3"; then
+    if echo "$content" | safe_grep_qiE "h3://|quic://|alt-svc.*h3"; then
         protocol_findings+=("http3_quic")
         echo "  ✓ HTTP/3 (QUIC) detected" >> "$protocol_report"
     fi
     
     # gRPC
-    if echo "$content" | grep -qiE "grpc://|grpcs://|application/grpc"; then
+    if echo "$content" | safe_grep_qiE "grpc://|grpcs://|application/grpc"; then
         protocol_findings+=("grpc")
         echo "  ✓ gRPC protocol detected" >> "$protocol_report"
     fi
     
     # GraphQL
-    if echo "$content" | grep -qiE "/graphql|query.*mutation|__schema"; then
+    if echo "$content" | safe_grep_qiE "/graphql|query.*mutation|__schema"; then
         protocol_findings+=("graphql")
         echo "  ✓ GraphQL endpoint detected" >> "$protocol_report"
     fi
@@ -38443,7 +38495,7 @@ run_all_audit_enhancements() {
     
     # Extract URL from content if not provided
     if [ -z "$url" ]; then
-        url=$(echo "$content" | grep -oiE 'https?://[^[:space:]]+' | head -1)
+        url=$(echo "$content" | safe_grep_oiE 'https?://[^[:space:]]+' | head -1)
     fi
     
     # Run all 22 audit enhancement modules
@@ -38694,7 +38746,7 @@ analyze_c2_frameworks() {
     
     for name in "${!COBALT_STRIKE_INDICATORS[@]}"; do
         local pattern="${COBALT_STRIKE_INDICATORS[$name]}"
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
             log_threat 40 "Cobalt Strike: $name"
             record_ioc "c2_indicator" "cobalt_strike:$name" "C2 framework signature match"
             ((c2_score += 40))
@@ -38703,7 +38755,7 @@ analyze_c2_frameworks() {
     
     for name in "${!SLIVER_INDICATORS[@]}"; do
         local pattern="${SLIVER_INDICATORS[$name]}"
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
             log_threat 45 "Sliver C2: $name"
             record_ioc "c2_indicator" "sliver:$name" "C2 framework signature match"
             ((c2_score += 45))
@@ -38713,7 +38765,7 @@ analyze_c2_frameworks() {
     # Also check against downloaded threat intel C2 feeds
     if [[ -f "${TEMP_DIR}/threat_intel/feodo_ips.txt" ]]; then
         local c2_match
-        c2_match=$(echo "$content" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -5 | while read -r ip; do
+        c2_match=$(echo "$content" | safe_grep_oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -5 | while read -r ip; do
             grep -qF "$ip" "${TEMP_DIR}/threat_intel/feodo_ips.txt" 2>/dev/null && echo "$ip"
         done)
         if [[ -n "$c2_match" ]]; then
@@ -38736,7 +38788,7 @@ analyze_defi_nft_scams() {
     
     for name in "${!DEFI_SCAM_PATTERNS[@]}"; do
         local pattern="${DEFI_SCAM_PATTERNS[$name]}"
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
             log_threat 50 "DeFi scam: $name"
             record_ioc "crypto_scam" "defi:$name" "DeFi scam pattern match"
             ((scam_score += 50))
@@ -38745,14 +38797,14 @@ analyze_defi_nft_scams() {
     
     for name in "${!NFT_SCAM_PATTERNS[@]}"; do
         local pattern="${NFT_SCAM_PATTERNS[$name]}"
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
             log_threat 45 "NFT scam: $name"
             record_ioc "crypto_scam" "nft:$name" "NFT scam pattern match"
             ((scam_score += 45))
         fi
     done
     
-    if echo "$content" | grep -qiE "setApprovalForAll|approve.*0xffffffff"; then
+    if echo "$content" | safe_grep_qiE "setApprovalForAll|approve.*0xffffffff"; then
         log_threat 60 "Potential wallet drainer"
         record_ioc "wallet_drainer" "approval_pattern" "Wallet drainer signature"
         ((scam_score += 60))
@@ -38761,7 +38813,7 @@ analyze_defi_nft_scams() {
     # Check against hardcoded malicious crypto addresses if defined
     if [[ ${#KNOWN_MALICIOUS_CRYPTO_ADDRESSES[@]} -gt 0 ]] 2>/dev/null; then
         for addr in "${KNOWN_MALICIOUS_CRYPTO_ADDRESSES[@]}"; do
-            if echo "$content" | grep -qiF "$addr" 2>/dev/null; then
+            if echo "$content" | safe_grep_qiF "$addr" 2>/dev/null; then
                 log_threat 90 "Known malicious crypto address: ${addr:0:20}..."
                 record_ioc "malicious_crypto" "$addr" "Hardcoded malicious address"
                 ((scam_score += 90))
@@ -38783,7 +38835,7 @@ analyze_nfc_iot_attacks() {
     
     for name in "${!NFC_ATTACK_PATTERNS[@]}"; do
         local pattern="${NFC_ATTACK_PATTERNS[$name]}"
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
             log_threat 55 "NFC attack: $name"
             record_ioc "nfc_attack" "$name" "NFC attack pattern match"
             ((attack_score += 55))
@@ -38792,7 +38844,7 @@ analyze_nfc_iot_attacks() {
     
     for name in "${!IOT_EXPLOIT_PATTERNS[@]}"; do
         local pattern="${IOT_EXPLOIT_PATTERNS[$name]}"
-        if echo "$content" | grep -qiE "$pattern" 2>/dev/null; then
+        if echo "$content" | safe_grep_qiE "$pattern" 2>/dev/null; then
             log_threat 50 "IoT exploit: $name"
             record_ioc "iot_exploit" "$name" "IoT exploit pattern match"
             ((attack_score += 50))
@@ -38872,15 +38924,15 @@ analyze_evil_twin_attacks() {
     [ "$EVIL_TWIN_DETECTION" != true ] && return 0
     local wifi_score=0
     
-    if echo "$content" | grep -qiE "^WIFI:|wifi:"; then
-        local ssid=$(echo "$content" | grep -oiE "S:([^;]+)" | cut -d: -f2)
+    if echo "$content" | safe_grep_qiE "^WIFI:|wifi:"; then
+        local ssid=$(echo "$content" | safe_grep_oiE "S:([^;]+)" | cut -d: -f2)
         
         if echo "$ssid" | grep -qiE "Free.*WiFi|Guest.*Network|Airport.*WiFi|Starbucks|xfinity"; then
             log_threat 40 "Suspicious WiFi SSID: $ssid"
             ((wifi_score += 40))
         fi
         
-        if echo "$content" | grep -qiE "T:nopass|P:;"; then
+        if echo "$content" | safe_grep_qiE "T:nopass|P:;"; then
             log_warning "Open WiFi network - potential evil twin"
             ((wifi_score += 30))
         fi
@@ -40396,17 +40448,17 @@ analyze_encryption_indicators() {
     log_info "Analyzing encryption indicators..."
     
     # Check for common encryption headers
-    if echo "$content" | grep -qE "^Salted__|^U2FsdGVk"; then
+    if echo "$content" | safe_grep_qE "^Salted__|^U2FsdGVk"; then
         log_threat 40 "OpenSSL encryption header detected"
     fi
     
     # Check for PGP/GPG
-    if echo "$content" | grep -qE "-----BEGIN PGP|-----BEGIN.*ENCRYPTED"; then
+    if echo "$content" | safe_grep_qE "-----BEGIN PGP|-----BEGIN.*ENCRYPTED"; then
         log_threat 35 "PGP/GPG encrypted content detected"
     fi
     
     # Check for base64-encoded encrypted data
-    if echo "$content" | grep -qE "^[A-Za-z0-9+/]{100,}={0,2}$"; then
+    if echo "$content" | safe_grep_qE "^[A-Za-z0-9+/]{100,}={0,2}$"; then
         log_warning "Large base64 block detected (possibly encrypted payload)"
     fi
     
@@ -40486,7 +40538,7 @@ detect_powershell_malware() {
     )
     
     for pattern in "${ps_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 45 "PowerShell malware pattern detected: $pattern"
         fi
     done
@@ -40512,7 +40564,7 @@ detect_python_malware() {
     )
     
     for pattern in "${py_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 40 "Python malware pattern detected: $pattern"
         fi
     done
@@ -40536,7 +40588,7 @@ detect_javascript_malware() {
     )
     
     for pattern in "${js_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 40 "JavaScript malware pattern detected: $pattern"
         fi
     done
@@ -40560,7 +40612,7 @@ detect_shell_malware() {
     )
     
     for pattern in "${shell_patterns[@]}"; do
-        if echo "$content" | grep -qE "$pattern"; then
+        if echo "$content" | safe_grep_qE "$pattern"; then
             log_threat 50 "Shell malware pattern detected: $pattern"
         fi
     done
@@ -40584,7 +40636,7 @@ detect_vbscript_malware() {
     )
     
     for pattern in "${vbs_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 45 "VBScript malware pattern detected: $pattern"
         fi
     done
@@ -40603,7 +40655,7 @@ detect_perl_malware() {
     )
     
     for pattern in "${perl_patterns[@]}"; do
-        if echo "$content" | grep -qE "$pattern"; then
+        if echo "$content" | safe_grep_qE "$pattern"; then
             log_threat 40 "Perl malware pattern detected: $pattern"
         fi
     done
@@ -40622,7 +40674,7 @@ detect_ruby_malware() {
     )
     
     for pattern in "${ruby_patterns[@]}"; do
-        if echo "$content" | grep -qE "$pattern"; then
+        if echo "$content" | safe_grep_qE "$pattern"; then
             log_threat 40 "Ruby malware pattern detected: $pattern"
         fi
     done
@@ -40703,7 +40755,7 @@ analyze_deep_links() {
     )
     
     for scheme in "${deeplink_schemes[@]}"; do
-        if echo "$content" | grep -qiE "^$scheme"; then
+        if echo "$content" | safe_grep_qiE "^$scheme"; then
             log_threat 25 "Deep link detected: $scheme"
             
             local params=$(echo "$content" | sed "s/^$scheme//" | tr '&' '\n')
@@ -40759,15 +40811,16 @@ analyze_wifi_payload() {
     local content="${1:-}"
     set -u
     
-    if ! echo "$content" | grep -qE "^WIFI:"; then
+    if ! echo "$content" | safe_grep_qE "^WIFI:"; then
         return
     fi
     
     log_info "Analyzing WiFi QR code..."
     
-    local ssid=$(echo "$content" | grep -oP 'S:\K[^;]+' 2>/dev/null || echo "$content" | sed -n 's/.*S:\([^;]*\).*/\1/p')
-    local encryption=$(echo "$content" | grep -oP 'T:\K[^;]+' 2>/dev/null || echo "$content" | sed -n 's/.*T:\([^;]*\).*/\1/p')
-    local hidden=$(echo "$content" | grep -oP 'H:\K[^;]+' 2>/dev/null || echo "$content" | sed -n 's/.*H:\([^;]*\).*/\1/p')
+    # AUDIT FIX: Use POSIX-compliant sed instead of Perl regex for WiFi parsing
+    local ssid=$(echo "$content" | sed -n 's/.*S:\([^;]*\).*/\1/p')
+    local encryption=$(echo "$content" | sed -n 's/.*T:\([^;]*\).*/\1/p')
+    local hidden=$(echo "$content" | sed -n 's/.*H:\([^;]*\).*/\1/p')
     
     log_info "  SSID: $ssid"
     log_info "  Encryption: ${encryption:-none}"
@@ -40800,10 +40853,10 @@ analyze_mobile_config() {
     )
     
     for pattern in "${mobile_config_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 50 "Mobile config profile indicator: $pattern"
             
-            if echo "$content" | grep -qiE "^https?://.*\.mobileconfig$"; then
+            if echo "$content" | safe_grep_qiE "^https?://.*\.mobileconfig$"; then
                 log_critical "mobileconfig download URL detected - HIGH RISK"
             fi
         fi
@@ -40828,8 +40881,8 @@ analyze_universal_links() {
     
     # Check for Universal Links patterns
     for pattern in "${UNIVERSAL_LINKS_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("universal_link:$matched")
             ((score += 25))
             log_warning "Universal Links indicator: ${matched:0:50}"
@@ -40837,12 +40890,12 @@ analyze_universal_links() {
     done
     
     # Check for Apple app-site-association
-    if echo "$content" | grep -qiE "apple-app-site-association|applinks:"; then
+    if echo "$content" | safe_grep_qiE "apple-app-site-association|applinks:"; then
         findings+=("app_site_association")
         ((score += 20))
         
         # Check for wildcards (security risk)
-        if echo "$content" | grep -qiE '"paths".*"\*"'; then
+        if echo "$content" | safe_grep_qiE '"paths".*"\*"'; then
             findings+=("wildcard_path_dangerous")
             ((score += 35))
             log_critical "Universal Links wildcard path - HIGH RISK"
@@ -40850,7 +40903,7 @@ analyze_universal_links() {
     fi
     
     # Check for credential-related universal links
-    if echo "$content" | grep -qiE "(signin|login|auth|oauth|password).*applinks"; then
+    if echo "$content" | safe_grep_qiE "(signin|login|auth|oauth|password).*applinks"; then
         findings+=("credential_universal_link")
         ((score += 40))
         log_critical "Credential-related Universal Link detected"
@@ -40893,8 +40946,8 @@ analyze_app_links() {
     
     # Check for App Links patterns
     for pattern in "${APP_LINKS_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("app_link:$matched")
             ((score += 25))
             log_warning "App Links indicator: ${matched:0:50}"
@@ -40902,20 +40955,20 @@ analyze_app_links() {
     done
     
     # Check for Digital Asset Links
-    if echo "$content" | grep -qiE "assetlinks\.json|delegate_permission"; then
+    if echo "$content" | safe_grep_qiE "assetlinks\.json|delegate_permission"; then
         findings+=("digital_asset_links")
         ((score += 20))
     fi
     
     # Check for intent URI with dangerous components
-    if echo "$content" | grep -qiE "intent://.*#Intent.*S\.browser_fallback_url"; then
+    if echo "$content" | safe_grep_qiE "intent://.*#Intent.*S\.browser_fallback_url"; then
         findings+=("intent_with_fallback")
         ((score += 30))
         log_warning "Intent URI with browser fallback detected"
     fi
     
     # Check for APK sideloading via intent
-    if echo "$content" | grep -qiE "intent://.*action=android\.intent\.action\.VIEW.*\.apk"; then
+    if echo "$content" | safe_grep_qiE "intent://.*action=android\.intent\.action\.VIEW.*\.apk"; then
         findings+=("apk_sideload_intent")
         ((score += 50))
         log_critical "APK sideloading via Intent detected - HIGH RISK"
@@ -40958,8 +41011,8 @@ analyze_custom_scheme_hijack() {
     
     # Check for scheme hijacking patterns
     for pattern in "${SCHEME_HIJACK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("scheme_pattern:$matched")
             ((score += 20))
         fi
@@ -40973,7 +41026,7 @@ analyze_custom_scheme_hijack() {
     )
     
     for scheme in "${sensitive_schemes[@]}"; do
-        if echo "$content" | grep -qiE "$scheme"; then
+        if echo "$content" | safe_grep_qiE "$scheme"; then
             findings+=("sensitive_scheme:$scheme")
             ((score += 40))
             log_critical "Sensitive scheme detected: $scheme"
@@ -40981,7 +41034,7 @@ analyze_custom_scheme_hijack() {
     done
     
     # Check for scheme collision attacks (numbered schemes)
-    if echo "$content" | grep -qiE "fb[0-9]+://|twitter[0-9]+://|com\.[a-z]+[0-9]+://"; then
+    if echo "$content" | safe_grep_qiE "fb[0-9]+://|twitter[0-9]+://|com\.[a-z]+[0-9]+://"; then
         findings+=("scheme_collision_attack")
         ((score += 35))
         log_warning "Potential scheme collision attack pattern"
@@ -41024,22 +41077,22 @@ analyze_clipboard_hijack() {
     
     # Check for clipboard patterns
     for pattern in "${CLIPBOARD_HIJACK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("clipboard:$matched")
             ((score += 25))
         fi
     done
     
     # Check for crypto address replacement patterns
-    if echo "$content" | grep -qiE "clipboard.*(bc1|0x[a-f0-9]{40}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})"; then
+    if echo "$content" | safe_grep_qiE "clipboard.*(bc1|0x[a-f0-9]{40}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})"; then
         findings+=("crypto_clipboard_theft")
         ((score += 55))
         log_critical "Cryptocurrency clipboard hijacking detected"
     fi
     
     # Check for iOS/Android clipboard APIs with exfil
-    if echo "$content" | grep -qiE "(UIPasteboard|ClipboardManager).*(http|send|post|upload)"; then
+    if echo "$content" | safe_grep_qiE "(UIPasteboard|ClipboardManager).*(http|send|post|upload)"; then
         findings+=("clipboard_exfiltration")
         ((score += 45))
         log_critical "Clipboard data exfiltration pattern"
@@ -41082,29 +41135,29 @@ analyze_overlay_attacks() {
     
     # Check for overlay patterns
     for pattern in "${OVERLAY_ATTACK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("overlay:$matched")
             ((score += 30))
         fi
     done
     
     # Check for SYSTEM_ALERT_WINDOW permission
-    if echo "$content" | grep -qiE "android\.permission\.SYSTEM_ALERT_WINDOW"; then
+    if echo "$content" | safe_grep_qiE "android\.permission\.SYSTEM_ALERT_WINDOW"; then
         findings+=("overlay_permission")
         ((score += 35))
         log_warning "Overlay permission detected"
     fi
     
     # Check for banking overlay attack patterns
-    if echo "$content" | grep -qiE "(overlay|transparent).*(bank|credential|login|password)"; then
+    if echo "$content" | safe_grep_qiE "(overlay|transparent).*(bank|credential|login|password)"; then
         findings+=("banking_overlay")
         ((score += 55))
         log_critical "Banking overlay attack pattern detected"
     fi
     
     # Check for tapjacking indicators
-    if echo "$content" | grep -qiE "filterTouchesWhenObscured|FLAG_OBSCURED"; then
+    if echo "$content" | safe_grep_qiE "filterTouchesWhenObscured|FLAG_OBSCURED"; then
         findings+=("tapjacking_evasion")
         ((score += 40))
         log_warning "Tapjacking protection bypass attempt"
@@ -41147,29 +41200,29 @@ analyze_accessibility_abuse() {
     
     # Check for accessibility abuse patterns
     for pattern in "${ACCESSIBILITY_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("accessibility:$matched")
             ((score += 25))
         fi
     done
     
     # Check for BIND_ACCESSIBILITY_SERVICE permission
-    if echo "$content" | grep -qiE "BIND_ACCESSIBILITY_SERVICE"; then
+    if echo "$content" | safe_grep_qiE "BIND_ACCESSIBILITY_SERVICE"; then
         findings+=("accessibility_binding")
         ((score += 30))
         log_warning "Accessibility service binding detected"
     fi
     
     # Check for keylogging via accessibility
-    if echo "$content" | grep -qiE "AccessibilityEvent.*TYPE_VIEW_TEXT_CHANGED|getText.*EditText"; then
+    if echo "$content" | safe_grep_qiE "AccessibilityEvent.*TYPE_VIEW_TEXT_CHANGED|getText.*EditText"; then
         findings+=("accessibility_keylogger")
         ((score += 55))
         log_critical "Keylogging via accessibility service detected"
     fi
     
     # Check for auto-click fraud
-    if echo "$content" | grep -qiE "performAction.*ACTION_CLICK|performGlobalAction"; then
+    if echo "$content" | safe_grep_qiE "performAction.*ACTION_CLICK|performGlobalAction"; then
         findings+=("auto_click_fraud")
         ((score += 40))
         log_warning "Auto-click via accessibility detected"
@@ -41212,36 +41265,36 @@ analyze_mdm_enrollment() {
     
     # Check for MDM enrollment patterns
     for pattern in "${MDM_ENROLLMENT_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("mdm:$matched")
             ((score += 30))
         fi
     done
     
     # Check for MDM URL in QR
-    if echo "$content" | grep -qiE "https?://.*\.(mobileconfig|plist)($|\?)"; then
+    if echo "$content" | safe_grep_qiE "https?://.*\.(mobileconfig|plist)($|\?)"; then
         findings+=("mdm_profile_url")
         ((score += 45))
         log_critical "MDM profile download URL detected"
     fi
     
     # Check for PayloadRemovalDisallowed (cannot uninstall)
-    if echo "$content" | grep -qiE "PayloadRemovalDisallowed.*true|RemovalPassword"; then
+    if echo "$content" | safe_grep_qiE "PayloadRemovalDisallowed.*true|RemovalPassword"; then
         findings+=("locked_profile")
         ((score += 50))
         log_critical "Locked MDM profile - cannot be removed!"
     fi
     
     # Check for dangerous MDM capabilities
-    if echo "$content" | grep -qiE "AllowCamera.*false|AllowScreenShot.*false|AllowPasscodeModification.*false"; then
+    if echo "$content" | safe_grep_qiE "AllowCamera.*false|AllowScreenShot.*false|AllowPasscodeModification.*false"; then
         findings+=("restrictive_mdm")
         ((score += 40))
         log_warning "Highly restrictive MDM profile"
     fi
     
     # Check for certificate installation
-    if echo "$content" | grep -qiE "PayloadContent.*Certificate|com\.apple\.security\.root|com\.apple\.security\.pkcs12"; then
+    if echo "$content" | safe_grep_qiE "PayloadContent.*Certificate|com\.apple\.security\.root|com\.apple\.security\.pkcs12"; then
         findings+=("certificate_install")
         ((score += 45))
         log_critical "Root certificate installation in MDM profile"
@@ -41285,21 +41338,21 @@ analyze_esim_attacks() {
     
     # Check for eSIM patterns
     for pattern in "${ESIM_ATTACK_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("esim:$matched")
             ((score += 25))
         fi
     done
     
     # Check for LPA activation code format
-    if echo "$content" | grep -qE "LPA:1\\\$[a-zA-Z0-9.-]+\\\$[A-Z0-9-]+"; then
+    if echo "$content" | safe_grep_qE "LPA:1\\\$[a-zA-Z0-9.-]+\\\$[A-Z0-9-]+"; then
         findings+=("esim_activation_code")
         ((score += 35))
         log_warning "eSIM activation code detected"
         
         # Extract SM-DP+ address for verification
-        local smdp=$(echo "$content" | grep -oE "LPA:1\\\$[a-zA-Z0-9.-]+" | head -1 | cut -d'$' -f2)
+        local smdp=$(echo "$content" | safe_grep_oE "LPA:1\\\$[a-zA-Z0-9.-]+" | head -1 | cut -d'$' -f2)
         if [ -n "$smdp" ]; then
             findings+=("smdp_address:$smdp")
             
@@ -41312,7 +41365,7 @@ analyze_esim_attacks() {
     fi
     
     # Check for SIM swap indicators
-    if echo "$content" | grep -qiE "sim.*swap|transfer.*number|port.*number|carrier.*switch"; then
+    if echo "$content" | safe_grep_qiE "sim.*swap|transfer.*number|port.*number|carrier.*switch"; then
         findings+=("sim_swap_indicator")
         ((score += 50))
         log_critical "Potential SIM swap attack indicator"
@@ -41370,29 +41423,29 @@ analyze_oauth_phishing() {
     )
     
     for pattern in "${oauth_phishing_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("oauth_phish:$matched")
             ((score += 30))
         fi
     done
     
     # Check for suspicious scopes
-    if echo "$content" | grep -qiE "scope=.*(mail|drive|contacts|calendar|admin|all)"; then
+    if echo "$content" | safe_grep_qiE "scope=.*(mail|drive|contacts|calendar|admin|all)"; then
         findings+=("broad_scope_request")
         ((score += 40))
         log_warning "OAuth requesting broad permissions"
     fi
     
     # Check for malicious redirect URIs
-    if echo "$content" | grep -qiE "redirect_uri=https?://[^/]*@|redirect_uri=.*localhost|redirect_uri=.*127\.0\.0\.1"; then
+    if echo "$content" | safe_grep_qiE "redirect_uri=https?://[^/]*@|redirect_uri=.*localhost|redirect_uri=.*127\.0\.0\.1"; then
         findings+=("suspicious_redirect_uri")
         ((score += 45))
         log_critical "Suspicious OAuth redirect URI"
     fi
     
     # Check for illicit consent grant attack
-    if echo "$content" | grep -qiE "prompt=consent.*force|response_type=.*token.*&.*state="; then
+    if echo "$content" | safe_grep_qiE "prompt=consent.*force|response_type=.*token.*&.*state="; then
         findings+=("consent_grant_attack")
         ((score += 50))
         log_critical "Potential illicit consent grant attack"
@@ -41435,21 +41488,21 @@ analyze_device_code_phishing() {
     
     # Check for device code patterns
     for pattern in "${DEVICE_CODE_PHISHING_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("device_code:$matched")
             ((score += 30))
         fi
     done
     
     # Check for Microsoft device login URL
-    if echo "$content" | grep -qiE "microsoft\.com/devicelogin|aka\.ms/devicelogin"; then
+    if echo "$content" | safe_grep_qiE "microsoft\.com/devicelogin|aka\.ms/devicelogin"; then
         findings+=("microsoft_device_login")
         ((score += 35))
         log_warning "Microsoft device login URL detected"
         
         # Check if combined with a user code
-        if echo "$content" | grep -qiE "[A-Z0-9]{8,9}"; then
+        if echo "$content" | safe_grep_qiE "[A-Z0-9]{8,9}"; then
             findings+=("user_code_present")
             ((score += 25))
             log_warning "Device code appears to include user code"
@@ -41457,7 +41510,7 @@ analyze_device_code_phishing() {
     fi
     
     # Check for device code phishing social engineering
-    if echo "$content" | grep -qiE "enter.*code.*microsoft|sign.*in.*device.*code|activate.*your.*device"; then
+    if echo "$content" | safe_grep_qiE "enter.*code.*microsoft|sign.*in.*device.*code|activate.*your.*device"; then
         findings+=("device_code_social_engineering")
         ((score += 45))
         log_critical "Device code phishing social engineering detected"
@@ -41501,22 +41554,22 @@ analyze_mfa_fatigue() {
     
     # Check for MFA fatigue patterns
     for pattern in "${MFA_FATIGUE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("mfa_fatigue:$matched")
             ((score += 25))
         fi
     done
     
     # Check for push approval patterns
-    if echo "$content" | grep -qiE "approve.*login|tap.*approve|confirm.*sign.*in"; then
+    if echo "$content" | safe_grep_qiE "approve.*login|tap.*approve|confirm.*sign.*in"; then
         findings+=("push_approval_prompt")
         ((score += 30))
         log_warning "MFA push approval pattern detected"
     fi
     
     # Check for urgency indicators
-    if echo "$content" | grep -qiE "urgent.*approve|security.*alert.*approve|immediate.*action.*verify"; then
+    if echo "$content" | safe_grep_qiE "urgent.*approve|security.*alert.*approve|immediate.*action.*verify"; then
         findings+=("urgency_social_engineering")
         ((score += 40))
         log_critical "MFA fatigue with urgency social engineering"
@@ -41559,29 +41612,29 @@ analyze_passkey_phishing() {
     
     # Check for passkey phishing patterns
     for pattern in "${PASSKEY_PHISHING_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("passkey:$matched")
             ((score += 25))
         fi
     done
     
     # Check for WebAuthn credential creation/get
-    if echo "$content" | grep -qiE "navigator\.credentials\.(create|get)"; then
+    if echo "$content" | safe_grep_qiE "navigator\.credentials\.(create|get)"; then
         findings+=("webauthn_api")
         ((score += 20))
     fi
     
     # Check for real-time phishing proxies
-    if echo "$content" | grep -qiE "evilginx|modlishka|muraena|evilnovnc"; then
+    if echo "$content" | safe_grep_qiE "evilginx|modlishka|muraena|evilnovnc"; then
         findings+=("realtime_phishing_proxy")
         ((score += 60))
         log_critical "Real-time phishing proxy detected (passkey theft)"
     fi
     
     # Check for FIDO2/CTAP indicators with suspicious context
-    if echo "$content" | grep -qiE "fido2.*login|ctap2.*auth|passkey.*verify" && \
-       echo "$content" | grep -qiE "urgent|immediately|verify.*now"; then
+    if echo "$content" | safe_grep_qiE "fido2.*login|ctap2.*auth|passkey.*verify" && \
+       echo "$content" | safe_grep_qiE "urgent|immediately|verify.*now"; then
         findings+=("passkey_phishing_social_eng")
         ((score += 45))
         log_critical "Passkey phishing with social engineering"
@@ -41624,22 +41677,22 @@ analyze_session_fixation() {
     
     # Check for session fixation patterns
     for pattern in "${SESSION_FIXATION_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("session:$matched")
             ((score += 25))
         fi
     done
     
     # Check for preset session IDs in URL
-    if echo "$content" | grep -qiE "(JSESSIONID|PHPSESSID|session_id|sid)=[a-zA-Z0-9]{20,}"; then
+    if echo "$content" | safe_grep_qiE "(JSESSIONID|PHPSESSID|session_id|sid)=[a-zA-Z0-9]{20,}"; then
         findings+=("preset_session_id")
         ((score += 45))
         log_critical "Preset session ID in URL - session fixation!"
     fi
     
     # Check for session ID in query string with login
-    if echo "$content" | grep -qiE "login.*session|signin.*sid=|auth.*JSESSIONID"; then
+    if echo "$content" | safe_grep_qiE "login.*session|signin.*sid=|auth.*JSESSIONID"; then
         findings+=("session_with_auth")
         ((score += 40))
         log_warning "Session ID combined with authentication URL"
@@ -41682,27 +41735,27 @@ analyze_sso_relay() {
     
     # Check for SSO relay patterns
     for pattern in "${SSO_RELAY_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("sso_relay:$matched")
             ((score += 30))
         fi
     done
     
     # Check for real-time phishing frameworks
-    if echo "$content" | grep -qiE "evilginx|modlishka|gophish|muraena|evilnovnc"; then
+    if echo "$content" | safe_grep_qiE "evilginx|modlishka|gophish|muraena|evilnovnc"; then
         findings+=("phishing_framework")
         ((score += 55))
         log_critical "Real-time phishing framework detected"
     fi
     
     # Check for ADFS/Azure AD endpoints
-    if echo "$content" | grep -qiE "adfs/.*token|login\.microsoftonline\.com.*token|login\.windows\.net.*oauth"; then
+    if echo "$content" | safe_grep_qiE "adfs/.*token|login\.microsoftonline\.com.*token|login\.windows\.net.*oauth"; then
         findings+=("azure_sso_endpoint")
         ((score += 25))
         
         # Check if combined with suspicious patterns
-        if echo "$content" | grep -qiE "proxy|relay|forward|intercept"; then
+        if echo "$content" | safe_grep_qiE "proxy|relay|forward|intercept"; then
             findings+=("sso_interception")
             ((score += 40))
             log_critical "SSO token interception pattern"
@@ -41746,29 +41799,29 @@ analyze_kerberos_abuse() {
     
     # Check for Kerberos abuse patterns
     for pattern in "${KERBEROS_ABUSE_PATTERNS[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
-            local matched=$(echo "$content" | grep -oiE "$pattern" 2>/dev/null | head -1)
+        if echo "$content" | safe_grep_qiE "$pattern"; then
+            local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             findings+=("kerberos:$matched")
             ((score += 35))
         fi
     done
     
     # Check for Kerberoasting
-    if echo "$content" | grep -qiE "kerberoast|GetUserSPNs|servicePrincipalName"; then
+    if echo "$content" | safe_grep_qiE "kerberoast|GetUserSPNs|servicePrincipalName"; then
         findings+=("kerberoasting")
         ((score += 50))
         log_critical "Kerberoasting indicator detected"
     fi
     
     # Check for Golden/Silver ticket
-    if echo "$content" | grep -qiE "golden.*ticket|silver.*ticket|krbtgt"; then
+    if echo "$content" | safe_grep_qiE "golden.*ticket|silver.*ticket|krbtgt"; then
         findings+=("ticket_attack")
         ((score += 60))
         log_critical "Golden/Silver ticket attack indicator"
     fi
     
     # Check for AS-REP roasting
-    if echo "$content" | grep -qiE "asreproast|DONT_REQ_PREAUTH|AS-REP"; then
+    if echo "$content" | safe_grep_qiE "asreproast|DONT_REQ_PREAUTH|AS-REP"; then
         findings+=("asrep_roasting")
         ((score += 45))
         log_warning "AS-REP roasting indicator"
@@ -42311,16 +42364,16 @@ analyze_script_injection() {
     )
     
     for pattern in "${script_patterns[@]}"; do
-        if echo "$content" | grep -qiE "$pattern"; then
+        if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 45 "Script injection pattern: $pattern"
         fi
     done
     
-    if echo "$content" | grep -qE "eval\(|Function\(.*\)"; then
+    if echo "$content" | safe_grep_qE "eval\(|Function\(.*\)"; then
         log_threat 40 "Potentially obfuscated JavaScript"
     fi
     
-    if echo "$content" | grep -qE "data:text/html|data:application"; then
+    if echo "$content" | safe_grep_qE "data:text/html|data:application"; then
         log_threat 35 "Data URI detected (payload embedding)"
     fi
 }
@@ -42701,7 +42754,7 @@ analyze_api_keys() {
     )
     
     for pattern in "${api_patterns[@]}"; do
-        local matches=$(echo "$content" | grep -oE "$pattern")
+        local matches=$(echo "$content" | safe_grep_oE "$pattern")
         
         if [ -n "$matches" ]; then
             echo "$matches" | while read -r key; do
@@ -42756,27 +42809,27 @@ analyze_qr_behavior() {
     
     local behavior_score=0
     
-    if echo "$content" | grep -qiE "download.*install|install.*run|run.*execute"; then
+    if echo "$content" | safe_grep_qiE "download.*install|install.*run|run.*execute"; then
         log_threat 30 "Multi-stage attack pattern"
         ((behavior_score += 30))
     fi
     
-    if echo "$content" | grep -qiE "login|password|username|credential"; then
+    if echo "$content" | safe_grep_qiE "login|password|username|credential"; then
         log_threat 25 "Credential harvesting indicators"
         ((behavior_score += 25))
     fi
     
-    if echo "$content" | grep -qiE "upload|submit|send|POST"; then
+    if echo "$content" | safe_grep_qiE "upload|submit|send|POST"; then
         log_warning "Potential data exfiltration"
         ((behavior_score += 15))
     fi
     
-    if echo "$content" | grep -qiE "callback|beacon|checkin|c2|command"; then
+    if echo "$content" | safe_grep_qiE "callback|beacon|checkin|c2|command"; then
         log_threat 40 "C2 communication pattern"
         ((behavior_score += 40))
     fi
     
-    if echo "$content" | grep -qiE "startup|autorun|schedule|cron|launchd"; then
+    if echo "$content" | safe_grep_qiE "startup|autorun|schedule|cron|launchd"; then
         log_threat 35 "Persistence mechanism"
         ((behavior_score += 35))
     fi
@@ -42792,11 +42845,11 @@ check_apt_indicators() {
     
     log_info "Checking APT indicators..."
     
-    if echo "$content" | grep -qiE "pastebin\.com.*raw"; then
+    if echo "$content" | safe_grep_qiE "pastebin\.com.*raw"; then
         log_threat 40 "Pastebin raw URL (APT C2 staging)"
     fi
     
-    if echo "$content" | grep -qiE "github\.com.*\.txt|gitlab\.com.*\.txt"; then
+    if echo "$content" | safe_grep_qiE "github\.com.*\.txt|gitlab\.com.*\.txt"; then
         log_threat 35 "Code repository text file (C2 staging)"
     fi
 }
@@ -42808,7 +42861,7 @@ detect_obfuscation() {
     log_info "Detecting obfuscation techniques..."
     
     # Base64
-    if echo "$content" | grep -qE "^[A-Za-z0-9+/]{40,}={0,2}$"; then
+    if echo "$content" | safe_grep_qE "^[A-Za-z0-9+/]{40,}={0,2}$"; then
         log_threat 25 "Possible Base64 encoded payload"
         
         local decoded=$(echo "$content" | base64 -d 2>/dev/null)
@@ -42819,12 +42872,12 @@ detect_obfuscation() {
     fi
     
     # Hex encoding
-    if echo "$content" | grep -qE "^([0-9a-fA-F]{2})+$"; then
+    if echo "$content" | safe_grep_qE "^([0-9a-fA-F]{2})+$"; then
         log_threat 25 "Possible hex-encoded payload"
     fi
     
     # URL encoding abuse
-    local percent_count=$(echo "$content" | grep -o '%' | wc -l)
+    local percent_count=$(echo "$content" | safe_grep_o '%' | wc -l)
     local content_length=${#content}
     
     if [ $content_length -gt 0 ] && [ $(( percent_count * 100 / content_length )) -gt 20 ]; then
@@ -42892,7 +42945,7 @@ comprehensive_payload_analysis() {
     
     analyze_encryption_indicators "$content"
     
-    if echo "$content" | grep -qiE "^https?://"; then
+    if echo "$content" | safe_grep_qiE "^https?://"; then
         analyze_url_content_type "$content"
     fi
     
@@ -42939,7 +42992,7 @@ analyze_network_indicators() {
     
     log_forensic "Performing advanced network analysis..."
     
-    local ips=$(echo "$content" | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b')
+    local ips=$(echo "$content" | safe_grep_oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b')
     
     if [ -n "$ips" ]; then
         echo "$ips" | while read -r ip; do
@@ -42956,7 +43009,7 @@ analyze_network_indicators() {
         done
     fi
     
-    local emails=$(echo "$content" | grep -oE '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
+    local emails=$(echo "$content" | safe_grep_oE '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
     
     if [ -n "$emails" ]; then
         log_info "Email addresses found in payload:"
@@ -43073,7 +43126,7 @@ check_sandbox_evasion_techniques() {
     )
     
     for technique in "${evasion_techniques[@]}"; do
-        if echo "$content" | grep -qiE "$technique"; then
+        if echo "$content" | safe_grep_qiE "$technique"; then
             log_threat 55 "Sandbox evasion technique detected: $technique"
         fi
     done
@@ -43088,7 +43141,7 @@ check_anti_vm_techniques() {
     )
     
     for indicator in "${vm_indicators[@]}"; do
-        if echo "$content" | grep -qiE "$indicator"; then
+        if echo "$content" | safe_grep_qiE "$indicator"; then
             log_threat 45 "Anti-VM technique detected: $indicator"
         fi
     done
@@ -43104,7 +43157,7 @@ check_anti_debug_techniques() {
     )
     
     for check in "${debug_checks[@]}"; do
-        if echo "$content" | grep -qiE "$check"; then
+        if echo "$content" | safe_grep_qiE "$check"; then
             log_threat 50 "Anti-debug technique detected: $check"
         fi
     done
@@ -43114,7 +43167,7 @@ check_anti_debug_techniques() {
 check_time_based_evasion() {
     local content="$1"
     
-    if echo "$content" | grep -qiE "sleep.*[0-9]{4,}|timeout.*[0-9]{4,}|delay.*[0-9]{4,}"; then
+    if echo "$content" | safe_grep_qiE "sleep.*[0-9]{4,}|timeout.*[0-9]{4,}|delay.*[0-9]{4,}"; then
         log_threat 40 "Time-based evasion detected (long sleep/delay)"
     fi
 }
