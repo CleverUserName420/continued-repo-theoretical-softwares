@@ -8,6 +8,11 @@ if [[ -z "$VIRTUAL_ENV" ]] && [[ -d "$HOME/.venv" ]]; then
     export PATH="$VIRTUAL_ENV/bin:$PATH"
 fi
 
+# Force C locale for consistent regex behavior
+    export LC_ALL=C
+    export LC_CTYPE=C
+    export LANG=C
+
 # Auto-detect and re-execute with Homebrew bash if needed
 if ((BASH_VERSINFO[0] < 4)); then
     # Try to find Homebrew bash
@@ -5101,77 +5106,145 @@ declare -A API_KEY_PATTERNS=(
 ################################################################################
 
 declare -A OBFUSCATION_PATTERNS=(
-    # Base64 encoding patterns
-    ["base64_standard"]="^[A-Za-z0-9+/]{40,}={0,2}$"
-    ["base64_url_safe"]="^[A-Za-z0-9_-]{40,}$"
+    # Base64 encoding patterns (FIXED:  using POSIX character classes)
+    ["base64_standard"]="^[[:alnum: ]+/]{40,}={0,2}$"
+    ["base64_url_safe"]="^[[:alnum:]_-]{40,}$"
     ["base64_prefix"]="(data:|base64,|;base64)"
     ["base64_decode_call"]="(atob|base64_decode|b64decode|Base64\.decode|Buffer\.from)"
-    # Hex encoding
-    ["hex_string"]='^[0-9a-fA-F]{40,}$'
-    ["hex_escape"]='(\\x[0-9a-fA-F]{2}){10,}'
-    ["unicode_escape"]='(\\u[0-9a-fA-F]{4}){10,}'
+    
+    # Hex encoding (FIXED: using POSIX classes)
+    ["hex_string"]='^[[:xdigit:]]{40,}$'
+    ["hex_escape"]='(\\x[[:xdigit:]]{2}){10,}'
+    ["unicode_escape"]='(\\u[[:xdigit:]]{4}){10,}'
+    
     # Character code obfuscation
-    ["charcode_js"]="String\\.fromCharCode\\([0-9,\\s]+\\)"
-    ["chr_php"]="chr\\([0-9]+\\)"
-    ["chr_python"]="chr\\([0-9]+\\)"
-    # URL encoding
-    ["url_encoded"]="(%[0-9A-Fa-f]{2}){10,}"
-    ["double_encoded"]="%25[0-9A-Fa-f]{2}"
+    ["charcode_js"]="String\\.fromCharCode\\([[:digit:],[:space:]]+\\)"
+    ["chr_php"]="chr\\([[:digit:]]+\\)"
+    ["chr_python"]="chr\\([[:digit:]]+\\)"
+    
+    # URL encoding (FIXED: using POSIX classes)
+    ["url_encoded"]="(%[[:xdigit:]]{2}){10,}"
+    ["double_encoded"]="%25[[:xdigit:]]{2}"
+    
     # Concatenation obfuscation
-    ["string_concat_js"]="\\+\[[:space:]]*['\"]"
-    ["string_concat_vba"]="&\[[:space:]]*['\"]"
+    ["string_concat_js"]="\\+[[:space:]]*['\"]"
+    ["string_concat_vba"]="&[[:space:]]*['\"]"
     ["array_join"]="\\[.*\\]\\.join\\(['\"]"
+    
     # Variable manipulation
     ["eval_usage"]="(eval|exec|execute|system|shell_exec|passthru)"
     ["dynamic_invoke"]="(Invoke-Expression|IEX|Invoke|[$][(])"
     ["reflection"]="(GetType|Invoke|Assembly|Load|CreateInstance)"
+    
     # Compression patterns
     ["gzip_magic"]="\\x1f\\x8b"
     ["zlib_header"]="\\x78\\x9c"
     ["deflate_data"]="\\x78\\x01"
-    # XOR patterns
+    
+    # XOR patterns (FIXED: already using POSIX)
     ["xor_loop"]="(\\^=|xor|XOR)"
     ["xor_key"]='[[:alnum:]]{8,32}'
+    
     # ROT13/Caesar
     ["rot13"]="(ROT13|rot13|str_rot13)"
+    
     # Packing
     ["upx_packed"]="UPX0.*UPX1.*UPX2"
     ["aspack_packed"]="ASPack"
     ["mpress_packed"]="MPRESS"
     ["themida_packed"]="Themida|WinLicense"
-    # Script obfuscators
+    
+    # Script obfuscators (FIXED: using POSIX classes)
     ["js_obfuscator"]="(\\$_|_0x[a-f0-9]+|__webpack)"
-    ["php_obfuscator"]="(\\$[a-zA-Z_][a-zA-Z0-9_]*\\[\\d+\\])"
+    ["php_obfuscator"]='\\$[a-zA-Z_][a-zA-Z0-9_]*\\[[0-9]+\\]'
     ["powershell_obf"]="(-join|-split|-replace.*\\[char\\])"
 
     # Additional patterns:
     # Polyglot payloads
-    ["polyglot_payload"]="(<script>.*<\/script>|<!.*-->)"
-    # JScript .NET/ActiveX obfuscation
-    ["activeX_object"]="new\\s+ActiveXObject\\(['\"][A-Za-z0-9.]+['\"]\\)"
-    # Windows Script Host
-    ["wsh_run"]="WScript\\.Run\\(['\"][A-Za-z0-9/ :._-]+['\"]\\)"
-    # Environment variable manipulation
-    ["env_var_obf"]="(%[A-Za-z_]+%)|(\$[A-Za-z_]+)"
+    ["polyglot_payload"]="(<script>.*<\\/script>|<!.*-->)"
+    
+    # JScript . NET/ActiveX obfuscation (FIXED: using POSIX classes)
+    ["activeX_object"]="new[[:space:]]+ActiveXObject\\(['\"][[:alnum:].]+['\"]\\)"
+    
+    # Windows Script Host (FIXED: using POSIX classes)
+    ["wsh_run"]="WScript\\.Run\\(['\"][[:alnum:]/ :._-]+['\"]\\)"
+    
+    # Environment variable manipulation (FIXED: using POSIX classes)
+    ["env_var_obf"]="(%[[:alpha:]_]+%)|(\\\$[[:alpha:]_]+)"
+    
     # Self-modifying code (JavaScript)
-    ["self_modify_js"]="this\\[window\\['.+?'\\]\\]"
-    # Unicode homoglyph/Confusable spoofing
-    ["unicode_homoglyph"]="[\u0400-\u04FF\u0500-\u052F\u2C00-\u2C5F\uA640-\uA69F]"
+    ["self_modify_js"]="this\\[window\\['.+? '\\]\\]"
+    
+    # Unicode homoglyph
+    ["unicode_homoglyph"]='[Ѐ-ӿԀ-ԯⰀ-ⱟꙀ-ꚟ]'
+    
     # Steganography (image/payload embedding)
     ["steg_image_data"]="(data:image/(png|jpg|jpeg).*base64,)"
+    
     # HTML entities/obfuscated tags
-    ["html_entity"]="&#[0-9]{2,4};"
+    ["html_entity"]="&#[[:digit:]]{2,4};"
+    
     # Dword obfuscation (malware C2 IP as unsigned int)
-    ["dword_ip"]="\\b[0-9]{8,10}\\b"
-    # PowerShell encoded command
-    ["ps_encoded_cmd"]="powershell.exe.*-enc(oded)?command\\s+[A-Za-z0-9+/=]+"
-    # JavaScript function alias obfuscation
-    ["function_alias_js"]="var\\s+[A-Za-z_][A-Za-z0-9_]*\\s*=\\s*function\\s*\\("
+    ["dword_ip"]="\\b[[:digit:]]{8,10}\\b"
+    
+    # PowerShell encoded command (FIXED: using POSIX classes)
+    ["ps_encoded_cmd"]="powershell.exe.*-enc(oded)?command[[:space:]]+[[:alnum: ]+/=]+"
+    
+    # JavaScript function alias obfuscation (FIXED: using POSIX classes)
+    ["function_alias_js"]="var[[: space:]]+[[:alpha:]_][[:alnum:]_]*[[:space:]]*=[[:space:]]*function[[:space:]]*\\("
+    
     # Execution through regsvr32/cscript/mshta/sct
     ["living_off_land"]="(regsvr32|cscript|mshta|wmic|rundll32).*\\.sct"
+    
     # GZIP/zlib/deflate magic boundary obfuscation in strings
     ["compressed_magic"]="\\x1f\\x8b|PK\\x03\\x04|\\x78\\x9c|\\x78\\x01"
 )
+
+################################################################################
+# Unicode Homoglyph Detection (Requires Python)
+################################################################################
+
+# Since bash/grep don't support \uXXXX Unicode escapes, this function uses Python
+detect_unicode_homoglyphs() {
+    local content="$1"
+    
+    # Skip if Python not available
+    if ! command -v python3 &>/dev/null; then
+        return 1
+    fi
+    
+    # Use Python for proper Unicode regex support
+    local result=$(python3 -c '
+import re
+import sys
+
+try:
+    content = sys.stdin.read()
+    # Detect Cyrillic, Cyrillic Supplement, Glagolitic, Cyrillic Extended-B
+    # These are commonly used for homoglyph attacks (look like Latin but are different)
+    patterns = [
+        r"[\u0400-\u04FF]",  # Cyrillic
+        r"[\u0500-\u052F]",  # Cyrillic Supplement
+        r"[\u2C00-\u2C5F]",  # Glagolitic
+        r"[\uA640-\uA69F]",  # Cyrillic Extended-B
+    ]
+    
+    for pattern in patterns: 
+        if re.search(pattern, content):
+            print("FOUND")
+            sys.exit(0)
+    print("NOT_FOUND")
+except Exception: 
+    print("ERROR")
+' <<< "$content" 2>/dev/null)
+    
+    if [[ "$result" == "FOUND" ]]; then
+        log_threat "+35:  Obfuscation technique detected:  unicode_homoglyph"
+        log_forensic "Matched obfuscation pattern: unicode_homoglyph (Cyrillic/Glagolitic characters detected)"
+        return 0
+    fi
+    return 1
+}
 
 ################################################################################
 # COMMAND & CONTROL DETECTION PATTERNS
@@ -21096,6 +21169,7 @@ analyze_obfuscation() {
 
     # Character frequency anomaly analysis
     analyze_char_frequency "$content"
+    detect_unicode_homoglyphs "$content"
 
     # Layered/junk/substring obfuscation
     if echo "$content" | grep -qE "(concat|substr|split|replace|reverse|junk code|dead code|no-op|nop sled|padding)"; then
