@@ -21294,6 +21294,7 @@ calculate_string_entropy() {
 local encoded_str
 encoded_str=$(printf '%s' "$str" | base64 2>/dev/null) || { echo "0.0"; return; }
 
+# AUDIT FIX: Return only the numeric entropy value, not formatted output
 # Pass encoded string as argument instead of pipe
 python3 - "$encoded_str" 2>/dev/null <<'EOF'
 import sys
@@ -21306,10 +21307,6 @@ def entropy(s):
     probs = [v / len(s) for v in Counter(s).values()]
     return -sum(p * math.log2(p) for p in probs if p > 0)
 
-def ngram_counts(s, n=2):
-    # Simple n-gram counter
-    return Counter([s[i:i+n] for i in range(len(s)-n+1)])
-
 try:
     s = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
     s = s.strip()
@@ -21321,25 +21318,9 @@ try:
         if len(printable) < len(s)/4:    # >75% non-printable
             print('0.0')
         else:
-            # 1. Entropy
+            # Calculate and return only the entropy value
             H = entropy(s)
-            print(f'entropy: {H:.4f}')
-            # 2. Character frequency example (top 5)
-            freq = Counter(s).most_common(5)
-            print("top_chars:", " ".join([f"{c}:{n}" for c, n in freq]))
-            # 3. Word count and most common word
-            words = s.split()
-            cwords = Counter(words)
-            print("word_count:", len(words))
-            print("top_words:", " ".join(f"{w}:{n}" for w, n in cwords.most_common(3)))
-            # 4. Bigram (2-gram) frequency (top 5)
-            bigrams = ngram_counts(s, 2).most_common(5)
-            print("bigrams:", " ".join(f"{b}:{n}" for b, n in bigrams))
-            # 5. Trigram (3-gram) frequency (top 5)
-            trigrams = ngram_counts(s, 3).most_common(5)
-            print("trigrams:", " ".join(f"{t}:{n}" for t, n in trigrams))
-            # 6. Total character count
-            print("total_length:", len(s))
+            print(f'{H:.4f}')
 except Exception:
     print('0.0')
 EOF
