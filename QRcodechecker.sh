@@ -43511,7 +43511,7 @@ analyze_network_indicators() {
             if [[ "$ip" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.) ]]; then
                 log_warning "Private IP address detected: $ip"
             else
-                if [[ -v "KNOWN_MALICIOUS_IPS[$ip]" ]] && [ -n "${KNOWN_MALICIOUS_IPS[$ip]}" ]; then
+                if [[ -v "KNOWN_MALICIOUS_IPS[$ip]" ]] && [[ -n "${KNOWN_MALICIOUS_IPS[$ip]}" ]]; then
                     log_threat 100 "KNOWN MALICIOUS IP: $ip"
                 fi
                 check_tor_exit_node "$ip"
@@ -43604,7 +43604,7 @@ analyze_email_address() {
     
     log_info "Analyzing email address: $email"
     
-    if [[ -v "KNOWN_MALICIOUS_DOMAINS[$domain]" ]] && [ -n "${KNOWN_MALICIOUS_DOMAINS[$domain]}" ]; then
+    if [[ -v "KNOWN_MALICIOUS_DOMAINS[$domain]" ]] && [[ -n "${KNOWN_MALICIOUS_DOMAINS[$domain]}" ]]; then
         log_threat 80 "Email from KNOWN MALICIOUS DOMAIN: $domain"
     fi
     
