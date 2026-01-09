@@ -10443,7 +10443,7 @@ try:
     import cv2
     
     detector = QReader()
-    img = cv2.imread('$image')
+    img = cv2.imread(image_path)
     if img is not None:
         decoded = detector.detect_and_decode(image=img)
         if decoded:
@@ -11443,7 +11443,7 @@ from pyzbar.pyzbar import decode
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img)
     for c in codes:
         if 'AZTEC' in str(c.type).upper():
@@ -11566,7 +11566,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.PDF417])
     for c in codes:
         data = c.data.decode('utf-8', errors='replace')
@@ -11713,7 +11713,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.CODABAR])
     for c in codes:
         data = c.data.decode('utf-8', errors='replace')
@@ -11923,7 +11923,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.CODE39])
     for c in codes:
         data = c.data.decode('utf-8', errors='replace')
@@ -12069,7 +12069,7 @@ def validate_barcode(sym_type, data):
     return False
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # All EAN/UPC symbol types
     ean_symbols = [
@@ -12627,7 +12627,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # GS1 DataBar (formerly RSS) composites
     composite_symbols = [
@@ -12696,7 +12696,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.I25])  # I25 = Interleaved 2 of 5
     for c in codes:
         data = c.data.decode('utf-8', errors='replace')
@@ -12792,7 +12792,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.CODE93])
     for c in codes:
         data = c.data.decode('utf-8', errors='replace')
@@ -13014,7 +13014,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     results = zxingcpp.read_barcodes(
         img,
         formats=zxingcpp.BarcodeFormat.QRCode,
@@ -13090,7 +13090,7 @@ try:
     from PIL import Image
     import numpy as np
     
-    img = Image.open('$image').convert('RGB')
+    img = Image.open(image_path).convert('RGB')
     arr = np.array(img)
     
     colors = arr.reshape(-1, 3)
@@ -13153,7 +13153,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     try:
         results = zxingcpp.read_barcodes(
@@ -13212,7 +13212,7 @@ try:
     import numpy as np
     from pyzbar.pyzbar import decode
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Decode the QR code first
     qr_data = None
@@ -13317,7 +13317,7 @@ try:
     from pyzbar.pyzbar import decode, ZBarSymbol
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Decode UPC-A and UPC-E
     results = decode(img, symbols=[ZBarSymbol.UPCA, ZBarSymbol.UPCE])
@@ -13370,7 +13370,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Try to decode with MSI format if available
     try:
@@ -13425,7 +13425,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Try Telepen format
     try:
@@ -13480,7 +13480,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Try GS1 DataBar formats (Expanded, Limited, etc.)
     results = []
@@ -13539,7 +13539,7 @@ try:
     from PIL import Image
     import numpy as np
     
-    img = Image.open('$image').convert('L')
+    img = Image.open(image_path).convert('L')
     arr = np.array(img)
     
     # Pharmacode is a series of thick and thin bars
@@ -13630,7 +13630,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Try Code 11 format
     try:
@@ -13685,7 +13685,7 @@ try:
     from pyzbar.pyzbar import decode
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     results = decode(img)
     
     # DPD uses Code 128 with specific format
@@ -13917,16 +13917,23 @@ EOF
     local out_pyzbar_enh="${TEMP_DIR}_pyzbar_enhanced.txt"
     if [ -n "$python_cmd" ]; then
         log_info "  [6/50] Trying pyzbar_enhanced decoder..."
+        # AUDIT FIX: Base64-encode paths
+        local encoded_image
+        local encoded_out_pyzbar_enh
+        encoded_image=$(printf '%s' "$image" | base64 2>/dev/null) || true
+        encoded_out_pyzbar_enh=$(printf '%s' "$out_pyzbar_enh" | base64 2>/dev/null) || true
         (
             exec 2>/dev/null
-            timeout 45 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+            timeout 45 "$python_cmd" - "$encoded_image" "$encoded_out_pyzbar_enh" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     from pyzbar.pyzbar import decode, ZBarSymbol
     from PIL import Image, ImageEnhance, ImageFilter
-    img = Image.open('$image')
+    img = Image.open(image_path)
     all_data = set()
     
     # Try original
@@ -13943,9 +13950,9 @@ try:
             if all_data: break
     
     if all_data:
-        with open('$out_pyzbar_enh', 'w') as f:
+        with open(out_path, 'w') as f:
             for d in all_data:
-                f.write(d + '\\n')
+                f.write(d + '\n')
 except:
     pass
 EOF
@@ -13964,17 +13971,24 @@ EOF
     local out_multiscale="${TEMP_DIR}_multiscale.txt"
     if [ -n "$python_cmd" ]; then
         log_info "  [7/50] Trying multiscale decoder..."
+        # AUDIT FIX: Base64-encode paths
+        local encoded_image
+        local encoded_out_path
+        encoded_image=$(printf '%s' "$image" | base64 2>/dev/null) || true
+        encoded_out_path=$(printf '%s' "$out_multiscale" | base64 2>/dev/null) || true
         (
             exec 2>/dev/null
-            timeout 45 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+            timeout 45 "$python_cmd" 2>/dev/null - "$encoded_image" "$encoded_out_path" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     import cv2
     from pyzbar.pyzbar import decode
     from PIL import Image
-    img = cv2.imread('$image')
+    img = cv2.imread(image_path)
     if img is not None:
         all_data = set()
         for scale in [0.5, 1.0, 1.5, 2.0]:
@@ -13985,7 +13999,7 @@ try:
                 except: all_data.add(c.data.decode('latin-1'))
             if all_data: break
         if all_data:
-            with open('$out_multiscale', 'w') as f:
+            with open(out_path, 'w') as f:
                 for d in all_data:
                     f.write(d + '\\n')
 except:
@@ -14008,14 +14022,16 @@ EOF
         log_info "  [8/50] Trying inverse decoder..."
         (
             exec 2>/dev/null
-            timeout 30 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+            timeout 30 "$python_cmd" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     from pyzbar.pyzbar import decode
     from PIL import Image, ImageOps
-    img = Image.open('$image')
+    img = Image.open(image_path)
     all_data = set()
     
     for processed in [img.convert('L'), ImageOps.invert(img.convert('L'))]:
@@ -14025,7 +14041,7 @@ try:
         if all_data: break
     
     if all_data:
-        with open('$out_inverse', 'w') as f:
+        with open(out_path, 'w') as f:
             for d in all_data:
                 f.write(d + '\\n')
 except:
@@ -14094,8 +14110,8 @@ EOF
                 trap 'exit 135' BUS
                 ulimit -c 0 2>/dev/null
                 exec 2>/dev/null
-                timeout 30 "$python_cmd" 2>/dev/null <<EOF
-import sys, os, signal
+                timeout 30 "$python_cmd" 2>/dev/null <<'EOF'
+import sys, os, signal, base64
 
 # Disable OpenCV threading which can cause segfaults
 os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
@@ -14109,11 +14125,11 @@ try:
     import cv2
     
     detector = QReader()
-    img = cv2.imread('$image')
+    img = cv2.imread(image_path)
     if img is not None:
         decoded = detector.detect_and_decode(image=img)
         if decoded:
-            with open('$out_qreader', 'w') as f:
+            with open(out_path, 'w') as f:
                 for d in decoded:
                     if d:
                         f.write(str(d) + '\\n')
@@ -14156,20 +14172,22 @@ EOF
                 trap 'exit 135' BUS
                 ulimit -c 0 2>/dev/null
                 exec 2>/dev/null
-                timeout 30 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+                timeout 30 "$python_cmd" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     import pyzxing
     reader = pyzxing.BarCodeReader()
     result = reader.decode('$image')
     # result can be a list or dict
     if isinstance(result, dict) and result.get('parsed'):
-        with open('$out_pyzxing', 'w') as f:
+        with open(out_path, 'w') as f:
             f.write(str(result['parsed']).strip() + '\\n')
     elif isinstance(result, list):
-        with open('$out_pyzxing', 'w') as f:
+        with open(out_path, 'w') as f:
             for item in result:
                 if isinstance(item, dict) and 'parsed' in item:
                     f.write(str(item['parsed']).strip() + '\\n')
@@ -42399,7 +42417,7 @@ try:
     from collections import Counter
     import math
 
-    img = Image.open('$image')
+    img = Image.open(image_path)
     img_array = np.array(img)
     
     if len(img_array.shape) == 3:
@@ -42850,7 +42868,7 @@ try:
     from PIL import Image
     from pyzbar.pyzbar import decode, ZBarSymbol
 
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.QRCODE])
     
     if not codes:
