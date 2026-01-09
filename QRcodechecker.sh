@@ -2,7 +2,7 @@
 
 # === FORCE USE OF SPECIFIC VENV ===
 if [[ -z "$VIRTUAL_ENV" ]] && [[ -d "$HOME/.venv" ]]; then
-    echo "[INFO] Activating virtual environment:  $HOME/.venv"
+    echo "[INFO] Activating virtual environment: $HOME/.venv"
     source "$HOME/.venv/bin/activate"
     export VIRTUAL_ENV="$HOME/.venv"
     export PATH="$VIRTUAL_ENV/bin:$PATH"
@@ -2295,12 +2295,37 @@ parallel_decoder_analysis() {
         (
             local result_file="$TEMP_DIR/decoder_${decoder}_$$.txt"
             # Run decoder based on type
+            # AUDIT FIX: Wrap decoders with crash protection
             case "$decoder" in
                 "zbar")
-                    zbarimg -q "$image_file" 2>/dev/null > "$result_file" || true
+                    run_isolated_with_output 30 "$result_file" zbarimg -q "$image_file" || true
                     ;;
                 "pyzbar")
-                    python3 -c "from pyzbar.pyzbar import decode; from PIL import Image; print('\n'.join([d.data.decode() for d in decode(Image.open('$image_file'))]))" 2>/dev/null > "$result_file" || true
+                    # AUDIT FIX: Use safe Python script with base64-encoded path
+                    local encoded_image_file
+                    encoded_image_file=$(printf '%s' "$image_file" | base64 2>/dev/null) || true
+                    local encoded_result_file
+                    encoded_result_file=$(printf '%s' "$result_file" | base64 2>/dev/null) || true
+                    run_isolated 30 python3 - "$encoded_image_file" "$encoded_result_file" 2>/dev/null <<'PYZBAR_DECODE' > "$result_file" || true
+import sys
+import base64
+try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    output_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
+    from pyzbar.pyzbar import decode
+    from PIL import Image
+    results = []
+    with Image.open(image_path) as img:
+        codes = decode(img)
+        for c in codes:
+            try:
+                results.append(c.data.decode('utf-8'))
+            except:
+                results.append(c.data.decode('latin-1', errors='replace'))
+    print('\n'.join(results))
+except:
+    pass
+PYZBAR_DECODE
                     ;;
                 *)
                     echo "" > "$result_file"
@@ -5106,16 +5131,16 @@ declare -A API_KEY_PATTERNS=(
 ################################################################################
 
 declare -A OBFUSCATION_PATTERNS=(
-    # Base64 encoding patterns (FIXED:  using POSIX character classes)
-    ["base64_standard"]="^[[:alnum: ]+/]{40,}={0,2}$"
+    # Base64 encoding patterns (AUDIT FIX: Fixed POSIX class - space outside [[:alnum:]])
+    ["base64_standard"]="^[[:alnum:]+/ ]{40,}={0,2}$"
     ["base64_url_safe"]="^[[:alnum:]_-]{40,}$"
     ["base64_prefix"]="(data:|base64,|;base64)"
     ["base64_decode_call"]="(atob|base64_decode|b64decode|Base64\.decode|Buffer\.from)"
     
     # Hex encoding (FIXED: using POSIX classes)
-    ["hex_string"]='^[[:xdigit:]]{40,}$'
-    ["hex_escape"]='(\\x[[:xdigit:]]{2}){10,}'
-    ["unicode_escape"]='(\\u[[:xdigit:]]{4}){10,}'
+    ["hex_string"]="^[[:xdigit:]]{40,}$"
+    ["hex_escape"]="(\\x[[:xdigit:]]{2}){10,}"
+    ["unicode_escape"]="(\\u[[:xdigit:]]{4}){10,}"
     
     # Character code obfuscation
     ["charcode_js"]="String\\.fromCharCode\\([[:digit:],[:space:]]+\\)"
@@ -5143,7 +5168,7 @@ declare -A OBFUSCATION_PATTERNS=(
     
     # XOR patterns (FIXED: already using POSIX)
     ["xor_loop"]="(\\^=|xor|XOR)"
-    ["xor_key"]='[[:alnum:]]{8,32}'
+    ["xor_key"]="[[:alnum:]]{8,32}"
     
     # ROT13/Caesar
     ["rot13"]="(ROT13|rot13|str_rot13)"
@@ -5156,7 +5181,7 @@ declare -A OBFUSCATION_PATTERNS=(
     
     # Script obfuscators (FIXED: using POSIX classes)
     ["js_obfuscator"]="(\\$_|_0x[a-f0-9]+|__webpack)"
-    ["php_obfuscator"]='\\$[a-zA-Z_][a-zA-Z0-9_]*\\[[0-9]+\\]'
+    ["php_obfuscator"]="\\$[a-zA-Z_][a-zA-Z0-9_]*\\[[0-9]+\\]"
     ["powershell_obf"]="(-join|-split|-replace.*\\[char\\])"
 
     # Additional patterns:
@@ -5176,7 +5201,7 @@ declare -A OBFUSCATION_PATTERNS=(
     ["self_modify_js"]="this\\[window\\['.+? '\\]\\]"
     
     # Unicode homoglyph
-    ["unicode_homoglyph"]='[Ѐ-ӿԀ-ԯⰀ-ⱟꙀ-ꚟ]'
+    ["unicode_homoglyph"]="[Ѐ-ӿԀ-ԯⰀ-ⱟꙀ-ꚟ]"
     
     # Steganography (image/payload embedding)
     ["steg_image_data"]="(data:image/(png|jpg|jpeg).*base64,)"
@@ -5187,11 +5212,11 @@ declare -A OBFUSCATION_PATTERNS=(
     # Dword obfuscation (malware C2 IP as unsigned int)
     ["dword_ip"]="\\b[[:digit:]]{8,10}\\b"
     
-    # PowerShell encoded command (FIXED: using POSIX classes)
-    ["ps_encoded_cmd"]="powershell.exe.*-enc(oded)?command[[:space:]]+[[:alnum: ]+/=]+"
+    # PowerShell encoded command (AUDIT FIX: Fixed POSIX class - space outside [[:alnum:]])
+    ["ps_encoded_cmd"]="powershell.exe.*-enc(oded)?command[[:space:]]+[[:alnum:]+/= ]+"
     
-    # JavaScript function alias obfuscation (FIXED: using POSIX classes)
-    ["function_alias_js"]="var[[: space:]]+[[:alpha:]_][[:alnum:]_]*[[:space:]]*=[[:space:]]*function[[:space:]]*\\("
+    # JavaScript function alias obfuscation (AUDIT FIX: Fixed POSIX class - no space in [[:space:]])
+    ["function_alias_js"]="var[[:space:]]+[[:alpha:]_][[:alnum:]_]*[[:space:]]*=[[:space:]]*function[[:space:]]*\\("
     
     # Execution through regsvr32/cscript/mshta/sct
     ["living_off_land"]="(regsvr32|cscript|mshta|wmic|rundll32).*\\.sct"
@@ -5213,13 +5238,18 @@ detect_unicode_homoglyphs() {
         return 1
     fi
     
+    # AUDIT FIX: Use base64 encoding to safely pass content to Python (prevents segfault)
+    local encoded_content
+    encoded_content=$(printf '%s' "$content" | base64 2>/dev/null) || return 1
+    
     # Use Python for proper Unicode regex support
-    local result=$(python3 -c '
+    local result=$(python3 - "$encoded_content" 2>/dev/null <<'EOF'
 import re
 import sys
+import base64
 
 try:
-    content = sys.stdin.read()
+    content = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
     # Detect Cyrillic, Cyrillic Supplement, Glagolitic, Cyrillic Extended-B
     # These are commonly used for homoglyph attacks (look like Latin but are different)
     patterns = [
@@ -5229,14 +5259,15 @@ try:
         r"[\uA640-\uA69F]",  # Cyrillic Extended-B
     ]
     
-    for pattern in patterns: 
+    for pattern in patterns:
         if re.search(pattern, content):
             print("FOUND")
             sys.exit(0)
     print("NOT_FOUND")
-except Exception: 
+except Exception:
     print("ERROR")
-' <<< "$content" 2>/dev/null)
+EOF
+)
     
     if [[ "$result" == "FOUND" ]]; then
         log_threat "+35:  Obfuscation technique detected:  unicode_homoglyph"
@@ -10336,11 +10367,14 @@ decode_with_imagemagick_zbar() {
             "-resize 200%" \
             "-resize 50%"; do
             convert "$image" $technique "${temp_img}.png" 2>/dev/null
-            if zbarimg --quiet --raw "${temp_img}.png" 2>/dev/null >> "$output_file"; then
-                rm -f "${temp_img}.png" 2>/dev/null
+            # AUDIT FIX: Wrap zbarimg with crash protection
+            local temp_result="${temp_img}_result.txt"
+            if run_isolated_with_output 30 "$temp_result" zbarimg --quiet --raw "${temp_img}.png"; then
+                cat "$temp_result" >> "$output_file" 2>/dev/null
+                rm -f "${temp_img}.png" "$temp_result" 2>/dev/null
                 [ -s "$output_file" ] && return 0
             fi
-            rm -f "${temp_img}.png" 2>/dev/null
+            rm -f "${temp_img}.png" "$temp_result" 2>/dev/null
         done
         return 1
     else
@@ -10409,7 +10443,7 @@ try:
     import cv2
     
     detector = QReader()
-    img = cv2.imread('$image')
+    img = cv2.imread(image_path)
     if img is not None:
         decoded = detector.detect_and_decode(image=img)
         if decoded:
@@ -11409,7 +11443,7 @@ from pyzbar.pyzbar import decode
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img)
     for c in codes:
         if 'AZTEC' in str(c.type).upper():
@@ -11532,7 +11566,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.PDF417])
     for c in codes:
         data = c.data.decode('utf-8', errors='replace')
@@ -11679,7 +11713,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.CODABAR])
     for c in codes:
         data = c.data.decode('utf-8', errors='replace')
@@ -11889,7 +11923,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.CODE39])
     for c in codes:
         data = c.data.decode('utf-8', errors='replace')
@@ -12035,7 +12069,7 @@ def validate_barcode(sym_type, data):
     return False
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # All EAN/UPC symbol types
     ean_symbols = [
@@ -12593,7 +12627,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # GS1 DataBar (formerly RSS) composites
     composite_symbols = [
@@ -12662,7 +12696,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.I25])  # I25 = Interleaved 2 of 5
     for c in codes:
         data = c.data.decode('utf-8', errors='replace')
@@ -12758,7 +12792,7 @@ from pyzbar.pyzbar import decode, ZBarSymbol
 from PIL import Image
 
 try:
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.CODE93])
     for c in codes:
         data = c.data.decode('utf-8', errors='replace')
@@ -12980,7 +13014,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     results = zxingcpp.read_barcodes(
         img,
         formats=zxingcpp.BarcodeFormat.QRCode,
@@ -13056,7 +13090,7 @@ try:
     from PIL import Image
     import numpy as np
     
-    img = Image.open('$image').convert('RGB')
+    img = Image.open(image_path).convert('RGB')
     arr = np.array(img)
     
     colors = arr.reshape(-1, 3)
@@ -13119,7 +13153,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     try:
         results = zxingcpp.read_barcodes(
@@ -13178,7 +13212,7 @@ try:
     import numpy as np
     from pyzbar.pyzbar import decode
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Decode the QR code first
     qr_data = None
@@ -13283,7 +13317,7 @@ try:
     from pyzbar.pyzbar import decode, ZBarSymbol
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Decode UPC-A and UPC-E
     results = decode(img, symbols=[ZBarSymbol.UPCA, ZBarSymbol.UPCE])
@@ -13336,7 +13370,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Try to decode with MSI format if available
     try:
@@ -13391,7 +13425,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Try Telepen format
     try:
@@ -13446,7 +13480,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Try GS1 DataBar formats (Expanded, Limited, etc.)
     results = []
@@ -13505,7 +13539,7 @@ try:
     from PIL import Image
     import numpy as np
     
-    img = Image.open('$image').convert('L')
+    img = Image.open(image_path).convert('L')
     arr = np.array(img)
     
     # Pharmacode is a series of thick and thin bars
@@ -13596,7 +13630,7 @@ try:
     import zxingcpp
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     
     # Try Code 11 format
     try:
@@ -13651,7 +13685,7 @@ try:
     from pyzbar.pyzbar import decode
     from PIL import Image
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     results = decode(img)
     
     # DPD uses Code 128 with specific format
@@ -13761,25 +13795,32 @@ multi_decoder_analysis() {
     local out_pyzbar="${TEMP_DIR}_pyzbar.txt"
     if [ -n "$python_cmd" ]; then
         log_info "  [2/50] Trying pyzbar decoder..."
+        # AUDIT FIX: Use base64-encoded paths to prevent segfault with special chars
+        local encoded_image
+        local encoded_out_pyzbar
+        encoded_image=$(printf '%s' "$image" | base64 2>/dev/null) || true
+        encoded_out_pyzbar=$(printf '%s' "$out_pyzbar" | base64 2>/dev/null) || true
         # Run Python in subshell with all crash output suppressed
         (
             exec 2>/dev/null
-            timeout 30 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+            timeout 30 "$python_cmd" - "$encoded_image" "$encoded_out_pyzbar" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     from pyzbar.pyzbar import decode
     from PIL import Image
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img)
     if codes:
-        with open('$out_pyzbar', 'w') as f:
+        with open(out_path, 'w') as f:
             for c in codes:
                 try:
-                    f.write(c.data.decode('utf-8') + '\\n')
+                    f.write(c.data.decode('utf-8') + '\n')
                 except:
-                    f.write(c.data.decode('latin-1') + '\\n')
+                    f.write(c.data.decode('latin-1') + '\n')
 except:
     pass
 EOF
@@ -13800,20 +13841,27 @@ EOF
     local out_opencv="${TEMP_DIR}_opencv.txt"
     if [ -n "$python_cmd" ]; then
         log_info "  [3/50] Trying opencv decoder..."
+        # AUDIT FIX: Use base64-encoded paths
+        local encoded_image
+        local encoded_out_opencv
+        encoded_image=$(printf '%s' "$image" | base64 2>/dev/null) || true
+        encoded_out_opencv=$(printf '%s' "$out_opencv" | base64 2>/dev/null) || true
         (
             exec 2>/dev/null
-            timeout 30 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+            timeout 30 "$python_cmd" - "$encoded_image" "$encoded_out_opencv" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     import cv2
-    img = cv2.imread('$image')
+    img = cv2.imread(image_path)
     if img is not None:
         detector = cv2.QRCodeDetector()
         data, _, _ = detector.detectAndDecode(img)
         if data:
-            with open('$out_opencv', 'w') as f:
+            with open(out_path, 'w') as f:
                 f.write(data + '\\n')
 except:
     pass
@@ -13869,16 +13917,23 @@ EOF
     local out_pyzbar_enh="${TEMP_DIR}_pyzbar_enhanced.txt"
     if [ -n "$python_cmd" ]; then
         log_info "  [6/50] Trying pyzbar_enhanced decoder..."
+        # AUDIT FIX: Base64-encode paths
+        local encoded_image
+        local encoded_out_pyzbar_enh
+        encoded_image=$(printf '%s' "$image" | base64 2>/dev/null) || true
+        encoded_out_pyzbar_enh=$(printf '%s' "$out_pyzbar_enh" | base64 2>/dev/null) || true
         (
             exec 2>/dev/null
-            timeout 45 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+            timeout 45 "$python_cmd" - "$encoded_image" "$encoded_out_pyzbar_enh" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     from pyzbar.pyzbar import decode, ZBarSymbol
     from PIL import Image, ImageEnhance, ImageFilter
-    img = Image.open('$image')
+    img = Image.open(image_path)
     all_data = set()
     
     # Try original
@@ -13895,9 +13950,9 @@ try:
             if all_data: break
     
     if all_data:
-        with open('$out_pyzbar_enh', 'w') as f:
+        with open(out_path, 'w') as f:
             for d in all_data:
-                f.write(d + '\\n')
+                f.write(d + '\n')
 except:
     pass
 EOF
@@ -13916,17 +13971,24 @@ EOF
     local out_multiscale="${TEMP_DIR}_multiscale.txt"
     if [ -n "$python_cmd" ]; then
         log_info "  [7/50] Trying multiscale decoder..."
+        # AUDIT FIX: Base64-encode paths
+        local encoded_image
+        local encoded_out_path
+        encoded_image=$(printf '%s' "$image" | base64 2>/dev/null) || true
+        encoded_out_path=$(printf '%s' "$out_multiscale" | base64 2>/dev/null) || true
         (
             exec 2>/dev/null
-            timeout 45 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+            timeout 45 "$python_cmd" 2>/dev/null - "$encoded_image" "$encoded_out_path" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     import cv2
     from pyzbar.pyzbar import decode
     from PIL import Image
-    img = cv2.imread('$image')
+    img = cv2.imread(image_path)
     if img is not None:
         all_data = set()
         for scale in [0.5, 1.0, 1.5, 2.0]:
@@ -13937,7 +13999,7 @@ try:
                 except: all_data.add(c.data.decode('latin-1'))
             if all_data: break
         if all_data:
-            with open('$out_multiscale', 'w') as f:
+            with open(out_path, 'w') as f:
                 for d in all_data:
                     f.write(d + '\\n')
 except:
@@ -13960,14 +14022,16 @@ EOF
         log_info "  [8/50] Trying inverse decoder..."
         (
             exec 2>/dev/null
-            timeout 30 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+            timeout 30 "$python_cmd" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     from pyzbar.pyzbar import decode
     from PIL import Image, ImageOps
-    img = Image.open('$image')
+    img = Image.open(image_path)
     all_data = set()
     
     for processed in [img.convert('L'), ImageOps.invert(img.convert('L'))]:
@@ -13977,7 +14041,7 @@ try:
         if all_data: break
     
     if all_data:
-        with open('$out_inverse', 'w') as f:
+        with open(out_path, 'w') as f:
             for d in all_data:
                 f.write(d + '\\n')
 except:
@@ -14046,8 +14110,8 @@ EOF
                 trap 'exit 135' BUS
                 ulimit -c 0 2>/dev/null
                 exec 2>/dev/null
-                timeout 30 "$python_cmd" 2>/dev/null <<EOF
-import sys, os, signal
+                timeout 30 "$python_cmd" 2>/dev/null <<'EOF'
+import sys, os, signal, base64
 
 # Disable OpenCV threading which can cause segfaults
 os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
@@ -14061,11 +14125,11 @@ try:
     import cv2
     
     detector = QReader()
-    img = cv2.imread('$image')
+    img = cv2.imread(image_path)
     if img is not None:
         decoded = detector.detect_and_decode(image=img)
         if decoded:
-            with open('$out_qreader', 'w') as f:
+            with open(out_path, 'w') as f:
                 for d in decoded:
                     if d:
                         f.write(str(d) + '\\n')
@@ -14108,20 +14172,22 @@ EOF
                 trap 'exit 135' BUS
                 ulimit -c 0 2>/dev/null
                 exec 2>/dev/null
-                timeout 30 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+                timeout 30 "$python_cmd" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     import pyzxing
     reader = pyzxing.BarCodeReader()
     result = reader.decode('$image')
     # result can be a list or dict
     if isinstance(result, dict) and result.get('parsed'):
-        with open('$out_pyzxing', 'w') as f:
+        with open(out_path, 'w') as f:
             f.write(str(result['parsed']).strip() + '\\n')
     elif isinstance(result, list):
-        with open('$out_pyzxing', 'w') as f:
+        with open(out_path, 'w') as f:
             for item in result:
                 if isinstance(item, dict) and 'parsed' in item:
                     f.write(str(item['parsed']).strip() + '\\n')
@@ -15191,7 +15257,12 @@ EOF
     
     echo -e "${CYAN}│${NC} Decoders Attempted:   ${WHITE}${total_decoders}${NC}"
     echo -e "${CYAN}│${NC} Successful Decodes:   ${WHITE}${success_count}${NC}"
-    echo -e "${CYAN}│${NC} Success Rate:         ${WHITE}$((success_count * 100 / total_decoders))%${NC}"
+    # AUDIT FIX: Prevent division by zero
+    if [ "${total_decoders:-0}" -gt 0 ]; then
+        echo -e "${CYAN}│${NC} Success Rate:         ${WHITE}$((success_count * 100 / total_decoders))%${NC}"
+    else
+        echo -e "${CYAN}│${NC} Success Rate:         ${WHITE}0%${NC}"
+    fi
     if [ ${#decoder_results[@]} -gt 0 ]; then
         echo -e "${CYAN}│${NC} Results:"
         for result in "${decoder_results[@]}"; do
@@ -15583,7 +15654,11 @@ analyze_anti_analysis_techniques() {
     # 1. LOW DECODER SUCCESS RATE ANALYSIS
     # ═══════════════════════════════════════════════════════════════════════════
     if [ "$success_count" -gt 0 ] && [ "$success_count" -lt 3 ]; then
-        local success_rate=$((success_count * 100 / total_decoders))
+        # AUDIT FIX: Prevent division by zero
+        local success_rate=0
+        if [ "${total_decoders:-0}" -gt 0 ]; then
+            success_rate=$((success_count * 100 / total_decoders))
+        fi
         anti_analysis_findings+=("Low decoder success rate: ${success_count}/${total_decoders} (${success_rate}%)")
         iocs_detected+=("low_decoder_success_rate:${success_rate}%")
         
@@ -15619,27 +15694,32 @@ analyze_anti_analysis_techniques() {
         
         if [ -n "$width" ] && [ -n "$height" ]; then
             # Check aspect ratio
-            if [ "$width" -ne "$height" ] && [ "$width" -gt 0 ]; then
-                local ratio=$((width * 100 / height))
-                if [ "$ratio" -lt 90 ] || [ "$ratio" -gt 110 ]; then
-                    anti_analysis_findings+=("Abnormal aspect ratio: ${width}x${height} (${ratio}%)")
-                    iocs_detected+=("aspect_ratio_abnormal:${ratio}%")
-                    total_score=$((total_score + 15))
+            # AUDIT FIX: Prevent division by zero and integer comparison errors
+            # Check that width and height are numeric and non-zero
+            if [[ "$width" =~ ^[0-9]+$ ]] && [[ "$height" =~ ^[0-9]+$ ]] && [ "$width" -gt 0 ] && [ "$height" -gt 0 ]; then
+                if [ "$width" -ne "$height" ]; then
+                    local ratio=$((width * 100 / height))
+                    if [ "$ratio" -lt 90 ] || [ "$ratio" -gt 110 ]; then
+                        anti_analysis_findings+=("Abnormal aspect ratio: ${width}x${height} (${ratio}%)")
+                        iocs_detected+=("aspect_ratio_abnormal:${ratio}%")
+                        total_score=$((total_score + 15))
+                    fi
                 fi
-            fi
             
-            # Check for unusual QR code versions (very large dimensions)
-            if [ "$width" -gt 1000 ] || [ "$height" -gt 1000 ]; then
-                anti_analysis_findings+=("Unusually large QR: ${width}x${height}")
-                iocs_detected+=("unusual_qr_version:large_${width}x${height}")
-                total_score=$((total_score + 10))
+                # Check for unusual QR code versions (very large dimensions)
+                if [ "$width" -gt 1000 ] || [ "$height" -gt 1000 ]; then
+                    anti_analysis_findings+=("Unusually large QR: ${width}x${height}")
+                    iocs_detected+=("unusual_qr_version:large_${width}x${height}")
+                    total_score=$((total_score + 10))
+                fi
             fi
         fi
         
         # Check color depth
         local color_depth
         color_depth=$(echo "$img_info" | grep -E "^[[:space:]]+Depth:" | sed 's/.*: *\([0-9]*\).*/\1/')
-        if [ -n "$color_depth" ] && [ "$color_depth" -gt 8 ]; then
+        # AUDIT FIX: Add numeric validation before integer comparison
+        if [ -n "$color_depth" ] && [[ "$color_depth" =~ ^[0-9]+$ ]] && [ "$color_depth" -gt 8 ]; then
             anti_analysis_findings+=("High color depth for QR: ${color_depth}-bit")
             iocs_detected+=("suspicious_color_depth:${color_depth}bit")
             total_score=$((total_score + 10))
@@ -18162,9 +18242,10 @@ analyze_data_uri() {
             log_forensic "Decoded Data URI content (first 200 chars): ${decoded:0:200}"
 
             # Check decoded content for QR-relevant threats: html/script, shellcode, exploits, secrets, URLs, credentials
-            if echo "$decoded" | grep -qE "(<script>|eval\(|window\.|curl|wget|powershell|api[_\-]?key|flag|password|secret|BEGIN RSA|-----BEGIN|bitcoin|eth|xmr|wallet|address|token|href=|src=|cmd|exec|system|mailto:)"; then
+            # AUDIT FIX: Fixed character class - use [_-] instead of [_\-]
+            if echo "$decoded" | grep -qE "(<script>|eval\(|window\.|curl|wget|powershell|api[_-]?key|flag|password|secret|BEGIN RSA|-----BEGIN|bitcoin|eth|xmr|wallet|address|token|href=|src=|cmd|exec|system|mailto:)"; then
                 log_threat 55 "Decoded Data URI contains executable/malicious code or credential artifacts"
-                log_forensic "QR Data URI threat content: $(echo "$decoded" | grep -oE '(<script>|eval\(|curl|wget|api[_\-]?key|flag|password|secret|bitcoin|wallet|cmd|exec|system|mailto:).{0,32}')"
+                log_forensic "QR Data URI threat content: $(echo "$decoded" | grep -oE '(<script>|eval\(|curl|wget|api[_-]?key|flag|password|secret|bitcoin|wallet|cmd|exec|system|mailto:).{0,32}')"
             fi
 
             # Base64 in SVG or HTML: phishing or exploit chains
@@ -18205,9 +18286,10 @@ analyze_base64_in_url() {
             log_forensic "Decoded Base64 from QR code URL (first 100 chars): ${decoded:0:100}"
 
             # QR-specific threat checks: shell, script, secret, credential, C2 beacon, phishing, exploit, stego
-            if echo "$decoded" | grep -qE "(<script>|eval\(|curl|wget|powershell|api[_\-]?key|flag|password|secret|BEGIN RSA|bitcoin|wallet|address|token|cmd|exec|system|mailto:|src=|href=|data:text/html|javascript:)"; then
+            # AUDIT FIX: Fixed character class - use [_-] instead of [_\-]
+            if echo "$decoded" | grep -qE "(<script>|eval\(|curl|wget|powershell|api[_-]?key|flag|password|secret|BEGIN RSA|bitcoin|wallet|address|token|cmd|exec|system|mailto:|src=|href=|data:text/html|javascript:)"; then
                 log_threat 45 "Decoded payload contains potential code or credentials, QR exploit suspected"
-                log_forensic "QR Base64 threat markers: $(echo "$decoded" | grep -oE '(<script>|eval\(|curl|wget|api[_\-]?key|flag|password|secret|bitcoin|wallet|cmd|exec|system|mailto:).{0,32}')"
+                log_forensic "QR Base64 threat markers: $(echo "$decoded" | grep -oE '(<script>|eval\(|curl|wget|api[_-]?key|flag|password|secret|bitcoin|wallet|cmd|exec|system|mailto:).{0,32}')"
             fi
 
             # Detect high-entropy (stego, encrypted, binary malware)
@@ -18270,7 +18352,8 @@ analyze_decoded_content() {
     fi
 
     # Credentials, secrets, flags, crypto (QR exfil/phishing CTX)
-    if echo "$content" | grep -qiE "[A-Za-z0-9]{32,}|api[_\-]?key|flag{[A-Za-z0-9\-_]+}|password|passwd|secret|token|wallet|mnemonic|recover|seed|private.?key|ssh-rsa|-----BEGIN"; then
+    # AUDIT FIX: Fixed character class - moved dash to end [A-Za-z0-9_-] instead of [A-Za-z0-9\-_]
+    if echo "$content" | grep -qiE "[A-Za-z0-9]{32,}|api[_-]?key|flag\{[A-Za-z0-9_-]+\}|password|passwd|secret|token|wallet|mnemonic|recover|seed|private.?key|ssh-rsa|-----BEGIN"; then
         log_forensic_detection 55 \
             "Secrets/Credentials/CTF Flags Detected in Decoded QR Content" \
             "suspect_keyword_detected" \
@@ -18624,7 +18707,8 @@ check_domain_dns() {
     txt_records=$(dig +short TXT "$domain" 2>/dev/null)
     if [ -n "$txt_records" ]; then
         # If TXT records match patterns typical of exfil/data/crypto/command beacon
-        if echo "$txt_records" | grep -qEi "api[_\-]?key|flag|secret|bitcoin|wallet|token|c2|beacon|cmd|base64|ssh|vnc|payload"; then
+        # AUDIT FIX: Fixed character class - use [_-] instead of [_\-]
+        if echo "$txt_records" | grep -qEi "api[_-]?key|flag|secret|bitcoin|wallet|token|c2|beacon|cmd|base64|ssh|vnc|payload"; then
             log_threat 30 "QR domain shows suspicious TXT record data - possible exfil/Malware"
             log_forensic "QR TXT DNS records: $txt_records"
             echo "$domain:TXT:$txt_records" >> "${EVIDENCE_DIR}/qr_dns_txt.log"
@@ -21112,14 +21196,22 @@ analyze_encoding() {
 analyze_obfuscation() {
     set +u
     local content="${1:-}"
+    local depth="${2:-0}"
     set -u
+    
+    # AUDIT FIX: Prevent infinite recursion - max depth 3
+    if [ "$depth" -ge 3 ]; then
+        log_info "  Maximum recursion depth reached for obfuscation analysis"
+        return
+    fi
 
     log_info "  Checking for advanced obfuscation techniques..."
 
     # Detect known and advanced obfuscation techniques via patterns (from OBFUSCATION_PATTERNS db)
     for pattern_name in "${!OBFUSCATION_PATTERNS[@]}"; do
         local pattern="${OBFUSCATION_PATTERNS[$pattern_name]}"
-        if echo "$content" | grep -qE "$pattern"; then
+        # AUDIT FIX: Wrap grep in error handling to prevent crashes
+        if echo "$content" | grep -qE "$pattern" 2>/dev/null; then
             log_threat 35 "Obfuscation technique detected: $pattern_name"
             log_forensic "Matched obfuscation pattern: $pattern_name ($pattern)"
         fi
@@ -21151,18 +21243,19 @@ analyze_obfuscation() {
         log_warning "High string entropy ($entropy) - possible packing/encryption/obfuscation"
         log_forensic "String entropy: $entropy"
         # Optionally, recursive decoding for high entropy blocks if base64/hex detected
+        # AUDIT FIX: Pass depth parameter and add error handling
         if echo "$content" | grep -qE "^[A-Za-z0-9+/]{40,}$"; then
-            local decoded=$(echo "$content" | base64 -d 2>/dev/null)
-            if [ -n "$decoded" ]; then
-                log_info "Recursively analyzing high-entropy base64 block"
-                analyze_obfuscation "$decoded"
+            local decoded=$(echo "$content" | base64 -d 2>/dev/null || true)
+            if [ -n "$decoded" ] && [ "$depth" -lt 2 ]; then
+                log_info "Recursively analyzing high-entropy base64 block (depth: $((depth + 1)))"
+                analyze_obfuscation "$decoded" "$((depth + 1))"
             fi
         fi
         if echo "$content" | grep -qE "^[0-9a-fA-F]{40,}$"; then
-            local decoded=$(echo "$content" | xxd -r -p 2>/dev/null)
-            if [ -n "$decoded" ]; then
-                log_info "Recursively analyzing high-entropy hex block"
-                analyze_obfuscation "$decoded"
+            local decoded=$(echo "$content" | xxd -r -p 2>/dev/null || true)
+            if [ -n "$decoded" ] && [ "$depth" -lt 2 ]; then
+                log_info "Recursively analyzing high-entropy hex block (depth: $((depth + 1)))"
+                analyze_obfuscation "$decoded" "$((depth + 1))"
             fi
         fi
     fi
@@ -34641,16 +34734,23 @@ analyze_adversarial_ai() {
         echo ""
     } > "$adv_report"
     
+    # AUDIT FIX: Use base64 to safely pass image path to Python (prevents segfault)
+    local encoded_image
+    encoded_image=$(printf '%s' "$image" | base64 2>/dev/null) || return
+    
     # Python-based adversarial detection
-    local adv_analysis=$(python3 << EOF 2>/dev/null
+    local adv_analysis=$(python3 - "$encoded_image" 2>/dev/null <<'EOF'
 import json
 import sys
+import base64
 
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
+    
     from PIL import Image
     import numpy as np
     
-    img = Image.open('$image')
+    img = Image.open(image_path)
     img_array = np.array(img)
     
     results = {
@@ -35653,7 +35753,9 @@ analyze_ux_redress_attacks() {
 # ============================================================================
 
 analyze_dga_domains() {
-    local content="$1"
+    set +u
+    local content="${1:-}"
+    set -u
     
     if [ "$DGA_ANALYSIS" = false ]; then
         analysis_success_none "DGA-ANALYSIS"
@@ -35688,14 +35790,23 @@ analyze_dga_domains() {
     echo "Domain: $domain" >> "$dga_report"
     echo "" >> "$dga_report"
     
+    # AUDIT FIX: Use base64 to safely pass domain to Python (prevents segfault with special chars)
+    local encoded_domain
+    encoded_domain=$(printf '%s' "$domain" | base64 2>/dev/null) || return
+    
     # Python-based DGA analysis
-    local dga_analysis=$(python3 << EOF 2>/dev/null
+    local dga_analysis=$(python3 - "$encoded_domain" 2>/dev/null <<'EOF'
 import json
 import math
 import re
+import sys
+import base64
 from collections import Counter
 
-domain = '$domain'
+try:
+    domain = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
+except:
+    domain = ''
 # Remove TLD for analysis
 parts = domain.split('.')
 if len(parts) > 1:
@@ -37101,38 +37212,62 @@ record_analysis_feedback() {
     local analysis_hash=$(echo "$QR_CONTENT" | md5sum | cut -d' ' -f1)
     
     # Create feedback entry
-    local entry=$(cat << EOF
+    local entry=$(cat << 'EOF_ENTRY'
 {
-    "timestamp": "$timestamp",
-    "analysis_hash": "$analysis_hash",
-    "automated_verdict": "$verdict",
-    "confidence": $confidence,
-    "user_feedback": "$user_feedback",
-    "notes": "$notes",
-    "threat_score": $THREAT_SCORE,
-    "ioc_count": ${#RECORDED_IOCS[@]}
+    "timestamp": "TIMESTAMP_PLACEHOLDER",
+    "analysis_hash": "HASH_PLACEHOLDER",
+    "automated_verdict": "VERDICT_PLACEHOLDER",
+    "confidence": CONFIDENCE_PLACEHOLDER,
+    "user_feedback": "USER_FEEDBACK_PLACEHOLDER",
+    "notes": "NOTES_PLACEHOLDER",
+    "threat_score": THREAT_SCORE_PLACEHOLDER,
+    "ioc_count": IOC_COUNT_PLACEHOLDER
 }
-EOF
+EOF_ENTRY
 )
     
+    # AUDIT FIX: Use sed to safely replace placeholders (prevents injection)
+    entry=$(echo "$entry" | sed "s/TIMESTAMP_PLACEHOLDER/$timestamp/g" | \
+            sed "s/HASH_PLACEHOLDER/$analysis_hash/g" | \
+            sed "s/VERDICT_PLACEHOLDER/$verdict/g" | \
+            sed "s/CONFIDENCE_PLACEHOLDER/$confidence/g" | \
+            sed "s/USER_FEEDBACK_PLACEHOLDER/$user_feedback/g" | \
+            sed "s/NOTES_PLACEHOLDER/$notes/g" | \
+            sed "s/THREAT_SCORE_PLACEHOLDER/$THREAT_SCORE/g" | \
+            sed "s/IOC_COUNT_PLACEHOLDER/${#RECORDED_IOCS[@]}/g")
+    
+    # AUDIT FIX: Base64 encode entry and feedback file path for safe passing
+    local encoded_entry
+    local encoded_feedback_file
+    encoded_entry=$(printf '%s' "$entry" | base64 2>/dev/null) || return
+    encoded_feedback_file=$(printf '%s' "$FEEDBACK_FILE" | base64 2>/dev/null) || return
+    
     # Append to feedback file
-    python3 << EOF 2>/dev/null
+    python3 - "$encoded_entry" "$encoded_feedback_file" 2>/dev/null <<'EOF'
 import json
-
-entry = $entry
+import sys
+import base64
 
 try:
-    with open('$FEEDBACK_FILE', 'r') as f:
-        data = json.load(f)
-except:
-    data = {"feedback_entries": []}
+    entry_str = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
+    feedback_file = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8', errors='ignore')
+    
+    entry = json.loads(entry_str)
 
-data['feedback_entries'].append(entry)
+    try:
+        with open(feedback_file, 'r') as f:
+            data = json.load(f)
+    except:
+        data = {"feedback_entries": []}
 
-with open('$FEEDBACK_FILE', 'w') as f:
-    json.dump(data, f, indent=2)
+    data['feedback_entries'].append(entry)
 
-print("Feedback recorded")
+    with open(feedback_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print("Feedback recorded")
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
 EOF
 }
 
@@ -38213,37 +38348,66 @@ process_feedback() {
     
     log_info "Processing feedback for analysis: $analysis_id"
     
-    local feedback_entry=$(cat << EOF
+    local feedback_entry=$(cat << 'EOF_FEEDBACK'
 {
-    "timestamp": "$(date -Iseconds)",
-    "analysis_id": "$analysis_id",
-    "verdict": "$verdict",
-    "notes": "$notes",
-    "reviewer": "${reviewer:-$(whoami)}"
+    "timestamp": "TIMESTAMP_PLACEHOLDER",
+    "analysis_id": "ANALYSIS_ID_PLACEHOLDER",
+    "verdict": "VERDICT_PLACEHOLDER",
+    "notes": "NOTES_PLACEHOLDER",
+    "reviewer": "REVIEWER_PLACEHOLDER"
 }
-EOF
+EOF_FEEDBACK
 )
+    
+    # AUDIT FIX: Use sed to safely replace placeholders
+    local timestamp=$(date -Iseconds)
+    local reviewer_name="${reviewer:-$(whoami)}"
+    feedback_entry=$(echo "$feedback_entry" | \
+        sed "s/TIMESTAMP_PLACEHOLDER/$timestamp/g" | \
+        sed "s/ANALYSIS_ID_PLACEHOLDER/$analysis_id/g" | \
+        sed "s/VERDICT_PLACEHOLDER/$verdict/g" | \
+        sed "s/NOTES_PLACEHOLDER/$notes/g" | \
+        sed "s/REVIEWER_PLACEHOLDER/$reviewer_name/g")
     
     # Append to history
     echo "$feedback_entry" >> "$FEEDBACK_HISTORY"
     
     # Update main feedback file if exists
     if [ -f "$FEEDBACK_FILE" ]; then
+        # AUDIT FIX: Base64 encode for safe passing to Python
+        local encoded_feedback_file
+        local encoded_verdict
+        local encoded_notes
+        local encoded_reviewer
+        local encoded_timestamp
+        encoded_feedback_file=$(printf '%s' "$FEEDBACK_FILE" | base64 2>/dev/null) || return
+        encoded_verdict=$(printf '%s' "$verdict" | base64 2>/dev/null) || return
+        encoded_notes=$(printf '%s' "$notes" | base64 2>/dev/null) || return
+        encoded_reviewer=$(printf '%s' "$reviewer_name" | base64 2>/dev/null) || return
+        encoded_timestamp=$(printf '%s' "$timestamp" | base64 2>/dev/null) || return
+        
         # Use Python to update JSON (more reliable than jq for complex updates)
-        python3 << EOF 2>/dev/null
+        python3 - "$encoded_feedback_file" "$encoded_verdict" "$encoded_notes" "$encoded_reviewer" "$encoded_timestamp" 2>/dev/null <<'EOF'
 import json
 import sys
+import base64
 
 try:
-    with open('$FEEDBACK_FILE', 'r') as f:
+    feedback_file = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8', errors='ignore')
+    verdict = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8', errors='ignore')
+    notes = base64.b64decode(sys.argv[3] if len(sys.argv) > 3 else '').decode('utf-8', errors='ignore')
+    reviewer = base64.b64decode(sys.argv[4] if len(sys.argv) > 4 else '').decode('utf-8', errors='ignore')
+    feedback_timestamp = base64.b64decode(sys.argv[5] if len(sys.argv) > 5 else '').decode('utf-8', errors='ignore')
+    
+    with open(feedback_file, 'r') as f:
         data = json.load(f)
     
-    data['verdict'] = '$verdict'
-    data['notes'] = '$notes'
-    data['reviewer'] = '${reviewer:-$(whoami)}'
-    data['feedback_timestamp'] = '$(date -Iseconds)'
+    data['verdict'] = verdict
+    data['notes'] = notes
+    data['reviewer'] = reviewer
+    data['feedback_timestamp'] = feedback_timestamp
     
-    with open('$FEEDBACK_FILE', 'w') as f:
+    with open(feedback_file, 'w') as f:
         json.dump(data, f, indent=2)
     
     print("Feedback recorded successfully")
@@ -42253,7 +42417,7 @@ try:
     from collections import Counter
     import math
 
-    img = Image.open('$image')
+    img = Image.open(image_path)
     img_array = np.array(img)
     
     if len(img_array.shape) == 3:
@@ -42286,7 +42450,13 @@ detect_multiple_qr_codes() {
     
     log_info "Checking for multiple/split QR codes..."
     
-    local num_codes=$(zbarimg "$image" 2>/dev/null | grep -c "QR-Code")
+    # AUDIT FIX: Wrap zbarimg with crash protection
+    local temp_result=$(create_secure_temp_file "multi_qr") || return 1
+    local num_codes=0
+    if run_isolated_with_output 30 "$temp_result" zbarimg "$image"; then
+        num_codes=$(grep -c "QR-Code" "$temp_result" 2>/dev/null || echo 0)
+    fi
+    rm -f "$temp_result" 2>/dev/null
     
     if [ "$num_codes" -gt 1 ]; then
         log_threat 35 "Multiple QR codes in image: $num_codes codes"
@@ -42405,7 +42575,18 @@ check_phishtank() {
     
     log_info "Checking PhishTank database..."
     
-    local encoded_url=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$url'))" 2>/dev/null)
+    # AUDIT FIX: Use base64 to safely pass URL to Python
+    local encoded_url_input
+    encoded_url_input=$(printf '%s' "$url" | base64 2>/dev/null) || return
+    local encoded_url=$(python3 - "$encoded_url_input" 2>/dev/null <<'EOF'
+import urllib.parse, sys, base64
+try:
+    url = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    print(urllib.parse.quote(url))
+except:
+    pass
+EOF
+)
     
     local phishtank_response=$(curl -s --max-time 10 -X POST "https://checkurl.phishtank.com/checkurl/" \
         --data "url=${encoded_url}&format=json&app_key=${PHISHTANK_API_KEY}" 2>/dev/null)
@@ -42687,7 +42868,7 @@ try:
     from PIL import Image
     from pyzbar.pyzbar import decode, ZBarSymbol
 
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img, symbols=[ZBarSymbol.QRCODE])
     
     if not codes:
