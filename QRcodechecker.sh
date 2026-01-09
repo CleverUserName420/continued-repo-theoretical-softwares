@@ -2301,7 +2301,31 @@ parallel_decoder_analysis() {
                     run_isolated_with_output 30 "$result_file" zbarimg -q "$image_file" || true
                     ;;
                 "pyzbar")
-                    run_isolated 30 python3 -c "from pyzbar.pyzbar import decode; from PIL import Image; print('\n'.join([d.data.decode() for d in decode(Image.open('$image_file'))]))" > "$result_file" 2>/dev/null || true
+                    # AUDIT FIX: Use safe Python script with base64-encoded path
+                    local encoded_image_file
+                    encoded_image_file=$(printf '%s' "$image_file" | base64 2>/dev/null) || true
+                    local encoded_result_file
+                    encoded_result_file=$(printf '%s' "$result_file" | base64 2>/dev/null) || true
+                    run_isolated 30 python3 - "$encoded_image_file" "$encoded_result_file" 2>/dev/null <<'PYZBAR_DECODE' > "$result_file" || true
+import sys
+import base64
+try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    output_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
+    from pyzbar.pyzbar import decode
+    from PIL import Image
+    results = []
+    with Image.open(image_path) as img:
+        codes = decode(img)
+        for c in codes:
+            try:
+                results.append(c.data.decode('utf-8'))
+            except:
+                results.append(c.data.decode('latin-1', errors='replace'))
+    print('\n'.join(results))
+except:
+    pass
+PYZBAR_DECODE
                     ;;
                 *)
                     echo "" > "$result_file"
@@ -13771,25 +13795,32 @@ multi_decoder_analysis() {
     local out_pyzbar="${TEMP_DIR}_pyzbar.txt"
     if [ -n "$python_cmd" ]; then
         log_info "  [2/50] Trying pyzbar decoder..."
+        # AUDIT FIX: Use base64-encoded paths to prevent segfault with special chars
+        local encoded_image
+        local encoded_out_pyzbar
+        encoded_image=$(printf '%s' "$image" | base64 2>/dev/null) || true
+        encoded_out_pyzbar=$(printf '%s' "$out_pyzbar" | base64 2>/dev/null) || true
         # Run Python in subshell with all crash output suppressed
         (
             exec 2>/dev/null
-            timeout 30 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+            timeout 30 "$python_cmd" - "$encoded_image" "$encoded_out_pyzbar" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     from pyzbar.pyzbar import decode
     from PIL import Image
-    img = Image.open('$image')
+    img = Image.open(image_path)
     codes = decode(img)
     if codes:
-        with open('$out_pyzbar', 'w') as f:
+        with open(out_path, 'w') as f:
             for c in codes:
                 try:
-                    f.write(c.data.decode('utf-8') + '\\n')
+                    f.write(c.data.decode('utf-8') + '\n')
                 except:
-                    f.write(c.data.decode('latin-1') + '\\n')
+                    f.write(c.data.decode('latin-1') + '\n')
 except:
     pass
 EOF
@@ -13810,20 +13841,27 @@ EOF
     local out_opencv="${TEMP_DIR}_opencv.txt"
     if [ -n "$python_cmd" ]; then
         log_info "  [3/50] Trying opencv decoder..."
+        # AUDIT FIX: Use base64-encoded paths
+        local encoded_image
+        local encoded_out_opencv
+        encoded_image=$(printf '%s' "$image" | base64 2>/dev/null) || true
+        encoded_out_opencv=$(printf '%s' "$out_opencv" | base64 2>/dev/null) || true
         (
             exec 2>/dev/null
-            timeout 30 "$python_cmd" 2>/dev/null <<EOF
-import sys, signal
+            timeout 30 "$python_cmd" - "$encoded_image" "$encoded_out_opencv" 2>/dev/null <<'EOF'
+import sys, signal, base64
 signal.signal(signal.SIGSEGV, lambda s,f: sys.exit(139))
 signal.signal(signal.SIGABRT, lambda s,f: sys.exit(134))
 try:
+    image_path = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    out_path = base64.b64decode(sys.argv[2] if len(sys.argv) > 2 else '').decode('utf-8')
     import cv2
-    img = cv2.imread('$image')
+    img = cv2.imread(image_path)
     if img is not None:
         detector = cv2.QRCodeDetector()
         data, _, _ = detector.detectAndDecode(img)
         if data:
-            with open('$out_opencv', 'w') as f:
+            with open(out_path, 'w') as f:
                 f.write(data + '\\n')
 except:
     pass
@@ -42519,7 +42557,18 @@ check_phishtank() {
     
     log_info "Checking PhishTank database..."
     
-    local encoded_url=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$url'))" 2>/dev/null)
+    # AUDIT FIX: Use base64 to safely pass URL to Python
+    local encoded_url_input
+    encoded_url_input=$(printf '%s' "$url" | base64 2>/dev/null) || return
+    local encoded_url=$(python3 - "$encoded_url_input" 2>/dev/null <<'EOF'
+import urllib.parse, sys, base64
+try:
+    url = base64.b64decode(sys.argv[1] if len(sys.argv) > 1 else '').decode('utf-8')
+    print(urllib.parse.quote(url))
+except:
+    pass
+EOF
+)
     
     local phishtank_response=$(curl -s --max-time 10 -X POST "https://checkurl.phishtank.com/checkurl/" \
         --data "url=${encoded_url}&format=json&app_key=${PHISHTANK_API_KEY}" 2>/dev/null)
