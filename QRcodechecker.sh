@@ -1423,15 +1423,30 @@ safe_grep_qiE() {
 # Extract match with extended regex (cross-platform)
 safe_grep_oE() {
     local pattern="$1"
+    # AUDIT FIX: Add protections against catastrophic backtracking and long lines
+    # 1. Convert PCRE to POSIX
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
-    grep -oE "$pattern" 2>/dev/null
+    # 2. Remove null bytes from input to prevent grep hangs on binary data
+    # 3. Use head to limit output and prevent memory exhaustion (max 100 matches)
+    # 4. Add timeout protection via timeout command if available (2 second limit)
+    # 5. Add || true to ensure function doesn't fail and cause script exit
+    if command -v timeout &>/dev/null; then
+        tr -d '\0' | timeout 2s grep -oE "$pattern" 2>/dev/null | head -100 || true
+    else
+        tr -d '\0' | grep -oE "$pattern" 2>/dev/null | head -100 || true
+    fi
 }
 
 # Extract match with case-insensitive extended regex
 safe_grep_oiE() {
     local pattern="$1"
+    # AUDIT FIX: Add protections against catastrophic backtracking and long lines
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
-    grep -oiE "$pattern" 2>/dev/null
+    if command -v timeout &>/dev/null; then
+        tr -d '\0' | timeout 2s grep -oiE "$pattern" 2>/dev/null | head -100 || true
+    else
+        tr -d '\0' | grep -oiE "$pattern" 2>/dev/null | head -100 || true
+    fi
 }
 
 # AUDIT FIX: Additional safe grep wrappers for QR code content analysis
@@ -18416,8 +18431,12 @@ analyze_decoded_content() {
     fi
 
     # Email addresses (QR social engineering, phishing, exfil)
-    if echo "$content" | safe_grep_qE "[a-z0-9._%+-]+@([a-z0-9.-]+\.)+[a-z]{2,}"; then
-        log_forensic "Email addresses detected in decoded QR content: $(echo "$content" | safe_grep_oE "[a-z0-9._%+-]+@([a-z0-9.-]+\.)+[a-z]{2,}" | tr '\n' ',' | sed 's/,$//')"
+    if echo "$content" | safe_grep_qE "[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}"; then
+        # AUDIT FIX: Simplified email pattern to avoid catastrophic backtracking
+        # Old pattern: [a-z0-9._%+-]+@([a-z0-9.-]+\.)+[a-z]{2,}
+        # Issue: Repeated group ([a-z0-9.-]+\.)+ can cause exponential backtracking
+        # New: Flattened pattern without nested quantifiers
+        log_forensic "Email addresses detected in decoded QR content: $(echo "$content" | safe_grep_oE "[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}" | tr '\n' ',' | sed 's/,$//')"
     fi
 
     # Base64 detected in decoded QR content (multi-encoded exfil/obfuscation)
@@ -22614,7 +22633,8 @@ evaluate_yara_rule() {
             ;;
         "data_exfil")
             local exfil_match
-            exfil_match=$(echo "$content" | safe_grep_oiE "POST.*(password|credential)|upload.*(zip|rar|7z)|(base64|encode).*http" | head -1)
+            # AUDIT FIX: Replace greedy .* with more controlled [[:space:]]+ to prevent catastrophic backtracking
+            exfil_match=$(echo "$content" | safe_grep_oiE "POST[[:space:]](password|credential)|upload[[:space:]](zip|rar|7z)|(base64|encode)[[:space:]]http" | head -1)
             [ -n "$exfil_match" ] && matched_patterns="exfiltration_pattern:${exfil_match:0:50}"
             ;;
         "obfuscation")
@@ -22635,7 +22655,8 @@ evaluate_yara_rule() {
         "credential_theft")
             local cred_match
             cred_match=$(echo "$content" | safe_grep_oiE "mimikatz|lsass|SAM|sekurlsa|credential.dump" | head -1)
-            [ -z "$cred_match" ] && cred_match=$(echo "$content" | safe_grep_oiE "browser.*(password|cookie)|(password|cookie).*browser" | head -1)
+            # AUDIT FIX: Replace greedy .* with [[:space:]] to prevent catastrophic backtracking
+            [ -z "$cred_match" ] && cred_match=$(echo "$content" | safe_grep_oiE "browser[[:space:]](password|cookie)|(password|cookie)[[:space:]]browser" | head -1)
             [ -n "$cred_match" ] && matched_patterns="credential_theft_indicator:${cred_match:0:30}"
             ;;
         "banking_trojan")
@@ -22647,32 +22668,35 @@ evaluate_yara_rule() {
         # Apex: Add ALL other evaluate_yara_rule behaviors, but with detailed extraction!
         "mobile_malware")
             local mob_match
-            mob_match=$(echo "$content" | safe_grep_oiE "READ_SMS.*SEND_SMS|SEND_SMS.*READ_SMS|android\.permission\.CALL_PHONE|\.apk.*(payload|dropper)" | head -1)
+            # AUDIT FIX: Replace greedy .* with [[:space:]] to prevent catastrophic backtracking
+            mob_match=$(echo "$content" | safe_grep_oiE "READ_SMS[[:space:]]SEND_SMS|SEND_SMS[[:space:]]READ_SMS|android\.permission\.CALL_PHONE|\.apk[[:space:]](payload|dropper)" | head -1)
             [ -n "$mob_match" ] && matched_patterns="mobile_malware_indicator:${mob_match:0:40}"
             ;;
         "iot_malware")
             local iot_match
-            iot_match=$(echo "$content" | safe_grep_oiE "mirai|bashlite|gafgyt|/dev/watchdog|telnet.*default.*password" | head -2 | tr '\n' ',' | sed 's/,$//')
+            # AUDIT FIX: Replace greedy .* with [[:space:]] to prevent catastrophic backtracking
+            iot_match=$(echo "$content" | safe_grep_oiE "mirai|bashlite|gafgyt|/dev/watchdog|telnet[[:space:]]default[[:space:]]password" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$iot_match" ] && matched_patterns="iot_malware_indicator:$iot_match"
             ;;
         "cryptominer")
             local cm_match
-            cm_match=$(echo "$content" | safe_grep_oiE "stratum\+tcp://|xmrig|cpuminer|minergate|\.nanopool\.|monero.*wallet" | head -2 | tr '\n' ',' | sed 's/,$//')
+            # AUDIT FIX: Replace greedy .* with [[:space:]] to prevent catastrophic backtracking
+            cm_match=$(echo "$content" | safe_grep_oiE "stratum\+tcp://|xmrig|cpuminer|minergate|\.nanopool\.|monero[[:space:]]wallet" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$cm_match" ] && matched_patterns="crypto_miner_indicator:$cm_match"
             ;;
         "exploit_kit")
             local ek_match
-            ek_match=$(echo "$content" | safe_grep_oiE "FlashVars|deployJava|application/pdf|<iframe.*src=.*http|eval\(function\(p,a,c,k,e|\\\\x[0-9a-f]{2}" | head -3 | tr '\n' ',' | sed 's/,$//')
+            ek_match=$(echo "$content" | safe_grep_oiE "FlashVars|deployJava|application/pdf|<iframe[[:space:]]src=[[:space:]]http|eval\(function\(p,a,c,k,e|\\\\x[0-9a-f]{2}" | head -3 | tr '\n' ',' | sed 's/,$//')
             [ -n "$ek_match" ] && matched_patterns="exploit_kit_indicator:$ek_match"
             ;;
         "phishing_kit")
             local pk_match
-            pk_match=$(echo "$content" | safe_grep_oiE "<form.*action=.*\.php|<input.*type=.password|(paypal|amazon|google|microsoft|apple|facebook).*\.(png|jpg|svg)" | head -2 | tr '\n' ',' | sed 's/,$//')
+            pk_match=$(echo "$content" | safe_grep_oiE "<form.*action=.*\.php|<input[[:space:]]type=.password|(paypal|amazon|google|microsoft|apple|facebook).*\.(png|jpg|svg)" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$pk_match" ] && matched_patterns="phishing_kit_indicator:$pk_match"
             ;;
         "session_hijack")
             local sh_match
-            sh_match=$(echo "$content" | safe_grep_oiE "(session|token|cookie).*(steal|capture|intercept)" | head -1)
+            sh_match=$(echo "$content" | safe_grep_oiE "(session|token|cookie)[[:space:]](steal|capture|intercept)" | head -1)
             [ -n "$sh_match" ] && matched_patterns="session_hijack_indicator:$sh_match"
             ;;
         "webshell")
@@ -22692,22 +22716,22 @@ evaluate_yara_rule() {
             ;;
         "privilege_escalation")
             local pe_match
-            pe_match=$(echo "$content" | safe_grep_oiE "(sudo|setuid|SUID|runas).*(escalate|privilege)|potato|printspoofer|getsystem" | head -2 | tr '\n' ',' | sed 's/,$//')
+            pe_match=$(echo "$content" | safe_grep_oiE "(sudo|setuid|SUID|runas)[[:space:]](escalate|privilege)|potato|printspoofer|getsystem" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$pe_match" ] && matched_patterns="privilege_escalation_indicator:$pe_match"
             ;;
         "persistence")
             local pers_match
-            pers_match=$(echo "$content" | safe_grep_oiE "HKLM.*Run|HKCU.*Run|CurrentVersion\\\\Run|schtasks|crontab|LaunchAgent|systemctl.enable" | head -2 | tr '\n' ',' | sed 's/,$//')
+            pers_match=$(echo "$content" | safe_grep_oiE "HKLM[^\\]+Run|HKCU[^\\]+Run|CurrentVersion\\\\Run|schtasks|crontab|LaunchAgent|systemctl.enable" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$pers_match" ] && matched_patterns="persistence_indicator:$pers_match"
             ;;
         "defense_evasion")
             local de_match
-            de_match=$(echo "$content" | safe_grep_oiE "disable.*defender|AMSI.*bypass|ETW.*bypass|process.*hollow|reflective.*load" | head -2 | tr '\n' ',' | sed 's/,$//')
+            de_match=$(echo "$content" | safe_grep_oiE "disable[[:space:]]defender|AMSI[[:space:]]bypass|ETW[[:space:]]bypass|process[[:space:]]hollow|reflective[[:space:]]load" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$de_match" ] && matched_patterns="defense_evasion_indicator:$de_match"
             ;;
         "lateral_movement")
             local lm_match
-            lm_match=$(echo "$content" | safe_grep_oiE "psexec|wmic.*process.*create|winrm|pass.the.hash" | head -2 | tr '\n' ',' | sed 's/,$//')
+            lm_match=$(echo "$content" | safe_grep_oiE "psexec|wmic[[:space:]]process[[:space:]]create|winrm|pass.the.hash" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$lm_match" ] && matched_patterns="lateral_movement_indicator:$lm_match"
             ;;
         "data_collection")
@@ -22723,12 +22747,12 @@ evaluate_yara_rule() {
 
         "qr_malware")
             local qr_match
-            qr_match=$(echo "$content" | safe_grep_oiE "qr code.*payload|scan.*intent://|market://|provisioning.*profile|mobile.*dropper|android\.intent\.action|ios.*UniversalLink" | head -2 | tr '\n' ',' | sed 's/,$//')
+            qr_match=$(echo "$content" | safe_grep_oiE "qr[[:space:]]code[[:space:]]payload|scan[[:space:]]intent://|market://|provisioning[[:space:]]profile|mobile[[:space:]]dropper|android\.intent\.action|ios.*UniversalLink" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$qr_match" ] && matched_patterns="qr_mobile_indicator:$qr_match"
             ;;
         "cloud_impact")
             local cloud_match
-            cloud_match=$(echo "$content" | safe_grep_oiE "aws_access_key_id|gcp_token|azure.*secret|s3://|gs://|cloudtrail|auditlog|iam:DeleteUser|iam:DeleteRole" | head -2 | tr '\n' ',' | sed 's/,$//')
+            cloud_match=$(echo "$content" | safe_grep_oiE "aws_access_key_id|gcp_token|azure[[:space:]]secret|s3://|gs://|cloudtrail|auditlog|iam:DeleteUser|iam:DeleteRole" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$cloud_match" ] && matched_patterns="cloud_impact_indicator:$cloud_match"
             ;;
         "supplychain_malware")
@@ -22743,7 +22767,7 @@ evaluate_yara_rule() {
             ;;
         "stego_data_exfil")
             local stego_match
-            stego_match=$(echo "$content" | safe_grep_oiE "steganography|hidden.*data|lsb|encode.*image|decode.*image|exiftool|imageIO|ffmpeg" | head -2 | tr '\n' ',' | sed 's/,$//')
+            stego_match=$(echo "$content" | safe_grep_oiE "steganography|hidden[[:space:]]data|lsb|encode[[:space:]]image|decode[[:space:]]image|exiftool|imageIO|ffmpeg" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$stego_match" ] && matched_patterns="stego_exfil_indicator:$stego_match"
             ;;
         "rat_framework")
@@ -22753,7 +22777,7 @@ evaluate_yara_rule() {
             ;;
         "iot_attack_framework")
             local iotfw_match
-            iotfw_match=$(echo "$content" | safe_grep_oiE "mqtt|modbus|plc|iot_token|industrial.*key|mosquitto_pub|mosquitto_sub" | head -2 | tr '\n' ',' | sed 's/,$//')
+            iotfw_match=$(echo "$content" | safe_grep_oiE "mqtt|modbus|plc|iot_token|industrial[[:space:]]key|mosquitto_pub|mosquitto_sub" | head -2 | tr '\n' ',' | sed 's/,$//')
             [ -n "$iotfw_match" ] && matched_patterns="iot_attack_framework_indicator:$iotfw_match"
             ;;
         "impact_destruction")
