@@ -138,7 +138,9 @@ trap 'echo "[WARNING] Received SIGTERM - cleaning up..."; cleanup_handler 143' T
 
 # Validate and sanitize file paths (prevent path traversal)
 sanitize_path() {
+    set +u
     local input_path="$1"
+    set -u
     local sanitized
     
     # Remove null bytes
@@ -160,8 +162,10 @@ sanitize_path() {
 
 # Validate string input (length and character restrictions)
 validate_string_input() {
+    set +u
     local input="$1"
     local max_length="${2:-8192}"
+    set -u
     
     # Check length
     if [[ ${#input} -gt $max_length ]]; then
@@ -180,13 +184,17 @@ validate_string_input() {
 
 # Sanitize content for safe shell use (prevent command injection)
 sanitize_for_shell() {
+    set +u
     local input="$1"
+    set -u
     printf '%q' "$input"
 }
 
 # AUDIT: Sanitize for logging (mask sensitive data/PII)
 sanitize_for_log() {
+    set +u
     local input="$1"
+    set -u
     local sanitized="$input"
     
     # Mask API keys
@@ -213,7 +221,9 @@ sanitize_for_log() {
 
 # Validate URL format
 validate_url() {
+    set +u
     local url="$1"
+    set -u
     
     # Basic URL validation
     if [[ ! "$url" =~ ^https?://[^[:space:]]+$ ]]; then
@@ -231,7 +241,9 @@ validate_url() {
 
 # Validate IP address format
 validate_ip() {
+    set +u
     local ip="$1"
+    set -u
     
     # IPv4 validation
     if [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
@@ -259,7 +271,9 @@ validate_ip() {
 
 # Validate Bitcoin address with checksum
 validate_bitcoin_address() {
+    set +u
     local address="$1"
+    set -u
     
     # Bitcoin address patterns (P2PKH, P2SH, Bech32)
     # P2PKH: starts with 1, 26-35 chars
@@ -282,7 +296,9 @@ validate_bitcoin_address() {
 
 # Validate Ethereum address with EIP-55 checksum
 validate_ethereum_address() {
+    set +u
     local address="$1"
+    set -u
     
     # Ethereum address: 0x followed by 40 hex chars
     if [[ "$address" =~ ^0x[a-fA-F0-9]{40}$ ]]; then
@@ -294,7 +310,9 @@ validate_ethereum_address() {
 
 # Validate E.164 phone number format
 validate_phone_e164() {
+    set +u
     local phone="$1"
+    set -u
     
     # E.164 format: + followed by 1-15 digits
     if [[ "$phone" =~ ^\+[1-9][0-9]{1,14}$ ]]; then
@@ -306,7 +324,9 @@ validate_phone_e164() {
 
 # Validate IBAN with checksum
 validate_iban() {
+    set +u
     local iban="$1"
+    set -u
     
     # Remove spaces and convert to uppercase
     iban=$(echo "$iban" | tr -d ' ' | tr '[:lower:]' '[:upper:]')
@@ -323,7 +343,9 @@ validate_iban() {
 
 # Validate credit card using Luhn algorithm
 validate_credit_card() {
+    set +u
     local card="$1"
+    set -u
     
     # Remove spaces and dashes
     card=$(echo "$card" | tr -d ' -')
@@ -361,7 +383,9 @@ validate_credit_card() {
 
 # Validate SSN format (PII detection)
 validate_ssn_format() {
+    set +u
     local ssn="$1"
+    set -u
     
     # SSN format: XXX-XX-XXXX or XXXXXXXXX
     if [[ "$ssn" =~ ^[0-9]{3}-?[0-9]{2}-?[0-9]{4}$ ]]; then
@@ -406,7 +430,9 @@ validate_ipv6_address() {
 
 # Validate Tor v3 onion address
 validate_onion_v3() {
+    set +u
     local address="$1"
+    set -u
     
     # Tor v3 onion: 56 base32 chars + .onion
     if [[ "$address" =~ ^[a-z2-7]{56}\.onion$ ]]; then
@@ -423,7 +449,9 @@ validate_onion_v3() {
 
 # Validate I2P address
 validate_i2p_address() {
+    set +u
     local address="$1"
+    set -u
     
     # I2P address: base32 encoded (52 chars) + .i2p or base64 (516+ chars) + .b32.i2p
     if [[ "$address" =~ ^[a-z2-7]{52}\.i2p$ ]]; then
@@ -439,7 +467,9 @@ validate_i2p_address() {
 
 # Validate magnet URI
 validate_magnet_uri() {
+    set +u
     local uri="$1"
+    set -u
     
     # Magnet link: magnet:?xt=urn:btih: followed by 40 (SHA-1) or 64 (SHA-256) hex chars
     if [[ "$uri" =~ ^magnet:\?xt=urn:btih:[a-fA-F0-9]{40} ]] || \
@@ -452,7 +482,9 @@ validate_magnet_uri() {
 
 # Validate Decentralized Identifier (DID)
 validate_did_identifier() {
+    set +u
     local did="$1"
+    set -u
     
     # DID format: did:method:identifier
     # Examples: did:example:123456, did:ethr:0x..., did:key:z...
@@ -509,8 +541,10 @@ create_secure_temp_dir() {
 # AUDIT: Validate that output file path is safe for decoder functions
 # Allows paths in known temp directories (like /tmp/qr_analysis)
 validate_decoder_output_path() {
+    set +u
     local output_file="$1"
     local func_name="${2:-decoder}"
+    set -u
     
     # Check for empty path
     if [ -z "$output_file" ]; then
@@ -570,8 +604,10 @@ CONSENT_LOG=""
 # Request user consent before uploading data to external services
 # By default, consent is automatic. Use --no-consent to disable.
 request_upload_consent() {
+    set +u
     local service_name="$1"
     local data_description="$2"
+    set -u
     
     # If user explicitly disabled consent, skip external calls
     if [[ "${NO_EXTERNAL_APIS:-false}" == "true" ]]; then
@@ -643,8 +679,10 @@ CUSTODY_EOF
 
 # Record action in chain of custody
 record_custody_action() {
+    set +u
     local action_type="$1"
     local description="$2"
+    set -u
     local artifact="${3:-}"
     local artifact_hash="${4:-}"
     
@@ -664,8 +702,10 @@ record_custody_action() {
 
 # Add evidence item to chain of custody
 add_evidence_item() {
+    set +u
     local file_path="$1"
     local evidence_type="$2"
+    set -u
     local description="${3:-}"
     
     if [[ ! -f "$file_path" ]]; then
@@ -752,8 +792,10 @@ load_additional_iocs() {
 
 # Check content against all additional IOCs
 check_against_additional_iocs() {
+    set +u
     local content="$1"
     local source_desc="${2:-content}"
+    set -u
     local matches=0
     
     if [[ ! -f "${TEMP_DIR}/all_additional_iocs.txt" ]]; then
@@ -1141,12 +1183,14 @@ log_forensic() {
 # Enhanced threat logging function with detailed structured output
 # Usage: log_threat_detailed score module ioc matched_by severity recommendation [additional_fields...]
 log_threat_detailed() {
+    set +u
     local score="$1"
     local module="$2"
     local ioc="$3"
     local matched_by="$4"
     local severity="$5"
     local recommendation="$6"
+    set -u
     local source_artifact="${CURRENT_ARTIFACT:-Unknown}"
     local decoded_field="${CURRENT_DECODED_CONTENT:-N/A}"
     local file_hash="${CURRENT_ARTIFACT_HASH:-N/A}"
@@ -1193,9 +1237,11 @@ log_threat_detailed() {
 
 # Wrapper function for INFO-level detections with structured output
 log_info_detection() {
+    set +u
     local module="$1"
     local ioc="$2"
     local matched_by="$3"
+    set -u
     local recommendation="${4:-Review this finding}"
     local reference="${5:-N/A}"
     
@@ -1204,9 +1250,11 @@ log_info_detection() {
 
 # Wrapper function for WARNING-level detections with structured output
 log_warning_detection() {
+    set +u
     local module="$1"
     local ioc="$2"
     local matched_by="$3"
+    set -u
     local recommendation="${4:-Investigate this finding}"
     local reference="${5:-N/A}"
     
@@ -1215,9 +1263,11 @@ log_warning_detection() {
 
 # Wrapper function for HIGH-level detections with structured output
 log_high_detection() {
+    set +u
     local module="$1"
     local ioc="$2"
     local matched_by="$3"
+    set -u
     local recommendation="${4:-Take immediate action}"
     local reference="${5:-N/A}"
     
@@ -1226,9 +1276,11 @@ log_high_detection() {
 
 # Wrapper function for CRITICAL-level detections with structured output
 log_critical_detection() {
+    set +u
     local module="$1"
     local ioc="$2"
     local matched_by="$3"
+    set -u
     local recommendation="${4:-IMMEDIATE ACTION REQUIRED}"
     local reference="${5:-N/A}"
     
@@ -1237,7 +1289,9 @@ log_critical_detection() {
 
 # Analysis status output helpers - ALWAYS print to terminal
 analysis_success_none() {
+    set +u
     local analyzer="$1"
+    set -u
     local detection_timestamp=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
     local source_artifact="${CURRENT_ARTIFACT:-Unknown}"
     local decoded_field="${CURRENT_DECODED_CONTENT:-N/A}"
@@ -1249,10 +1303,12 @@ analysis_success_none() {
 }
 
 analysis_success_found() {
+    set +u
     local analyzer="$1"
     local count="$2"
     local details="$3"
     local matched_iocs="$4"  # NEW: Specific IOCs that were matched
+    set -u
     local detection_timestamp=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
     local source_artifact="${CURRENT_ARTIFACT:-Unknown}"
     local decoded_field="${CURRENT_DECODED_CONTENT:-N/A}"
@@ -1314,8 +1370,10 @@ analysis_success_found() {
 }
 
 analysis_error() {
+    set +u
     local analyzer="$1"
     local error_msg="$2"
+    set -u
     local error_details="${3:-No additional details available}"
     local detection_timestamp=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
     local source_artifact="${CURRENT_ARTIFACT:-Unknown}"
@@ -1353,8 +1411,10 @@ analysis_error() {
 
 # Progress indicator for long-running operations
 analysis_progress() {
+    set +u
     local analyzer="$1"
     local status="$2"
+    set -u
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     echo -e "${BLUE}[$timestamp] [⋯ ${analyzer}]${NC} ${status}"
 }
@@ -1365,20 +1425,26 @@ analysis_progress() {
 ################################################################################
 
 json_extract_string() {
+    set +u
     local json="$1"
     local key="$2"
+    set -u
     echo "$json" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
 }
 
 json_extract_number() {
+    set +u
     local json="$1"
     local key="$2"
+    set -u
     echo "$json" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*\([0-9.]*\).*/\1/p' | head -1
 }
 
 json_extract_int() {
+    set +u
     local json="$1"
     local key="$2"
+    set -u
     echo "$json" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1
 }
 
@@ -1390,7 +1456,9 @@ json_extract_int() {
 # Safe grep for extended regex - converts common PCRE patterns to POSIX
 # Usage: safe_grep_E "pattern" <<< "$content"  OR  echo "$content" | safe_grep_E "pattern"
 safe_grep_E() {
+    set +u
     local pattern="$1"
+    set -u
     # Convert common PCRE to POSIX:
     # \s -> [[:space:]]
     # \d -> [0-9]
@@ -1401,28 +1469,36 @@ safe_grep_E() {
 
 # Safe quiet grep for extended regex
 safe_grep_qE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     timeout 2 grep -qE "$pattern" 2>/dev/null
 }
 
 # Safe grep with case-insensitive extended regex
 safe_grep_iE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     grep -iE "$pattern" 2>/dev/null
 }
 
 # Safe quiet case-insensitive grep
 safe_grep_qiE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     grep -qiE "$pattern" 2>/dev/null
 }
 
 # Extract match with extended regex (cross-platform)
 safe_grep_oE() {
+    set +u
     local pattern="$1"
+    set -u
     # AUDIT FIX: Add protections against catastrophic backtracking and long lines
     # 1. Convert PCRE to POSIX
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
@@ -1439,7 +1515,9 @@ safe_grep_oE() {
 
 # Extract match with case-insensitive extended regex
 safe_grep_oiE() {
+    set +u
     local pattern="$1"
+    set -u
     # AUDIT FIX: Add protections against catastrophic backtracking and long lines
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     if command -v timeout &>/dev/null; then
@@ -1452,52 +1530,68 @@ safe_grep_oiE() {
 # AUDIT FIX: Additional safe grep wrappers for QR code content analysis
 # Safe quiet case-insensitive grep (no extended regex)
 safe_grep_qi() {
+    set +u
     local pattern="$1"
+    set -u
     grep -qi "$pattern" 2>/dev/null
 }
 
 # Safe case-insensitive extended regex
 safe_grep_iE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     grep -iE "$pattern" 2>/dev/null
 }
 
 # Safe output match (no extended regex)
 safe_grep_o() {
+    set +u
     local pattern="$1"
+    set -u
     grep -o "$pattern" 2>/dev/null
 }
 
 # Safe count case-insensitive extended regex
 safe_grep_ciE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     grep -ciE "$pattern" 2>/dev/null
 }
 
 # Safe count output extended regex
 safe_grep_coE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     grep -coE "$pattern" 2>/dev/null
 }
 
 # Safe quiet case-insensitive fixed string
 safe_grep_qiF() {
+    set +u
     local pattern="$1"
+    set -u
     grep -qiF "$pattern" 2>/dev/null
 }
 
 # Safe quiet fixed string
 safe_grep_qF() {
+    set +u
     local pattern="$1"
+    set -u
     grep -qF "$pattern" 2>/dev/null
 }
 
 # Safe output fixed string
 safe_grep_oF() {
+    set +u
     local pattern="$1"
+    set -u
     grep -oF "$pattern" 2>/dev/null
 }
 
@@ -1580,10 +1674,12 @@ DETECTION_COUNT=0
 #   $7 = reference (MITRE/CVE/URL reference) [optional]
 #   $8 = severity_label (CRITICAL/HIGH/MEDIUM/LOW/INFO) [optional, auto-calculated from score]
 log_forensic_detection() {
+    set +u
     local score="$1"
     local module="$2"
     local indicator="$3"
     local matched_by="$4"
+    set -u
     local field="${5:-QR decoded content}"
     local recommendation="${6:-Review and investigate}"
     local reference="${7:-}"
@@ -1640,9 +1736,11 @@ log_forensic_detection() {
 
 # AUDIT: Convenience wrappers for different severity levels
 log_detection_critical() {
+    set +u
     local module="$1"
     local indicator="$2"
     local matched_by="$3"
+    set -u
     local field="${4:-QR decoded content}"
     local recommendation="${5:-IMMEDIATE ACTION REQUIRED - Block and investigate}"
     local reference="${6:-}"
@@ -1650,9 +1748,11 @@ log_detection_critical() {
 }
 
 log_detection_high() {
+    set +u
     local module="$1"
     local indicator="$2"
     local matched_by="$3"
+    set -u
     local field="${4:-QR decoded content}"
     local recommendation="${5:-High priority review required}"
     local reference="${6:-}"
@@ -1660,9 +1760,11 @@ log_detection_high() {
 }
 
 log_detection_medium() {
+    set +u
     local module="$1"
     local indicator="$2"
     local matched_by="$3"
+    set -u
     local field="${4:-QR decoded content}"
     local recommendation="${5:-Review and assess risk}"
     local reference="${6:-}"
@@ -1670,9 +1772,11 @@ log_detection_medium() {
 }
 
 log_detection_low() {
+    set +u
     local module="$1"
     local indicator="$2"
     local matched_by="$3"
+    set -u
     local field="${4:-QR decoded content}"
     local recommendation="${5:-Monitor and log}"
     local reference="${6:-}"
@@ -1680,9 +1784,11 @@ log_detection_low() {
 }
 
 log_detection_info() {
+    set +u
     local module="$1"
     local indicator="$2"
     local matched_by="$3"
+    set -u
     local field="${4:-QR decoded content}"
     local recommendation="${5:-For information only}"
     local reference="${6:-}"
@@ -1691,7 +1797,9 @@ log_detection_info() {
 
 # AUDIT: Updated log_threat to use forensic format with specific pattern information
 log_threat_forensic() {
+    set +u
     local score="$1"
+    set -u
     shift
     local msg="$*"
     
@@ -1714,8 +1822,10 @@ log_threat_forensic() {
 
 # IP Address Extraction and Display
 extract_and_display_ips() {
+    set +u
     local content="$1"
     local source_name="${2:-content}"
+    set -u
     
     # Extract IPv4 addresses
     local ipv4_addrs=$(echo "$content" | safe_grep_oE '([0-9]{1,3}\.){3}[0-9]{1,3}' 2>/dev/null | sort -u)
@@ -2088,8 +2198,10 @@ check_rate_limits() {
 
 # Circuit breaker to prevent cascade failures
 implement_circuit_breaker() {
+    set +u
     local service="$1"
     local failure_threshold="${2:-5}"
+    set -u
     
     local circuit_file="$TEMP_DIR/circuit_${service}.txt"
     local current_time=$(date +%s)
@@ -2224,8 +2336,10 @@ check_dns_resolver() {
 
 # Handle API timeout gracefully
 handle_api_timeout() {
+    set +u
     local service="$1"
     local timeout_duration="${2:-30}"
+    set -u
     
     log_warning "API timeout for $service after ${timeout_duration}s"
     
@@ -2241,8 +2355,10 @@ handle_api_timeout() {
 
 # Handle malformed API response
 handle_malformed_response() {
+    set +u
     local service="$1"
     local response="$2"
+    set -u
     
     log_warning "Malformed response from $service"
     
@@ -2261,8 +2377,10 @@ handle_malformed_response() {
 
 # Implement retry logic with exponential backoff
 implement_retry_logic() {
+    set +u
     local service="$1"
     local command="$2"
+    set -u
     local max_retries="${3:-3}"
     local base_delay="${4:-2}"
     
@@ -2296,9 +2414,11 @@ implement_retry_logic() {
 
 # Handle resource exhaustion
 handle_resource_exhaustion() {
+    set +u
     local resource_type="$1"  # memory, disk, cpu
     local current_value="$2"
     local threshold="$3"
+    set -u
     
     log_warning "Resource exhaustion detected: $resource_type"
     log_info "Current: $current_value, Threshold: $threshold"
@@ -2333,8 +2453,10 @@ handle_resource_exhaustion() {
 
 # Parallel decoder analysis
 parallel_decoder_analysis() {
+    set +u
     local image_file="$1"
     local max_parallel="${2:-4}"
+    set -u
     
     log_info "Running parallel decoder analysis (max $max_parallel concurrent)..."
     
@@ -2418,8 +2540,10 @@ PYZBAR_DECODE
 
 # Parallel threat intelligence checks
 parallel_threat_intel_check() {
+    set +u
     local ioc="$1"
     local max_parallel="${2:-5}"
+    set -u
     
     log_info "Running parallel threat intel checks (max $max_parallel concurrent)..."
     
@@ -2472,8 +2596,10 @@ parallel_threat_intel_check() {
 
 # Cache threat intelligence with TTL
 cache_threat_intel() {
+    set +u
     local feed_name="$1"
     local feed_url="$2"
+    set -u
     local ttl_seconds="${3:-3600}"  # Default 1 hour
     
     local cache_dir="${TEMP_DIR}/feed_cache"
@@ -2518,8 +2644,10 @@ cache_threat_intel() {
 
 # Incremental YARA scan (skip unchanged content)
 incremental_yara_scan() {
+    set +u
     local target_file="$1"
     local yara_rules="$2"
+    set -u
     
     # Generate content hash
     local content_hash=$(md5sum "$target_file" 2>/dev/null | cut -d' ' -f1 || echo "unknown")
@@ -2619,7 +2747,9 @@ analyze_dns_over_https() {
 
 # Validate extended cryptocurrency addresses
 validate_extended_crypto() {
+    set +u
     local address="$1"
+    set -u
     
     # Litecoin addresses (starts with L or M)
     if [[ "$address" =~ ^[LM][a-km-zA-HJ-NP-Z1-9]{26,33}$ ]]; then
@@ -2656,7 +2786,9 @@ validate_extended_crypto() {
 
 # Integrate OpenCTI threat intelligence
 integrate_opencti() {
+    set +u
     local ioc="$1"
+    set -u
     local opencti_url="${OPENCTI_URL:-}"
     local opencti_key="${OPENCTI_API_KEY:-}"
     
@@ -2695,7 +2827,9 @@ integrate_opencti() {
 
 # Detect developer platform abuse
 detect_developer_platform_abuse() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for developer platform abuse..."
     
@@ -2827,7 +2961,9 @@ get_search_paths() {
 
 # Find executable in multiple locations
 find_executable() {
+    set +u
     local cmd="$1"
+    set -u
     local search_paths
     
     # First check if already in PATH using command -v
@@ -3031,7 +3167,9 @@ EOF
 
 # Check if a Python module is installed (with multiple detection methods)
 check_python_module() {
+    set +u
     local module="$1"
+    set -u
     local python_cmd="${DISCOVERED_PATHS[python3]:-python3}"
     
     # Handle special module-to-package name mappings for pip show
@@ -3110,7 +3248,9 @@ check_python_module() {
 
 # Get installation command for missing Python module
 get_python_module_install_cmd() {
+    set +u
     local module="$1"
+    set -u
     local pip_cmd="${DISCOVERED_PATHS[pip3]:-pip3}"
     
     # Handle special module name mappings (import name -> pip package name)
@@ -3178,7 +3318,9 @@ run_auto_detection() {
 
 # Get the path for a discovered dependency
 get_dep_path() {
+    set +u
     local dep="$1"
+    set -u
     echo "${DISCOVERED_PATHS[$dep]:-$dep}"
 }
 
@@ -3189,7 +3331,9 @@ get_python_cmd() {
 
 # Safe module pre-check with crash protection
 safe_check_python_module() {
+    set +u
     local module="$1"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     [[ -z "$python_cmd" ]] && return 1
@@ -3232,7 +3376,9 @@ run_python() {
 
 # Check if Python module is available
 is_python_module_available() {
+    set +u
     local module="$1"
+    set -u
     # Use default empty string to avoid unbound variable error with set -u
     [[ "${DISCOVERED_PYTHON_MODULES[$module]:-}" == "installed" ]]
 }
@@ -5298,7 +5444,9 @@ declare -A OBFUSCATION_PATTERNS=(
 
 # Since bash/grep don't support \uXXXX Unicode escapes, this function uses Python
 detect_unicode_homoglyphs() {
+    set +u
     local content="$1"
+    set -u
     
     # Skip if Python not available
     if ! command -v python3 &>/dev/null; then
@@ -8990,7 +9138,9 @@ init_yara_rules() {
 # Safely validate image can be opened without crashing
 # Returns 0 if valid, 1 if potentially dangerous
 validate_image_safety() {
+    set +u
     local image="$1"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # First check file exists and has content
@@ -9095,7 +9245,9 @@ PYVALIDATE
 # Usage: run_isolated timeout_seconds command [args...]
 # For commands needing output redirection, use: run_isolated_with_output timeout output_file command [args...]
 run_isolated() {
+    set +u
     local timeout_sec="$1"
+    set -u
     shift
     local cmd=("$@")
     
@@ -9162,8 +9314,10 @@ run_isolated() {
 # Run a command in isolated subprocess with output to a file (for decoders)
 # Usage: run_isolated_with_output timeout_seconds output_file command [args...]
 run_isolated_with_output() {
+    set +u
     local timeout_sec="$1"
     local output_file="$2"
+    set -u
     shift 2
     local cmd=("$@")
     
@@ -9227,8 +9381,10 @@ run_isolated_with_output() {
 
 # Safe wrapper for zbarimg with crash protection
 safe_zbarimg() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     
     # Check if zbarimg is available
     if ! command -v zbarimg &>/dev/null; then
@@ -9258,8 +9414,10 @@ safe_zbarimg() {
 
 # Safe wrapper for Python decoder with crash protection
 safe_python_decode() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYDECODE'
@@ -9344,7 +9502,9 @@ decode_with_pyzbar() {
 # Safe Python script execution wrapper
 # Usage: safe_python_script timeout_secs script_content
 safe_python_script() {
+    set +u
     local timeout_secs="$1"
+    set -u
     local python_cmd=$(get_python_cmd)
     shift
     
@@ -9668,8 +9828,10 @@ PYENHANCED
     
 # QR decode via BoofCV Java (hardened version)
 decode_qr_boofcv() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local boofcv_jar="/usr/local/lib/boofcv.jar"
 
     # Check BoofCV jar presence
@@ -13049,8 +13211,10 @@ PYUNIVERSAL_SCRIPT
 
 # Decoder 39: QR Code Model 1 (legacy QR format)
 decode_with_qr_model1() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13101,8 +13265,10 @@ PYMODEL1
 
 # Decoder 40: JAB Code (colored 2D barcode)
 decode_with_jabcode() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
         return 1
@@ -13125,8 +13291,10 @@ decode_with_jabcode() {
 
 # Decoder 41: HCCB (High Capacity Color Barcode - Microsoft Tag)
 decode_with_hccb() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13188,8 +13356,10 @@ PYHCCB
 
 # Decoder 42: Micro QR Code (smaller QR variant)
 decode_with_micro_qr() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13245,8 +13415,10 @@ PYMICROQR
 # Detects QR codes generated via HTML5 Canvas, SVG, or JavaScript libraries
 # Common in phishing and fraudulent QR campaigns
 decode_with_html_qr_detector() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13353,8 +13525,10 @@ PYHTMLQR
 
 # Decoder 44: UPC (Universal Product Code) - UPC-A and UPC-E
 decode_with_upc() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13406,8 +13580,10 @@ PYUPC
 
 # Decoder 45: MSI/Plessey - Inventory control barcode
 decode_with_msi() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13461,8 +13637,10 @@ PYMSI
 
 # Decoder 46: Telepen - Pharmacy/Library barcode
 decode_with_telepen() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13516,8 +13694,10 @@ PYTELEPEN
 
 # Decoder 47: GS1 DataBar (RSS) - Retail and coupons
 decode_with_gs1_databar() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13575,8 +13755,10 @@ PYGS1
 
 # Decoder 48: Pharmacode - Pharmaceutical packaging
 decode_with_pharmacode() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13666,8 +13848,10 @@ PYPHARMA
 
 # Decoder 49: Code 11 - Telecommunications barcode
 decode_with_code11() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13721,8 +13905,10 @@ PYCODE11
 
 # Decoder 50: DPD (Deutsche Post) Barcode
 decode_with_dpd() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13772,6 +13958,7 @@ PYDPD
 }
 
 multi_decoder_analysis() {
+    set +u
     local image="$1"
     local base_output="$2"
     
@@ -13828,6 +14015,7 @@ multi_decoder_analysis() {
         local timeout_secs="$1"
         local out_file="$2"
         local script="$3"
+    set -u
         
         [[ -z "$python_cmd" ]] && return 2
         
@@ -15400,9 +15588,11 @@ EOF
 
 # Helper function to run a single decoder
 run_single_decoder() {
+    set +u
     local decoder="$1"
     local image="$2"
     local output="$3"
+    set -u
     
     case "$decoder" in
         zbar) decode_with_zbar "$image" "$output" ;;
@@ -15442,6 +15632,7 @@ run_single_decoder() {
 }
 
 multi_decoder_analysis_parallel() {
+    set +u
     local image="$1"
     local base_output="$2"
     local max_parallel="${3:-4}"
@@ -15483,6 +15674,7 @@ multi_decoder_analysis_parallel() {
     # Run decoder group function
     run_decoder_group() {
         local group_name="$1"
+    set -u
         shift
         local decoders=("$@")
         
@@ -17581,7 +17773,9 @@ PYENTROPY
 }
 
 check_appended_data() {
+    set +u
     local image="$1"
+    set -u
     local file_type=$(file -b "$image" | cut -d',' -f1)
     
     case "$file_type" in
@@ -17711,7 +17905,9 @@ analyze_image_metadata() {
 }
 
 check_png_structure() {
+    set +u
     local image="$1"
+    set -u
 
     log_info "Analyzing PNG structure and chunk-level integrity..."
 
@@ -17826,7 +18022,9 @@ EOF
 }
 
 check_jpeg_structure() {
+    set +u
     local image="$1"
+    set -u
 
     log_info "Analyzing JPEG structure and forensic markers..."
 
@@ -17956,7 +18154,9 @@ EOF
 ################################################################################
 
 perform_ocr_analysis() {
+    set +u
     local image="$1"
+    set -u
     local filetype=""
     local extension=""
     local extracted_files=()
@@ -18517,7 +18717,9 @@ analyze_decoded_content() {
 }
 
 resolve_url_redirect() {
+    set +u
     local url="$1"
+    set -u
     local max_redirects=10
 
     if [ "$NETWORK_CHECK" = false ]; then
@@ -18561,7 +18763,9 @@ resolve_url_redirect() {
 }
 
 check_homograph_attack() {
+    set +u
     local domain="$1"
+    set -u
 
     # Mixed scripts detection (Latin + non-Latin = visually spoofed QR domains)
     # Use byte pattern detection instead of character ranges for portability
@@ -18642,7 +18846,9 @@ check_homograph_attack() {
 }
 
 check_typosquatting() {
+    set +u
     local domain="$1"
+    set -u
 
     # Scan for QR phishing brand impersonation in domain (case-insensitive)
     for brand in "${PHISHING_BRANDS[@]}"; do
@@ -18711,7 +18917,9 @@ check_typosquatting() {
 }
 
 check_domain_whois() {
+    set +u
     local domain="$1"
+    set -u
 
     if ! command -v whois &> /dev/null || [ "$NETWORK_CHECK" = false ]; then
         log_info "WHOIS unavailable - cannot check QR domain: $domain"
@@ -18783,7 +18991,9 @@ check_domain_whois() {
 }
 
 check_domain_dns() {
+    set +u
     local domain="$1"
+    set -u
 
     if ! command -v dig &> /dev/null || [ "$NETWORK_CHECK" = false ]; then
         log_info "DNS unavailable - cannot check QR code domain: $domain"
@@ -18859,7 +19069,9 @@ check_domain_dns() {
 }
 
 check_ssl_certificate() {
+    set +u
     local url="$1"
+    set -u
 
     if [ "$NETWORK_CHECK" = false ]; then
         log_info "SSL check skipped - network checks disabled."
@@ -19595,8 +19807,10 @@ download_triage_iocs() {
 }
 
 check_against_threat_intel() {
+    set +u
     local ioc="$1"
     local ioc_type="$2"  # url, domain, ip, hash
+    set -u
     
     local matches=0
     
@@ -19872,8 +20086,10 @@ check_against_threat_intel() {
 }
 
 check_virustotal() {
+    set +u
     local target="$1"
     local target_type="$2"  # url, domain, ip, file
+    set -u
     
     # AUDIT: Check for API key without logging it
     if [ -z "${VT_API_KEY:-}" ]; then
@@ -19953,7 +20169,9 @@ check_virustotal() {
 }
 
 check_urlscan() {
+    set +u
     local url="$1"
+    set -u
     
     # AUDIT: Check API key without logging it
     if [ -z "${URLSCAN_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
@@ -19997,7 +20215,9 @@ check_urlscan() {
 }
 
 check_abuseipdb() {
+    set +u
     local ip="$1"
+    set -u
     
     # AUDIT: Check API key without logging it
     if [ -z "${ABUSEIPDB_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
@@ -20052,7 +20272,9 @@ check_abuseipdb() {
 
 # Check CISA KEV for CVE references in content
 check_cisa_kev() {
+    set +u
     local content="$1"
+    set -u
     
     if [ ! -s "${TEMP_DIR}/threat_intel/cisa_kev.json" ]; then
         return
@@ -20074,7 +20296,9 @@ check_cisa_kev() {
 
 # CrowdStrike Falcon X API-based IOC lookup
 check_crowdstrike() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${CROWDSTRIKE_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20101,7 +20325,9 @@ check_crowdstrike() {
 
 # Recorded Future API-based threat intelligence
 check_recorded_future() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${RECORDED_FUTURE_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20128,7 +20354,9 @@ check_recorded_future() {
 
 # ThreatFox API lookup for specific IOCs
 check_threatfox() {
+    set +u
     local content="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20158,7 +20386,9 @@ check_threatfox() {
 
 # MalwareBazaar API hash lookup
 check_malwarebazaar() {
+    set +u
     local content="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20187,7 +20417,9 @@ check_malwarebazaar() {
 
 # RiskIQ/PassiveTotal (Microsoft) API
 check_riskiq() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${RISKIQ_API_KEY:-}" ] || [ -z "${RISKIQ_API_SECRET:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20214,7 +20446,9 @@ check_riskiq() {
 
 # Hybrid Analysis sandbox API
 check_hybrid_analysis() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${HYBRID_ANALYSIS_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20242,7 +20476,9 @@ check_hybrid_analysis() {
 
 # ANY.RUN API lookup
 check_anyrun() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${ANYRUN_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20269,7 +20505,9 @@ check_anyrun() {
 
 # Joe Sandbox Cloud API
 check_joesandbox() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${JOESANDBOX_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20295,7 +20533,9 @@ check_joesandbox() {
 
 # Triage sandbox API
 check_triage() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${TRIAGE_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20321,8 +20561,10 @@ check_triage() {
 }
 
 check_qr_code_threat_iocs() {
+    set +u
     local qr_source="$1"    # original QR code image/file
     local ioc_list_file="$2" # file containing one IOC per line (urls, domains, ips, hashes)
+    set -u
 
     log_info "Running QR code threat intelligence checks on: $qr_source"
 
@@ -20361,9 +20603,11 @@ check_qr_code_threat_iocs() {
 }
 
 enrich_qr_ioc_context() {
+    set +u
     local ioc="$1"
     local context="$2" # e.g., "malicious_url", "phishing_domain", etc
     local qr_source="$3"
+    set -u
 
     local ctx_file="${EVIDENCE_DIR}/qr_enrichment_$(md5sum <<<"$ioc" | cut -d' ' -f1)_$(date +%s).log"
     echo "IOC: $ioc" > "$ctx_file"
@@ -20503,7 +20747,9 @@ calculate_apt_confidence() {
 ################################################################################
 
 perform_behavioral_analysis() {
+    set +u
     local content="$1"
+    set -u
     
     if [ "$BEHAVIORAL_ANALYSIS" = false ]; then
         return
@@ -20549,7 +20795,9 @@ perform_behavioral_analysis() {
 }
 
 check_sandbox_evasion() {
+    set +u
     local content="$1"
+    set -u
     
     local evasion_techniques=(
         "mouse_move" "cursor_pos" "GetCursorPos"
@@ -20584,7 +20832,9 @@ check_sandbox_evasion() {
 }
 
 check_anti_vm_techniques() {
+    set +u
     local content="$1"
+    set -u
     
     local vm_indicators=(
         "VMware" "VirtualBox" "VBOX" "QEMU" "Xen" "Hyper-V"
@@ -20616,7 +20866,9 @@ check_anti_vm_techniques() {
 }
 
 check_anti_debug_techniques() {
+    set +u
     local content="$1"
+    set -u
     
     local debug_checks=(
         "IsDebuggerPresent" "CheckRemoteDebuggerPresent"
@@ -20651,7 +20903,9 @@ check_anti_debug_techniques() {
 }
 
 check_time_based_evasion() {
+    set +u
     local content="$1"
+    set -u
     
     # Check for time delays
     if echo "$content" | safe_grep_qiE "sleep[[:space:]]*[(\[]?[[:space:]]*[0-9]{4,}|timeout[[:space:]]*[/]?[[:space:]]*t?[[:space:]]*[0-9]{3,}|delay[[:space:]]*[:\(][[:space:]]*[0-9]{4,}"; then
@@ -20671,7 +20925,9 @@ check_time_based_evasion() {
 }
 
 check_persistence_techniques() {
+    set +u
     local content="$1"
+    set -u
 
     local persistence_indicators=(
         # Windows Registry & Boot
@@ -20728,7 +20984,9 @@ check_persistence_techniques() {
 }
 
 check_lateral_movement() {
+    set +u
     local content="$1"
+    set -u
 
     local lateral_indicators=(
         # Windows tools and techniques
@@ -20776,7 +21034,9 @@ check_lateral_movement() {
 }
 
 check_exfiltration_patterns() {
+    set +u
     local content="$1"
+    set -u
 
     local exfil_indicators=(
         # Data staging
@@ -20832,7 +21092,9 @@ check_exfiltration_patterns() {
 }
 
 check_privilege_escalation() {
+    set +u
     local content="$1"
+    set -u
 
     local privesc_indicators=(
         # Windows
@@ -20886,7 +21148,9 @@ check_privilege_escalation() {
 }
 
 check_defense_evasion() {
+    set +u
     local content="$1"
+    set -u
 
     local evasion_indicators=(
         # AV/EDR tampering (Windows, cross-platform)
@@ -20943,7 +21207,9 @@ check_defense_evasion() {
 }
 
 check_c2_patterns() {
+    set +u
     local content="$1"
+    set -u
 
     local found_patterns=()
     # Check against C2 pattern database
@@ -20986,7 +21252,9 @@ check_c2_patterns() {
 }
 
 check_credential_access() {
+    set +u
     local content="$1"
+    set -u
 
     local cred_indicators=(
         # Windows password dumping
@@ -21040,7 +21308,9 @@ check_credential_access() {
 }
 
 check_discovery_techniques() {
+    set +u
     local content="$1"
+    set -u
 
     local discovery_indicators=(
         # General system discovery: desktop/server
@@ -21121,7 +21391,9 @@ check_discovery_techniques() {
 }
 
 check_impact_techniques() {
+    set +u
     local content="$1"
+    set -u
 
     local impact_indicators=(
         # Ransomware & encryption
@@ -21418,7 +21690,9 @@ analyze_obfuscation() {
 }
 
 calculate_string_entropy() {
+    set +u
     local str="$1"
+    set -u
 
     # Validate input
     [[ -z "$str" ]] && { echo "0.0"; return; }
@@ -22539,7 +22813,9 @@ analyze_email_addresses() {
 }
 
 evaluate_all_yara_rules() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "  Evaluating YARA-like rules..."
     
@@ -22647,8 +22923,10 @@ evaluate_all_yara_rules() {
 }
 
 evaluate_yara_rule() {
+    set +u
     local content="$1"
     local rule_name="$2"
+    set -u
     local matched_patterns=""
 
     case "$rule_name" in
@@ -23037,7 +23315,9 @@ analyze_exploit_payloads() {
 }
 
 check_persistence_techniques() {
+    set +u
     local content="$1"
+    set -u
     # Persistence: autorun, crontab, scheduled task
     if echo "$content" | safe_grep_qiE "HKLM.*Run|LaunchAgent|systemctl.*enable|chmod.*777|crontab|schtasks|rc\.local"; then
         log_forensic_detection 45 \
@@ -23051,7 +23331,9 @@ check_persistence_techniques() {
 }
 
 check_privilege_escalation() {
+    set +u
     local content="$1"
+    set -u
     # Privilege escalation/local root/admin
     if echo "$content" | safe_grep_qiE "sudo|su |runas|setuid|potato|printspoofer|getsystem|escalate"; then
         log_forensic_detection 58 \
@@ -23065,7 +23347,9 @@ check_privilege_escalation() {
 }
 
 check_discovery_techniques() {
+    set +u
     local content="$1"
+    set -u
     # Discovery: host, network, user, cloud, AD, mobile/MaaS recon
     if echo "$content" | safe_grep_qiE "systeminfo|hostname|whoami|wmic|Get-ComputerInfo|ipconfig|ifconfig|ip addr|netstat|nslookup|nltest|Get-ADDomain|net view|ps aux|Get-Process|tasklist|dir /s|ls -laR|find /|Get-ChildItem.*Recurse|tree|android\.intent\.action|pm list packages|dumpsys|getprop"; then
         log_forensic_detection 47 \
@@ -23079,7 +23363,9 @@ check_discovery_techniques() {
 }
 
 check_lateral_movement() {
+    set +u
     local content="$1"
+    set -u
     # Lateral: pass-the-hash, PsExec, WinRM, SSH, RDP, SMB, mobile/QR handoff
     if echo "$content" | safe_grep_qiE "psexec|wmic.*process.*create|pass.the.hash|winrm|smbclient|net use|net rpc|rdesktop|mstsc|ssh |scp |adb connect|intent://" ; then
         log_forensic_detection 63 \
@@ -23093,7 +23379,9 @@ check_lateral_movement() {
 }
 
 check_exfiltration_patterns() {
+    set +u
     local content="$1"
+    set -u
     # Exfil: upload, cloud/drive/pastebin, base64/FTP/email/QR/mobile exfil
     if echo "$content" | safe_grep_qiE "upload|ftp|get.*password|scp|sftp|aws s3 cp|gsutil cp|azcopy|curl.*--upload|-T|wget.*--post|dropbox|gdrive|sendBeacon|base64|encode|mail\.send|sendTextMessage|pastebin\.com|telegram\.api|intent://" ; then
         log_forensic_detection 67 \
@@ -23107,7 +23395,9 @@ check_exfiltration_patterns() {
 }
 
 check_credential_access() {
+    set +u
     local content="$1"
+    set -u
     # Credential access: Mimikatz, lsass, browser dump, token stealers, mobile/QR abuse
     if echo "$content" | safe_grep_qiE "mimikatz|lsass|sekurlsa|credential.dump|password|keychain|SAM|GetCredential|browser.*password|getpass|get_token|keyring|android\.permission.GET_ACCOUNTS"; then
         log_forensic_detection 60 \
@@ -23121,7 +23411,9 @@ check_credential_access() {
 }
 
 check_c2_patterns() {
+    set +u
     local content="$1"
+    set -u
     # C2: beacon, checkin, reverse shell, RATs, QR/mobile C2 patterns, cloud
     if echo "$content" | safe_grep_qiE "beacon|checkin|callback|pastebin\.com/raw|raw\.githubusercontent|reverse.shell|bind.shell|websocket|rat|quasar|empire|meterpreter|cobaltstrike|ngrok|tunnel|discord\.api|telegram\.api"; then
         log_forensic_detection 66 \
@@ -23135,7 +23427,9 @@ check_c2_patterns() {
 }
 
 check_impact_techniques() {
+    set +u
     local content="$1"
+    set -u
     # Impact: ransomware, wipe, destroy, wiper, sabotage, DDoS, mining
     if echo "$content" | safe_grep_qiE "encrypt|ransom|decrypt|bitcoin|monero|\.onion|\.locked|\.encrypted|wipe|destroy|shred|rm -rf|format|cipher /w|disable|shutdown|ddos|xmrig|minergate|minerd|stratum"; then
         log_forensic_detection 80 \
@@ -23245,7 +23539,9 @@ analyze_steganography() {
 }
 
 log_evidence_tags() {
+    set +u
     local content="$1"
+    set -u
     # Evidence/forensic chain tagging; log source/time/context
     log_forensic_detection 10 \
         "Evidence Chain Tag" \
@@ -23262,9 +23558,11 @@ log_evidence_tags() {
 ################################################################################
 
 record_ioc() {
+    set +u
     local ioc_type="$1"
     local indicator="$2"
     local context="$3"
+    set -u
     
     local timestamp=$(date -Iseconds)
     
@@ -23514,7 +23812,9 @@ analyze_qr_image() {
 }
 
 validate_image_format() {
+    set +u
     local image="$1"
+    set -u
     local file_type=$(file -b "$image")
     
     # Check for valid image formats
@@ -25406,7 +25706,9 @@ analyze_fileless_malware() {
 
 # 1. QRLJacking - QR Login Jacking attacks
 detect_qrljacking() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for QRLJacking attacks..."
     
@@ -25475,7 +25777,9 @@ detect_qrljacking() {
 
 # 2. Quishing Kits - Known QR phishing kit signatures
 detect_quishing_kits() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for quishing kit signatures..."
     
@@ -25546,7 +25850,9 @@ detect_quishing_kits() {
 
 # 3. QR Overlay Malware - QR overlay attack indicators
 detect_qr_overlay_malware() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for QR overlay malware..."
     
@@ -25604,7 +25910,9 @@ detect_qr_overlay_malware() {
 
 # 4. QR Replacement - Physical QR replacement indicators
 detect_qr_replacement() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for QR replacement attack indicators..."
     
@@ -25673,7 +25981,9 @@ detect_qr_replacement() {
 
 # 5. Invisible QR - Near-invisible QR watermarks
 detect_invisible_qr() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for invisible QR patterns..."
     
@@ -25729,7 +26039,9 @@ detect_invisible_qr() {
 
 # 6. Animated QR - Animated/video QR abuse
 detect_animated_qr() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for animated QR abuse..."
     
@@ -25785,7 +26097,9 @@ detect_animated_qr() {
 
 # 7. Multi-QR Chaining - QR-to-QR redirect chains
 detect_multi_qr_chaining() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for multi-QR chaining..."
     
@@ -25841,7 +26155,9 @@ detect_multi_qr_chaining() {
 
 # 8. Conditional Content - Time/geo-conditional payloads
 detect_conditional_content() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for conditional payloads..."
     
@@ -25910,7 +26226,9 @@ detect_conditional_content() {
 
 # 9. Browser-in-Browser - BITB phishing indicators
 detect_browser_in_browser() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for Browser-in-Browser (BITB) attacks..."
     
@@ -25964,7 +26282,9 @@ detect_browser_in_browser() {
 
 # 10. Reverse Proxy Phishing - Evilginx/Modlishka patterns
 detect_reverse_proxy_phish() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for reverse proxy phishing..."
     
@@ -26031,7 +26351,9 @@ detect_reverse_proxy_phish() {
 
 # 11. Adversary-in-the-Middle (AiTM) - AiTM attack indicators
 detect_adversary_in_middle() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for Adversary-in-the-Middle attacks..."
     
@@ -26102,7 +26424,9 @@ detect_adversary_in_middle() {
 
 # 12. Windows LOLBin Detection
 detect_lolbin_windows() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for Windows LOLBin abuse..."
     
@@ -26156,7 +26480,9 @@ detect_lolbin_windows() {
 
 # 13. Linux LOLBin Detection (GTFOBins)
 detect_lolbin_linux() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for Linux LOLBin (GTFOBins) abuse..."
     
@@ -26215,7 +26541,9 @@ detect_lolbin_linux() {
 
 # 14. macOS LOLBin Detection
 detect_lolbin_macos() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for macOS LOLBin abuse..."
     
@@ -26269,7 +26597,9 @@ detect_lolbin_macos() {
 
 # 15. LOLBas Scripts Detection
 detect_lolbas_scripts() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for LOLBas script abuse..."
     
@@ -26338,7 +26668,9 @@ detect_lolbas_scripts() {
 
 # 16. Living-off-Cloud Detection
 detect_living_off_cloud() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for Living-off-Cloud techniques..."
     
@@ -26768,7 +27100,9 @@ analyze_tor_vpn() {
 }
 
 check_tor_exit_nodes() {
+    set +u
     local content="$1"
+    set -u
     
     # Extract IPs from content
     local ips=$(echo "$content" | safe_grep_oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
@@ -29943,7 +30277,7 @@ analyze_asn_infrastructure() {
             while read -r ip; do
                 [ -z "$ip" ] && continue
                 # Direct match in blocklist
-                if [[ -n "${KNOWN_MALICIOUS_IPS[$ip]}" ]]; then
+                if [[ -v "KNOWN_MALICIOUS_IPS[$ip]" ]] && [[ -n "${KNOWN_MALICIOUS_IPS[$ip]}" ]]; then
                     log_warning "Registrar/WHOIS IP $ip in $(basename "$whois_file") is known malicious (blocklist match)"
                     asn_findings+=("suspicious_registrar_ip:$ip")
                     ((asn_score += 15))
@@ -30542,7 +30876,9 @@ analyze_parser_differentials() {
 }
 
 check_known_cve_patterns() {
+    set +u
     local content="$1"
+    set -u
     
     # CVE-2021-44228 (Log4Shell)
     if echo "$content" | safe_grep_qiE "\\\$\{jndi:(ldap|rmi|dns|corba)://"; then
@@ -30788,7 +31124,9 @@ analyze_ngram_patterns() {
 }
 
 calculate_brand_similarity() {
+    set +u
     local content="$1"
+    set -u
     local max_similarity=0
     
     # Check similarity to known brands
@@ -32054,7 +32392,9 @@ analyze_injection_attacks() {
 
 # Decode various encoding schemes for deeper analysis
 decode_payload() {
+    set +u
     local payload="$1"
+    set -u
     local decoded=""
     
     # URL decoding
@@ -32098,9 +32438,11 @@ analyze_nested_injection() {
 
 # Generate machine-readable output (JSON format)
 generate_injection_report_json() {
+    set +u
     local findings_array="$1"
     local score="$2"
     local risk="$3"
+    set -u
     
     echo "{"
     echo "  \"analysis_type\": \"injection_attack\","
@@ -37324,10 +37666,12 @@ initialize_feedback_system() {
 }
 
 record_analysis_feedback() {
+    set +u
     local verdict="$1"
     local confidence="$2"
     local user_feedback="$3"
     local notes="$4"
+    set -u
     
     if [ "$FEEDBACK_LOOP_ENABLED" = false ]; then
         return
@@ -37700,7 +38044,9 @@ declare -a SOCIAL_ENGINEERING_PHRASES=(
 
 # Advanced entropy analysis for detecting encoded payloads
 calculate_detailed_entropy() {
+    set +u
     local data="$1"
+    set -u
     
     # Validate input
     [[ -z "$data" ]] && { echo '{"entropy": 0, "normalized": 0}'; return; }
@@ -37769,7 +38115,9 @@ print(json.dumps(result))
 
 # Domain age checker
 check_domain_age() {
+    set +u
     local domain="$1"
+    set -u
     
     if [ -z "$domain" ]; then
         return
@@ -37837,9 +38185,11 @@ EOF
 # ============================================================================
 
 run_audit_enhanced_analysis() {
+    set +u
     local content="$1"
     local url="$2"
     local image="$3"
+    set -u
     
     log_info ""
     log_info "════════════════════════════════════════════════════════════════"
@@ -38272,9 +38622,11 @@ FEEDBACK_HISTORY="${OUTPUT_DIR}/feedback_history.log"
 CHAIN_OF_CUSTODY_FILE="${OUTPUT_DIR}/chain_of_custody.txt"
 
 generate_feedback_interface() {
+    set +u
     local analysis_id="$1"
     local threat_score="$2"
     local findings_count="$3"
+    set -u
     
     if [ "$FEEDBACK_LOOP_ENABLED" = false ]; then
         return
@@ -38348,9 +38700,11 @@ FEEDBACK_JSON
 }
 
 generate_chain_of_custody() {
+    set +u
     local analysis_id="$1"
     local input_file="$2"
     local findings_summary="$3"
+    set -u
     
     if [ "$FEEDBACK_LOOP_ENABLED" = false ]; then
         return
@@ -38461,10 +38815,12 @@ generate_chain_of_custody() {
 }
 
 process_feedback() {
+    set +u
     local analysis_id="$1"
     local verdict="$2"
     local notes="$3"
     local reviewer="$4"
+    set -u
     
     if [ -z "$analysis_id" ] || [ -z "$verdict" ]; then
         log_error "Usage: process_feedback <analysis_id> <verdict> [notes] [reviewer]"
@@ -38568,9 +38924,11 @@ EOF
 # ============================================================================
 
 run_all_audit_enhancements() {
+    set +u
     local content="$1"
     local url="$2"
     local image="$3"
+    set -u
     local analysis_id="${4:-$(date +%s)-$(head -c 4 /dev/urandom | xxd -p)}"
     
     echo ""
@@ -39082,8 +39440,10 @@ PYTHON_SCRIPT
 }
 
 check_greynoise() {
+    set +u
     [ -z "$GREYNOISE_API_KEY" ] && return
     local ip="$1"
+    set -u
     
     local resp=$(curl -s -H "key: $GREYNOISE_API_KEY" \
         "https://api.greynoise.io/v3/community/$ip" 2>/dev/null)
@@ -39111,8 +39471,10 @@ download_enhanced_threat_feeds() {
 }
 
 push_to_siem() {
+    set +u
     [ "$SIEM_LIVE_PUSH" != true ] && return
     local event_data="$1"
+    set -u
     [ -z "$SIEM_ENDPOINT" ] && return
     
     curl -s -X POST -H "Content-Type: application/json" \
@@ -39121,9 +39483,11 @@ push_to_siem() {
 }
 
 run_advanced_detection_engines() {
+    set +u
     local file="$1"
     local content="$2"
     local url="$3"
+    set -u
     
     local total_score=0
     local engines_run=0
@@ -40492,7 +40856,9 @@ declare -A URL_SHORTENER_EXTENDED_IOCS=(
 
 # XOR encoding detection
 detect_xor_encoding() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Detecting XOR encoding patterns..."
     
@@ -40594,7 +40960,9 @@ EOF
 
 # Multi-language malware detection orchestrator
 detect_malware_languages() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Detecting malware in multiple languages..."
     
@@ -40609,7 +40977,9 @@ detect_malware_languages() {
 
 # PowerShell malware detection
 detect_powershell_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local ps_patterns=(
         "IEX|Invoke-Expression"
@@ -40638,7 +41008,9 @@ detect_powershell_malware() {
 
 # Python malware detection
 detect_python_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local py_patterns=(
         "exec\(.*compile\("
@@ -40664,7 +41036,9 @@ detect_python_malware() {
 
 # JavaScript malware detection
 detect_javascript_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local js_patterns=(
         "eval\(.*atob\("
@@ -40688,7 +41062,9 @@ detect_javascript_malware() {
 
 # Shell malware detection
 detect_shell_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local shell_patterns=(
         "wget.*\|.*sh"
@@ -40712,7 +41088,9 @@ detect_shell_malware() {
 
 # VBScript malware detection
 detect_vbscript_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local vbs_patterns=(
         "CreateObject.*WScript\.Shell"
@@ -40736,7 +41114,9 @@ detect_vbscript_malware() {
 
 # Perl malware detection
 detect_perl_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local perl_patterns=(
         "use Socket.*connect"
@@ -40755,7 +41135,9 @@ detect_perl_malware() {
 
 # Ruby malware detection
 detect_ruby_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local ruby_patterns=(
         "IO\.popen.*system"
@@ -40774,7 +41156,9 @@ detect_ruby_malware() {
 
 # ML-style heuristic analysis
 ml_style_heuristics() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Running ML-style heuristic analysis..."
     
@@ -40862,7 +41246,9 @@ analyze_deep_links() {
 
 # Blockchain address checking
 check_blockchain_address() {
+    set +u
     local address="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -40877,7 +41263,9 @@ check_blockchain_address() {
 
 # Bitcoin address checking
 check_bitcoin_address() {
+    set +u
     local address="$1"
+    set -u
     
     log_info "Checking Bitcoin address on blockchain..."
     
@@ -40891,7 +41279,9 @@ check_bitcoin_address() {
 
 # Ethereum address checking
 check_ethereum_address() {
+    set +u
     local address="$1"
+    set -u
     
     log_info "Checking Ethereum address..."
     log_warning "Ethereum blockchain lookup requires API key"
@@ -42472,8 +42862,10 @@ analyze_script_injection() {
 
 # Steghide detection
 detect_steghide() {
+    set +u
     local image="$1"
     local base_name="$2"
+    set -u
     
     if ! command -v steghide &> /dev/null; then
         return
@@ -42491,8 +42883,10 @@ detect_steghide() {
 
 # zsteg detection
 detect_zsteg() {
+    set +u
     local image="$1"
     local base_name="$2"
+    set -u
     
     if ! command -v zsteg &> /dev/null; then
         return
@@ -42510,8 +42904,10 @@ detect_zsteg() {
 
 # stegdetect analysis
 detect_stegdetect() {
+    set +u
     local image="$1"
     local base_name="$2"
+    set -u
     
     if ! command -v stegdetect &> /dev/null; then
         return
@@ -42572,7 +42968,9 @@ EOF
 
 # Multiple QR code detection
 detect_multiple_qr_codes() {
+    set +u
     local image="$1"
+    set -u
     
     log_info "Checking for multiple/split QR codes..."
     
@@ -42639,8 +43037,10 @@ analyze_metadata() {
 
 # Hash computation
 compute_hashes() {
+    set +u
     local file="$1"
     local base_name="$2"
+    set -u
     
     log_info "Computing file hashes..."
     
@@ -42656,7 +43056,9 @@ compute_hashes() {
 
 # VirusTotal file hash check
 check_virustotal_file_hash() {
+    set +u
     local hash="$1"
+    set -u
     
     if [ -z "$VT_API_KEY" ]; then
         return
@@ -42677,7 +43079,9 @@ check_virustotal_file_hash() {
 
 # URLhaus check
 check_urlhaus() {
+    set +u
     local url="$1"
+    set -u
     
     log_info "Checking URLhaus database..."
     
@@ -42693,7 +43097,9 @@ check_urlhaus() {
 
 # PhishTank check
 check_phishtank() {
+    set +u
     local url="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ] || [ -z "$PHISHTANK_API_KEY" ]; then
         return
@@ -42727,7 +43133,9 @@ EOF
 
 # OpenPhish direct check
 check_openphish_direct() {
+    set +u
     local url="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -42742,7 +43150,9 @@ check_openphish_direct() {
 
 # AlienVault OTX domain check
 check_alienvault_otx_domain() {
+    set +u
     local domain="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -42796,8 +43206,10 @@ analyze_url_content_type() {
 
 # File download and analysis
 download_and_analyze_file() {
+    set +u
     local url="$1"
     local content_type="$2"
+    set -u
     
     log_warning "Downloading file for analysis..."
     
@@ -42858,7 +43270,9 @@ analyze_api_keys() {
 
 # Calculate entropy
 calculate_entropy() {
+    set +u
     local content="$1"
+    set -u
     
     echo "$content" | python3 2>/dev/null <<'EOF'
 import math
@@ -42933,7 +43347,9 @@ analyze_qr_behavior() {
 
 # APT indicators check
 check_apt_indicators() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Checking APT indicators..."
     
@@ -42948,7 +43364,9 @@ check_apt_indicators() {
 
 # Obfuscation detection
 detect_obfuscation() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Detecting obfuscation techniques..."
     
@@ -43016,9 +43434,11 @@ EOF
 
 # Comprehensive payload analysis
 comprehensive_payload_analysis() {
+    set +u
     local content="$1"
     local image="$2"
     local base_name="$3"
+    set -u
     
     log_info "========================================="
     log_info "COMPREHENSIVE PAYLOAD ANALYSIS"
@@ -43091,7 +43511,7 @@ analyze_network_indicators() {
             if [[ "$ip" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.) ]]; then
                 log_warning "Private IP address detected: $ip"
             else
-                if [ -n "${KNOWN_MALICIOUS_IPS[$ip]}" ]; then
+                if [[ -v "KNOWN_MALICIOUS_IPS[$ip]" ]] && [ -n "${KNOWN_MALICIOUS_IPS[$ip]}" ]; then
                     log_threat 100 "KNOWN MALICIOUS IP: $ip"
                 fi
                 check_tor_exit_node "$ip"
@@ -43114,7 +43534,9 @@ analyze_network_indicators() {
 
 # Tor exit node check
 check_tor_exit_node() {
+    set +u
     local ip="$1"
+    set -u
     
     for tor_node in "${TOR_EXIT_INDICATORS[@]}"; do
         if [ "$ip" = "$tor_node" ]; then
@@ -43126,7 +43548,9 @@ check_tor_exit_node() {
 
 # Reverse DNS lookup
 perform_reverse_dns() {
+    set +u
     local ip="$1"
+    set -u
     
     if ! command -v dig &> /dev/null || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -43147,7 +43571,9 @@ perform_reverse_dns() {
 
 # IP reputation check
 check_ip_reputation() {
+    set +u
     local ip="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -43178,7 +43604,7 @@ analyze_email_address() {
     
     log_info "Analyzing email address: $email"
     
-    if [ -n "${KNOWN_MALICIOUS_DOMAINS[$domain]}" ]; then
+    if [[ -v "KNOWN_MALICIOUS_DOMAINS[$domain]" ]] && [ -n "${KNOWN_MALICIOUS_DOMAINS[$domain]}" ]; then
         log_threat 80 "Email from KNOWN MALICIOUS DOMAIN: $domain"
     fi
     
@@ -43194,7 +43620,9 @@ analyze_email_address() {
 
 # Sandbox simulation
 simulate_sandbox_analysis() {
+    set +u
     local content="$1"
+    set -u
     
     log_forensic "Simulating sandbox analysis..."
     
@@ -43206,7 +43634,9 @@ simulate_sandbox_analysis() {
 
 # Sandbox evasion check
 check_sandbox_evasion_techniques() {
+    set +u
     local content="$1"
+    set -u
     
     local evasion_techniques=(
         "Sleep\("
@@ -43226,7 +43656,9 @@ check_sandbox_evasion_techniques() {
 
 # Anti-VM check
 check_anti_vm_techniques() {
+    set +u
     local content="$1"
+    set -u
     
     local vm_indicators=(
         "VMware" "VirtualBox" "VBOX" "QEMU" "Xen" "Hyper-V" "Parallels"
@@ -43241,7 +43673,9 @@ check_anti_vm_techniques() {
 
 # Anti-debug check
 check_anti_debug_techniques() {
+    set +u
     local content="$1"
+    set -u
     
     local debug_checks=(
         "IsDebuggerPresent" "CheckRemoteDebuggerPresent" "OutputDebugString"
@@ -43257,7 +43691,9 @@ check_anti_debug_techniques() {
 
 # Time-based evasion check
 check_time_based_evasion() {
+    set +u
     local content="$1"
+    set -u
     
     if echo "$content" | safe_grep_qiE "sleep.*[0-9]{4,}|timeout.*[0-9]{4,}|delay.*[0-9]{4,}"; then
         log_threat 40 "Time-based evasion detected (long sleep/delay)"
@@ -43266,7 +43702,9 @@ check_time_based_evasion() {
 
 # Mobile config download and analysis
 download_and_analyze_mobileconfig() {
+    set +u
     local url="$1"
+    set -u
     local profile_file="${TEMP_DIR}/suspicious_profile.mobileconfig"
     
     log_warning "Downloading mobile config profile..."
@@ -43434,9 +43872,11 @@ generate_yara_rules_file() {
 
 # Generate individual report for each image
 generate_individual_report() {
+    set +u
     local image="$1"
     local content="$2"
     local base_name="$3"
+    set -u
     
     local report="${EVIDENCE_DIR}/${base_name}_report.txt"
     
