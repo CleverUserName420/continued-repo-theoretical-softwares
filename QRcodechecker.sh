@@ -15330,12 +15330,22 @@ EOF
     else
         echo -e "${CYAN}│${NC} Success Rate:         ${WHITE}0%${NC}"
     fi
-    if [ ${#decoder_results[@]} -gt 0 ]; then
+    # AUDIT FIX: Limit display to first 20 results when all 50 decoders succeed
+    local result_count=${#decoder_results[@]}
+    if [ "$result_count" -gt 0 ]; then
         echo -e "${CYAN}│${NC} Results:"
+        local display_limit=20
+        local display_count=0
         for result in "${decoder_results[@]}"; do
+            if [ "$display_count" -ge "$display_limit" ] && [ "$result_count" -gt "$display_limit" ]; then
+                local remaining=$((result_count - display_limit))
+                echo -e "${CYAN}│${NC}   ${YELLOW}...${NC} and ${remaining} more successful decoders (output truncated)"
+                break
+            fi
             local decoder_name="${result%%:*}"
             local decoded_preview="${result#*:}"
             echo -e "${CYAN}│${NC}   ${GREEN}✓${NC} ${decoder_name}: ${decoded_preview:0:40}..."
+            ((display_count++))
         done
     fi
     echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
@@ -15349,20 +15359,30 @@ EOF
     fi
 
     # Check for decoder disagreement
+    # AUDIT FIX: Sample-based comparison to handle 50 decoders efficiently
     if [ ${#decoder_results[@]} -gt 1 ]; then
         local first_result="${decoder_results[0]#*:}"
+        local compare_limit=10
+        local compare_count=0
         for result in "${decoder_results[@]:1}"; do
+            # Limit comparisons to first 10 results for performance
+            if [ "$compare_count" -ge "$compare_limit" ]; then
+                break
+            fi
             if [ "${result#*:}" != "$first_result" ]; then
+                # Truncate decoder_results list for log to prevent oversized forensic entry
+                local truncated_results="${decoder_results[*]:0:10}"
                 log_forensic_detection 30 \
                     "Decoder Disagreement - Payload Manipulation" \
-                    "decoder_mismatch:${decoder_results[*]}" \
+                    "decoder_mismatch:${truncated_results}..." \
                     "Multi-decoder correlation analysis" \
                     "QR decoder output comparison" \
                     "Analyze each decoder output separately - possible evasion or targeted payload" \
                     "MITRE ATT&CK T1027 - Obfuscated Files or Information"
-                log_forensic "Decoder results vary: ${decoder_results[*]}"
+                log_forensic "Decoder results vary (sample): ${truncated_results}..."
                 break
             fi
+            ((compare_count++))
         done
     fi
 
@@ -15500,6 +15520,13 @@ multi_decoder_analysis_parallel() {
                 local duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "0")
                 
                 if [[ $status -eq 0 ]] && [[ -s "$out_file" ]]; then
+                    # AUDIT FIX: Limit file size to 10KB per decoder to prevent memory issues
+                    local file_size=$(wc -c < "$out_file" 2>/dev/null || echo 0)
+                    if [ "$file_size" -gt 10240 ]; then
+                        log_warning "Decoder $decoder output too large (${file_size} bytes), truncating to 10KB"
+                        head -c 10240 "$out_file" > "${out_file}.tmp" && mv "${out_file}.tmp" "$out_file"
+                    fi
+                    
                     # Thread-safe aggregation using flock
                     (
                         flock -x 200 || exit 1
@@ -15542,12 +15569,28 @@ multi_decoder_analysis_parallel() {
     
     # Aggregate results
     if [[ -f "$aggregate_output" ]] && [[ -s "$aggregate_output" ]]; then
-        sort -u "$aggregate_output" > "${base_output}_merged.txt"
+        # AUDIT FIX: Limit merged output size to prevent memory issues with 50 decoders
+        local agg_size=$(wc -c < "$aggregate_output" 2>/dev/null || echo 0)
+        if [ "$agg_size" -gt 500000 ]; then
+            log_warning "Aggregate output very large (${agg_size} bytes), truncating to 500KB"
+            head -c 500000 "$aggregate_output" | sort -u > "${base_output}_merged.txt"
+        else
+            sort -u "$aggregate_output" > "${base_output}_merged.txt"
+        fi
         all_decoded=$(cat "$aggregate_output")
     fi
     
+    # AUDIT FIX: Limit mapfile to 50 entries to handle all decoders succeeding
     if [[ -f "$aggregate_summary" ]] && [[ -s "$aggregate_summary" ]]; then
-        mapfile -t decoder_results < "$aggregate_summary"
+        local line_count=$(wc -l < "$aggregate_summary" 2>/dev/null || echo 0)
+        if [ "$line_count" -gt 50 ]; then
+            log_warning "Limiting decoder_results to first 50 of $line_count entries"
+            head -50 "$aggregate_summary" > "${aggregate_summary}.limited"
+            mapfile -t decoder_results < "${aggregate_summary}.limited"
+            rm -f "${aggregate_summary}.limited" 2>/dev/null
+        else
+            mapfile -t decoder_results < "$aggregate_summary"
+        fi
     fi
     
     success_count=${#decoder_results[@]}
@@ -15559,11 +15602,20 @@ multi_decoder_analysis_parallel() {
     echo -e "${CYAN}├─────────────────────────────────────────────────────────────┤${NC}"
     echo -e "${CYAN}│${NC} Successful Decodes:   ${WHITE}${success_count}${NC}"
     
+    # AUDIT FIX: Limit display to first 20 results when all 50 decoders succeed
     if [[ ${#decoder_results[@]} -gt 0 ]]; then
         echo -e "${CYAN}│${NC} Results:"
+        local display_limit=20
+        local display_count=0
         for result in "${decoder_results[@]}"; do
+            if [ "$display_count" -ge "$display_limit" ] && [ "${#decoder_results[@]}" -gt "$display_limit" ]; then
+                local remaining=$((${#decoder_results[@]} - display_limit))
+                echo -e "${CYAN}│${NC}   ${YELLOW}...${NC} and ${remaining} more successful decoders (output truncated)"
+                break
+            fi
             IFS=':' read -r decoder_name decoded_preview duration <<< "$result"
             echo -e "${CYAN}│${NC}   ${GREEN}✓${NC} ${decoder_name} (${duration}s): ${decoded_preview:0:35}..."
+            ((display_count++))
         done
     fi
     echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
