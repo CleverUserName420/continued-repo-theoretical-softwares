@@ -2295,12 +2295,13 @@ parallel_decoder_analysis() {
         (
             local result_file="$TEMP_DIR/decoder_${decoder}_$$.txt"
             # Run decoder based on type
+            # AUDIT FIX: Wrap decoders with crash protection
             case "$decoder" in
                 "zbar")
-                    zbarimg -q "$image_file" 2>/dev/null > "$result_file" || true
+                    run_isolated_with_output 30 "$result_file" zbarimg -q "$image_file" || true
                     ;;
                 "pyzbar")
-                    python3 -c "from pyzbar.pyzbar import decode; from PIL import Image; print('\n'.join([d.data.decode() for d in decode(Image.open('$image_file'))]))" 2>/dev/null > "$result_file" || true
+                    run_isolated 30 python3 -c "from pyzbar.pyzbar import decode; from PIL import Image; print('\n'.join([d.data.decode() for d in decode(Image.open('$image_file'))]))" > "$result_file" 2>/dev/null || true
                     ;;
                 *)
                     echo "" > "$result_file"
@@ -5106,8 +5107,8 @@ declare -A API_KEY_PATTERNS=(
 ################################################################################
 
 declare -A OBFUSCATION_PATTERNS=(
-    # Base64 encoding patterns (FIXED:  using POSIX character classes)
-    ["base64_standard"]="^[[:alnum: ]+/]{40,}={0,2}$"
+    # Base64 encoding patterns (AUDIT FIX: Fixed POSIX class - space outside [[:alnum:]])
+    ["base64_standard"]="^[[:alnum:]+/ ]{40,}={0,2}$"
     ["base64_url_safe"]="^[[:alnum:]_-]{40,}$"
     ["base64_prefix"]="(data:|base64,|;base64)"
     ["base64_decode_call"]="(atob|base64_decode|b64decode|Base64\.decode|Buffer\.from)"
@@ -5187,11 +5188,11 @@ declare -A OBFUSCATION_PATTERNS=(
     # Dword obfuscation (malware C2 IP as unsigned int)
     ["dword_ip"]="\\b[[:digit:]]{8,10}\\b"
     
-    # PowerShell encoded command (FIXED: using POSIX classes)
-    ["ps_encoded_cmd"]="powershell.exe.*-enc(oded)?command[[:space:]]+[[:alnum: ]+/=]+"
+    # PowerShell encoded command (AUDIT FIX: Fixed POSIX class - space outside [[:alnum:]])
+    ["ps_encoded_cmd"]="powershell.exe.*-enc(oded)?command[[:space:]]+[[:alnum:]+/= ]+"
     
-    # JavaScript function alias obfuscation (FIXED: using POSIX classes)
-    ["function_alias_js"]="var[[: space:]]+[[:alpha:]_][[:alnum:]_]*[[:space:]]*=[[:space:]]*function[[:space:]]*\\("
+    # JavaScript function alias obfuscation (AUDIT FIX: Fixed POSIX class - no space in [[:space:]])
+    ["function_alias_js"]="var[[:space:]]+[[:alpha:]_][[:alnum:]_]*[[:space:]]*=[[:space:]]*function[[:space:]]*\\("
     
     # Execution through regsvr32/cscript/mshta/sct
     ["living_off_land"]="(regsvr32|cscript|mshta|wmic|rundll32).*\\.sct"
@@ -10336,11 +10337,14 @@ decode_with_imagemagick_zbar() {
             "-resize 200%" \
             "-resize 50%"; do
             convert "$image" $technique "${temp_img}.png" 2>/dev/null
-            if zbarimg --quiet --raw "${temp_img}.png" 2>/dev/null >> "$output_file"; then
-                rm -f "${temp_img}.png" 2>/dev/null
+            # AUDIT FIX: Wrap zbarimg with crash protection
+            local temp_result="${temp_img}_result.txt"
+            if run_isolated_with_output 30 "$temp_result" zbarimg --quiet --raw "${temp_img}.png"; then
+                cat "$temp_result" >> "$output_file" 2>/dev/null
+                rm -f "${temp_img}.png" "$temp_result" 2>/dev/null
                 [ -s "$output_file" ] && return 0
             fi
-            rm -f "${temp_img}.png" 2>/dev/null
+            rm -f "${temp_img}.png" "$temp_result" 2>/dev/null
         done
         return 1
     else
@@ -42304,7 +42308,13 @@ detect_multiple_qr_codes() {
     
     log_info "Checking for multiple/split QR codes..."
     
-    local num_codes=$(zbarimg "$image" 2>/dev/null | grep -c "QR-Code")
+    # AUDIT FIX: Wrap zbarimg with crash protection
+    local temp_result=$(create_secure_temp_file "multi_qr") || return 1
+    local num_codes=0
+    if run_isolated_with_output 30 "$temp_result" zbarimg "$image"; then
+        num_codes=$(grep -c "QR-Code" "$temp_result" 2>/dev/null || echo 0)
+    fi
+    rm -f "$temp_result" 2>/dev/null
     
     if [ "$num_codes" -gt 1 ]; then
         log_threat 35 "Multiple QR codes in image: $num_codes codes"
