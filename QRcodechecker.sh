@@ -15191,7 +15191,12 @@ EOF
     
     echo -e "${CYAN}│${NC} Decoders Attempted:   ${WHITE}${total_decoders}${NC}"
     echo -e "${CYAN}│${NC} Successful Decodes:   ${WHITE}${success_count}${NC}"
-    echo -e "${CYAN}│${NC} Success Rate:         ${WHITE}$((success_count * 100 / total_decoders))%${NC}"
+    # AUDIT FIX: Prevent division by zero
+    if [ "${total_decoders:-0}" -gt 0 ]; then
+        echo -e "${CYAN}│${NC} Success Rate:         ${WHITE}$((success_count * 100 / total_decoders))%${NC}"
+    else
+        echo -e "${CYAN}│${NC} Success Rate:         ${WHITE}0%${NC}"
+    fi
     if [ ${#decoder_results[@]} -gt 0 ]; then
         echo -e "${CYAN}│${NC} Results:"
         for result in "${decoder_results[@]}"; do
@@ -15583,7 +15588,11 @@ analyze_anti_analysis_techniques() {
     # 1. LOW DECODER SUCCESS RATE ANALYSIS
     # ═══════════════════════════════════════════════════════════════════════════
     if [ "$success_count" -gt 0 ] && [ "$success_count" -lt 3 ]; then
-        local success_rate=$((success_count * 100 / total_decoders))
+        # AUDIT FIX: Prevent division by zero
+        local success_rate=0
+        if [ "${total_decoders:-0}" -gt 0 ]; then
+            success_rate=$((success_count * 100 / total_decoders))
+        fi
         anti_analysis_findings+=("Low decoder success rate: ${success_count}/${total_decoders} (${success_rate}%)")
         iocs_detected+=("low_decoder_success_rate:${success_rate}%")
         
@@ -15619,27 +15628,32 @@ analyze_anti_analysis_techniques() {
         
         if [ -n "$width" ] && [ -n "$height" ]; then
             # Check aspect ratio
-            if [ "$width" -ne "$height" ] && [ "$width" -gt 0 ]; then
-                local ratio=$((width * 100 / height))
-                if [ "$ratio" -lt 90 ] || [ "$ratio" -gt 110 ]; then
-                    anti_analysis_findings+=("Abnormal aspect ratio: ${width}x${height} (${ratio}%)")
-                    iocs_detected+=("aspect_ratio_abnormal:${ratio}%")
-                    total_score=$((total_score + 15))
+            # AUDIT FIX: Prevent division by zero and integer comparison errors
+            # Check that width and height are numeric and non-zero
+            if [[ "$width" =~ ^[0-9]+$ ]] && [[ "$height" =~ ^[0-9]+$ ]] && [ "$width" -gt 0 ] && [ "$height" -gt 0 ]; then
+                if [ "$width" -ne "$height" ]; then
+                    local ratio=$((width * 100 / height))
+                    if [ "$ratio" -lt 90 ] || [ "$ratio" -gt 110 ]; then
+                        anti_analysis_findings+=("Abnormal aspect ratio: ${width}x${height} (${ratio}%)")
+                        iocs_detected+=("aspect_ratio_abnormal:${ratio}%")
+                        total_score=$((total_score + 15))
+                    fi
                 fi
-            fi
             
-            # Check for unusual QR code versions (very large dimensions)
-            if [ "$width" -gt 1000 ] || [ "$height" -gt 1000 ]; then
-                anti_analysis_findings+=("Unusually large QR: ${width}x${height}")
-                iocs_detected+=("unusual_qr_version:large_${width}x${height}")
-                total_score=$((total_score + 10))
+                # Check for unusual QR code versions (very large dimensions)
+                if [ "$width" -gt 1000 ] || [ "$height" -gt 1000 ]; then
+                    anti_analysis_findings+=("Unusually large QR: ${width}x${height}")
+                    iocs_detected+=("unusual_qr_version:large_${width}x${height}")
+                    total_score=$((total_score + 10))
+                fi
             fi
         fi
         
         # Check color depth
         local color_depth
         color_depth=$(echo "$img_info" | grep -E "^[[:space:]]+Depth:" | sed 's/.*: *\([0-9]*\).*/\1/')
-        if [ -n "$color_depth" ] && [ "$color_depth" -gt 8 ]; then
+        # AUDIT FIX: Add numeric validation before integer comparison
+        if [ -n "$color_depth" ] && [[ "$color_depth" =~ ^[0-9]+$ ]] && [ "$color_depth" -gt 8 ]; then
             anti_analysis_findings+=("High color depth for QR: ${color_depth}-bit")
             iocs_detected+=("suspicious_color_depth:${color_depth}bit")
             total_score=$((total_score + 10))
@@ -18162,9 +18176,10 @@ analyze_data_uri() {
             log_forensic "Decoded Data URI content (first 200 chars): ${decoded:0:200}"
 
             # Check decoded content for QR-relevant threats: html/script, shellcode, exploits, secrets, URLs, credentials
-            if echo "$decoded" | grep -qE "(<script>|eval\(|window\.|curl|wget|powershell|api[_\-]?key|flag|password|secret|BEGIN RSA|-----BEGIN|bitcoin|eth|xmr|wallet|address|token|href=|src=|cmd|exec|system|mailto:)"; then
+            # AUDIT FIX: Fixed character class - use [_-] instead of [_\-]
+            if echo "$decoded" | grep -qE "(<script>|eval\(|window\.|curl|wget|powershell|api[_-]?key|flag|password|secret|BEGIN RSA|-----BEGIN|bitcoin|eth|xmr|wallet|address|token|href=|src=|cmd|exec|system|mailto:)"; then
                 log_threat 55 "Decoded Data URI contains executable/malicious code or credential artifacts"
-                log_forensic "QR Data URI threat content: $(echo "$decoded" | grep -oE '(<script>|eval\(|curl|wget|api[_\-]?key|flag|password|secret|bitcoin|wallet|cmd|exec|system|mailto:).{0,32}')"
+                log_forensic "QR Data URI threat content: $(echo "$decoded" | grep -oE '(<script>|eval\(|curl|wget|api[_-]?key|flag|password|secret|bitcoin|wallet|cmd|exec|system|mailto:).{0,32}')"
             fi
 
             # Base64 in SVG or HTML: phishing or exploit chains
@@ -18205,9 +18220,10 @@ analyze_base64_in_url() {
             log_forensic "Decoded Base64 from QR code URL (first 100 chars): ${decoded:0:100}"
 
             # QR-specific threat checks: shell, script, secret, credential, C2 beacon, phishing, exploit, stego
-            if echo "$decoded" | grep -qE "(<script>|eval\(|curl|wget|powershell|api[_\-]?key|flag|password|secret|BEGIN RSA|bitcoin|wallet|address|token|cmd|exec|system|mailto:|src=|href=|data:text/html|javascript:)"; then
+            # AUDIT FIX: Fixed character class - use [_-] instead of [_\-]
+            if echo "$decoded" | grep -qE "(<script>|eval\(|curl|wget|powershell|api[_-]?key|flag|password|secret|BEGIN RSA|bitcoin|wallet|address|token|cmd|exec|system|mailto:|src=|href=|data:text/html|javascript:)"; then
                 log_threat 45 "Decoded payload contains potential code or credentials, QR exploit suspected"
-                log_forensic "QR Base64 threat markers: $(echo "$decoded" | grep -oE '(<script>|eval\(|curl|wget|api[_\-]?key|flag|password|secret|bitcoin|wallet|cmd|exec|system|mailto:).{0,32}')"
+                log_forensic "QR Base64 threat markers: $(echo "$decoded" | grep -oE '(<script>|eval\(|curl|wget|api[_-]?key|flag|password|secret|bitcoin|wallet|cmd|exec|system|mailto:).{0,32}')"
             fi
 
             # Detect high-entropy (stego, encrypted, binary malware)
@@ -18270,7 +18286,8 @@ analyze_decoded_content() {
     fi
 
     # Credentials, secrets, flags, crypto (QR exfil/phishing CTX)
-    if echo "$content" | grep -qiE "[A-Za-z0-9]{32,}|api[_\-]?key|flag{[A-Za-z0-9\-_]+}|password|passwd|secret|token|wallet|mnemonic|recover|seed|private.?key|ssh-rsa|-----BEGIN"; then
+    # AUDIT FIX: Fixed character class - moved dash to end [A-Za-z0-9_-] instead of [A-Za-z0-9\-_]
+    if echo "$content" | grep -qiE "[A-Za-z0-9]{32,}|api[_-]?key|flag\{[A-Za-z0-9_-]+\}|password|passwd|secret|token|wallet|mnemonic|recover|seed|private.?key|ssh-rsa|-----BEGIN"; then
         log_forensic_detection 55 \
             "Secrets/Credentials/CTF Flags Detected in Decoded QR Content" \
             "suspect_keyword_detected" \
@@ -18624,7 +18641,8 @@ check_domain_dns() {
     txt_records=$(dig +short TXT "$domain" 2>/dev/null)
     if [ -n "$txt_records" ]; then
         # If TXT records match patterns typical of exfil/data/crypto/command beacon
-        if echo "$txt_records" | grep -qEi "api[_\-]?key|flag|secret|bitcoin|wallet|token|c2|beacon|cmd|base64|ssh|vnc|payload"; then
+        # AUDIT FIX: Fixed character class - use [_-] instead of [_\-]
+        if echo "$txt_records" | grep -qEi "api[_-]?key|flag|secret|bitcoin|wallet|token|c2|beacon|cmd|base64|ssh|vnc|payload"; then
             log_threat 30 "QR domain shows suspicious TXT record data - possible exfil/Malware"
             log_forensic "QR TXT DNS records: $txt_records"
             echo "$domain:TXT:$txt_records" >> "${EVIDENCE_DIR}/qr_dns_txt.log"
