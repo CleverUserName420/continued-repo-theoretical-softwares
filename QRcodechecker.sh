@@ -3367,6 +3367,43 @@ sync_all_background_jobs() {
     log_info "Background jobs synchronized"
 }
 
+# AUDIT FIX: Process throttling to prevent fork exhaustion
+# Tracks subprocess spawning and adds micro-delays when needed
+SUBPROCESS_COUNT=0
+SUBPROCESS_THRESHOLD=50  # Reset counter after this many spawns
+SUBPROCESS_DELAY=0.05    # Delay in seconds to allow process cleanup
+
+# Increment subprocess counter and throttle if needed
+# Call this before spawning subprocesses in tight loops
+throttle_subprocess() {
+    ((SUBPROCESS_COUNT++))
+    if (( SUBPROCESS_COUNT >= SUBPROCESS_THRESHOLD )); then
+        # Allow OS to reclaim process table entries
+        wait 2>/dev/null || true
+        sleep "$SUBPROCESS_DELAY"
+        SUBPROCESS_COUNT=0
+    fi
+}
+
+# Batch throttle for use after multiple subprocess spawns
+# Use this at the end of loops that spawn many processes
+batch_throttle() {
+    local batch_size="${1:-10}"
+    if (( SUBPROCESS_COUNT >= batch_size )); then
+        wait 2>/dev/null || true
+        sleep "$SUBPROCESS_DELAY"
+        SUBPROCESS_COUNT=0
+    fi
+}
+
+# Heavy throttle for use in resource-intensive sections
+# Forces a wait and delay regardless of counter
+force_throttle() {
+    wait 2>/dev/null || true
+    sleep 0.1
+    SUBPROCESS_COUNT=0
+}
+
 # Parallel decoder analysis
 parallel_decoder_analysis() {
     set +u
@@ -23026,15 +23063,29 @@ analyze_obfuscation() {
 
     log_info "  Checking for advanced obfuscation techniques..."
 
+    # AUDIT FIX: Add pattern counter for throttling
+    local pattern_count=0
+    
     # Detect known and advanced obfuscation techniques via patterns (from OBFUSCATION_PATTERNS db)
     for pattern_name in "${!OBFUSCATION_PATTERNS[@]}"; do
         local pattern="${OBFUSCATION_PATTERNS[$pattern_name]}"
+        
+        # AUDIT FIX: Throttle every 5 patterns to prevent fork exhaustion
+        pattern_count=$((pattern_count + 1))
+        if (( pattern_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.05
+        fi
+        
         # AUDIT FIX: Wrap grep in error handling to prevent crashes
         if echo "$content" | safe_grep_qE "$pattern" 2>/dev/null; then
             log_threat 35 "Obfuscation technique detected: $pattern_name"
             log_forensic "Matched obfuscation pattern: $pattern_name ($pattern)"
         fi
     done
+    
+    # AUDIT FIX: Force wait after pattern loop
+    wait 2>/dev/null || true
 
     # Mobile app packing & script obfuscators
     if echo "$content" | safe_grep_qiE "dexguard|proguard|ilex|protect.dex|mogua|jiagu|secneo|appguard|tampermonkey|packer|deepsea|mobisec"; then
@@ -23248,6 +23299,9 @@ analyze_script_content() {
         analyze_javascript_payload "$content"
     fi
     
+    # AUDIT FIX: Throttle after first batch of checks
+    wait 2>/dev/null || true
+    
     # Python
     if echo "$content" | safe_grep_qiE "python|import[[:space:]]\+|from[[:space:]]\+.*[[:space:]]+import|exec\(|eval\(|__import__"; then
         log_threat 40 "Python content detected"
@@ -23263,6 +23317,9 @@ analyze_script_content() {
     if echo "$content" | safe_grep_qiE "@echo|%.*%|set /|goto|cmd\.exe|command\.com"; then
         log_threat 45 "Windows Batch content detected"
     fi
+    
+    # AUDIT FIX: Throttle after second batch of checks
+    wait 2>/dev/null || true
     
     # AppleScript/macOS/iOS
     if echo "$content" | safe_grep_qiE "osascript|tell application|AppleScript|do shell script"; then
@@ -23284,6 +23341,9 @@ analyze_script_content() {
         log_threat 36 "Perl script detected"
     fi
 
+    # AUDIT FIX: Throttle after third batch of checks
+    wait 2>/dev/null || true
+
     # Lua (RAT, Game mods, threat tooling)
     if echo "$content" | safe_grep_qiE "lua|require\(|function |local |end"; then
         log_threat 35 "Lua script detected"
@@ -23304,6 +23364,9 @@ analyze_script_content() {
         log_threat 44 "Living-off-the-land binary/script/automation detected"
     fi
     
+    # AUDIT FIX: Throttle after fourth batch of checks
+    wait 2>/dev/null || true
+    
     # RAT/stealer C2 logic (Python, JS, PowerShell, Bash)
     if echo "$content" | safe_grep_qiE "quasar|empire|meterpreter|cobaltstrike|beacon|rat|async|reverse_shell|bind_shell|websocket|token|api.*post|discord|telegram|slack"; then
         log_threat 44 "RAT/stealer or C2 logic detected"
@@ -23323,6 +23386,9 @@ analyze_script_content() {
     if echo "$content" | safe_grep_qiE "builder\.exe|packer|obfuscator|manifest|provisioning|signapk|signipa|shellter|veil|drozer|mobisec|mobSF"; then
         log_threat 40 "Supply chain/packer/provisioning script detected"
     fi
+
+    # AUDIT FIX: Throttle after fifth batch of checks
+    wait 2>/dev/null || true
 
     # Data exfiltration/compression/staging
     if echo "$content" | safe_grep_qiE "base64|zipfile|gzip|tarfile|curl.*-T|wget.*--post|ftp|scp|sftp|nc.*-w|aws s3 cp|gsutil cp|azcopy|dropbox|gdrive"; then
@@ -23710,6 +23776,9 @@ analyze_command_content() {
     
     log_info "  Checking for command patterns..."
     
+    # AUDIT FIX: Add command counter for throttling
+    local cmd_count=0
+    
     # Windows commands
     local win_commands=(
         "cmd\.exe" "powershell\.exe" "wscript\.exe" "cscript\.exe"
@@ -23723,6 +23792,12 @@ analyze_command_content() {
     )
     
     for cmd in "${win_commands[@]}"; do
+        # AUDIT FIX: Throttle every 5 commands
+        cmd_count=$((cmd_count + 1))
+        if (( cmd_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.02
+        fi
         if echo "$content" | safe_grep_qiE "$cmd"; then
             log_threat 40 "Windows command detected: $cmd"
         fi
@@ -23740,10 +23815,20 @@ analyze_command_content() {
     )
     
     for lolbin in "${lolbins[@]}"; do
+        # AUDIT FIX: Throttle every 5 commands
+        cmd_count=$((cmd_count + 1))
+        if (( cmd_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.02
+        fi
         if echo "$content" | safe_grep_qiE "$lolbin"; then
             log_threat 70 "LOLBIN/LOLBAS technique: $lolbin"
         fi
     done
+    
+    # AUDIT FIX: Force wait before processing large unix_commands array
+    wait 2>/dev/null || true
+    sleep 0.1
 
     # Linux/macOS/UNIX commands (persistence, impact, exfil, priv-esc, lateral, etc.)
     local unix_commands=(
@@ -23856,11 +23941,22 @@ analyze_command_content() {
         "\\bwall\\b" "\\bwrite\\b" "\\bmesg\\b" "\\btalk\\b" "\\bytalk\\b"
     )
 
+    # AUDIT FIX: Reset counter for unix_commands loop
+    cmd_count=0
     for cmd in "${unix_commands[@]}"; do
+        # AUDIT FIX: Throttle every 10 commands for large array (150+ entries)
+        cmd_count=$((cmd_count + 1))
+        if (( cmd_count % 10 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.02
+        fi
         if echo "$content" | safe_grep_qiE "$cmd"; then
             log_threat 45 "Unix/Linux/macOS command detected: $cmd"
         fi
     done
+    
+    # AUDIT FIX: Force wait after large unix_commands loop
+    wait 2>/dev/null || true
 
     # Cloud/SaaS/automation/exfil commands
     local cloud_commands=(
@@ -23882,6 +23978,9 @@ analyze_command_content() {
             log_threat 41 "Mobile/Android/iOS automation/supply chain command detected: $cmd"
         fi
     done
+    
+    # AUDIT FIX: Throttle before final command checks
+    wait 2>/dev/null || true
 
     # IoT/OT/ICS/SCADA/industrial/automation commands
     local iot_commands=(
@@ -23892,7 +23991,10 @@ analyze_command_content() {
             log_threat 39 "IoT/OT/ICS/SCADA command/automation detected: $cmd"
         fi
     done
-
+    
+    # AUDIT FIX: Force wait after command content check completes
+    wait 2>/dev/null || true
+    log_forensic "Command content check complete (${#content} bytes analyzed)"
     # Stego/image hybrid/packer/offsec/supply chain commands
     local stego_commands=(
         "stego" "lsb" "exiftool" "pngcheck" "convert" "imagemagick" "ffmpeg" "jpegoptim" "zip" "tar" "gzip" "binascii" "b64" "xxd"
@@ -23924,9 +24026,20 @@ analyze_secrets() {
     
     log_info "  Checking for exposed secrets..."
     
+    # AUDIT FIX: Add throttle counter for loops
+    local check_count=0
+    
     # Check against API key patterns
     for key_type in "${!API_KEY_PATTERNS[@]}"; do
         local pattern="${API_KEY_PATTERNS[$key_type]}"
+        
+        # AUDIT FIX: Throttle every 5 patterns
+        check_count=$((check_count + 1))
+        if (( check_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.02
+        fi
+        
         if echo "$content" | safe_grep_qE "$pattern"; then
             log_threat 60 "Potential $key_type exposed!"
             
@@ -23936,12 +24049,25 @@ analyze_secrets() {
         fi
     done
     
+    # AUDIT FIX: Throttle before next loop
+    wait 2>/dev/null || true
+    
     # Check for credential patterns
     for pattern in "${CREDENTIAL_PATTERNS[@]}"; do
+        # AUDIT FIX: Throttle every 5 patterns
+        check_count=$((check_count + 1))
+        if (( check_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.02
+        fi
+        
         if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 50 "Credential pattern detected: $pattern"
         fi
     done
+    
+    # AUDIT FIX: Throttle before additional checks
+    wait 2>/dev/null || true
     
     # Private keys
     if echo "$content" | safe_grep_qE "-----BEGIN.*(PRIVATE|RSA|EC|DSA|OPENSSH).*-----"; then
@@ -24006,7 +24132,17 @@ analyze_crypto_addresses() {
     
     local crypto_found=false
     
+    # AUDIT FIX: Add pattern counter for throttling
+    local pattern_count=0
+    
     for pattern in "${CRYPTO_PATTERNS[@]}"; do
+        # AUDIT FIX: Throttle every 5 patterns
+        pattern_count=$((pattern_count + 1))
+        if (( pattern_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.02
+        fi
+        
         local matches=$(echo "$content" | safe_grep_oE "$pattern")
         if [ -n "$matches" ]; then
             crypto_found=true
@@ -24068,6 +24204,13 @@ analyze_crypto_addresses() {
     )
 
     for pattern in "${extra_patterns[@]}"; do
+        # AUDIT FIX: Throttle every 5 patterns
+        pattern_count=$((pattern_count + 1))
+        if (( pattern_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.02
+        fi
+        
         local matches=$(echo "$content" | safe_grep_oE "$pattern")
         if [ -n "$matches" ]; then
             for addr in $matches; do
@@ -24077,6 +24220,9 @@ analyze_crypto_addresses() {
             crypto_found=true
         fi
     done
+    
+    # AUDIT FIX: Throttle before additional checks
+    wait 2>/dev/null || true
 
     # DEX, mixing, scam/pay/QR payment processors
     if echo "$content" | safe_grep_qiE "shapeshift|mixer\.io|tornado\.cash|wasabi\.wallet|samourai\.wallet|binance\.com|coinbase\.com|kraken\.com|trustwallet|metamask|blockchain\.info"; then
@@ -24087,6 +24233,9 @@ analyze_crypto_addresses() {
     if echo "$content" | safe_grep_qiE "bridge\.arbitrum|app\.optimism|bridge\.zksync|starkgate|bridge\.base|hop\.exchange|across\.to|stargate\.finance"; then
         log_threat 40 "Layer 2 bridge interaction detected"
     fi
+    
+    # AUDIT FIX: Throttle after bridge detection
+    wait 2>/dev/null || true
     
     # TON/Telegram wallet detection
     if echo "$content" | safe_grep_qiE "tonkeeper|tonhub|ton\.org/wallets|fragment\.com|getgems\.io|ton\.place"; then
@@ -24103,8 +24252,18 @@ analyze_crypto_addresses() {
         log_threat 50 "DeFi/NFT/contract/wallet drainer pattern detected"
     fi
     
+    # AUDIT FIX: Throttle before EXTENDED_CRYPTO_IOCS loop
+    wait 2>/dev/null || true
+    
     # Check against EXTENDED_CRYPTO_IOCS
     for key in "${!EXTENDED_CRYPTO_IOCS[@]}"; do
+        # AUDIT FIX: Throttle every 5 patterns
+        pattern_count=$((pattern_count + 1))
+        if (( pattern_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.02
+        fi
+        
         local pattern="${EXTENDED_CRYPTO_IOCS[$key]}"
         if echo "$content" | safe_grep_qiE "$pattern"; then
             log_threat 45 "Extended crypto threat: $key"
@@ -24232,11 +24391,12 @@ evaluate_all_yara_rules() {
         local matched_patterns=""
         matched_patterns=$(evaluate_yara_rule "$content" "$rule_name")
         
-        # Prevent fork exhaustion by allowing process cleanup every few rules
+        # AUDIT FIX: More aggressive throttling - every 3 rules instead of 5
+        # Each rule evaluation spawns multiple subprocesses via safe_grep calls
         rule_count=$((rule_count + 1))
-        if (( rule_count % 5 == 0 )); then
+        if (( rule_count % 3 == 0 )); then
             wait 2>/dev/null || true
-            sleep 0.05
+            sleep 0.1
         fi
         
         if [ -n "$matched_patterns" ]; then
@@ -36017,7 +36177,16 @@ analyze_nlp_content() {
     # Analyze scam patterns
     echo "Scam Pattern Detection:" >> "$nlp_report"
     
+    # AUDIT FIX: Add throttling counter to prevent fork exhaustion
+    local pattern_count=0
     for pattern in "${NLP_SCAM_PATTERNS[@]}"; do
+        # AUDIT FIX: Throttle every 5 patterns to prevent fork exhaustion
+        pattern_count=$((pattern_count + 1))
+        if (( pattern_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.05
+        fi
+        
         if echo "$content" | safe_grep_qiE "$pattern"; then
             local matched=$(echo "$content" | safe_grep_oiE "$pattern" 2>/dev/null | head -1)
             nlp_findings+=("scam_pattern:$matched")
@@ -36041,6 +36210,9 @@ analyze_nlp_content() {
             esac
         fi
     done
+    
+    # AUDIT FIX: Force wait after pattern loop
+    wait 2>/dev/null || true
     
     # Python-based sentiment and entity analysis
     # FIXED: Use base64 encoding to safely pass content to Python
@@ -36270,12 +36442,16 @@ analyze_mobile_static() {
     echo "" >> "$mobile_report"
     echo "Mobile Pattern Detection:" >> "$mobile_report"
     
+    # AUDIT FIX: Add throttle after mobile pattern checks to prevent fork exhaustion
     # Android patterns
     if echo "$content" | safe_grep_qiE 'market://|play\.google\.com/store|android\.intent'; then
         mobile_findings+=("android_market")
         ((mobile_score += 15))
         echo "  ✓ Android Market/Play Store reference" >> "$mobile_report"
     fi
+    
+    # AUDIT FIX: Throttle after first batch of grep calls
+    wait 2>/dev/null || true
     
     if echo "$content" | safe_grep_qiE 'intent://|android-app://'; then
         mobile_findings+=("android_intent_scheme")
@@ -36290,6 +36466,9 @@ analyze_mobile_static() {
         ((mobile_score += 15))
         echo "  ✓ iOS App Store reference" >> "$mobile_report"
     fi
+    
+    # AUDIT FIX: Throttle after second batch of grep calls
+    wait 2>/dev/null || true
     
     if echo "$content" | safe_grep_qiE '\.mobileconfig|configuration profile'; then
         mobile_findings+=("ios_mobileconfig")
@@ -36410,6 +36589,9 @@ analyze_web_archive() {
     local wayback_api="http://archive.org/wayback/available?url=$url"
     local wayback_result=$(curl -sS --max-time 15 "$wayback_api" 2>/dev/null)
     
+    # AUDIT FIX: Throttle after curl to prevent fork exhaustion
+    wait 2>/dev/null || true
+    
     if [ -n "$wayback_result" ]; then
         local archived_url=$(json_extract_string "$wayback_result" "url")
         local archive_timestamp=$(json_extract_string "$wayback_result" "timestamp")
@@ -36427,6 +36609,9 @@ analyze_web_archive() {
             log_info "  Fetching archived version for comparison..."
             local archived_content=$(curl -sS --max-time 20 "$archived_url" 2>/dev/null | head -c 50000)
             
+            # AUDIT FIX: Throttle after curl to prevent fork exhaustion
+            wait 2>/dev/null || true
+            
             if [ -n "$archived_content" ]; then
                 # Check for phishing indicators that appeared
                 if echo "$archived_content" | grep -qiE 'login|password|verify|suspended'; then
@@ -36442,12 +36627,19 @@ analyze_web_archive() {
         fi
     fi
     
+    # AUDIT FIX: Throttle before next API call
+    wait 2>/dev/null || true
+    sleep 0.1
+    
     # 2. Check domain age via archive
     echo "" >> "$archive_report"
     echo "Domain History Analysis:" >> "$archive_report"
     
     local cdx_api="http://web.archive.org/cdx/search/cdx?url=$domain&output=json&limit=5"
     local cdx_result=$(curl -sS --max-time 15 "$cdx_api" 2>/dev/null)
+    
+    # AUDIT FIX: Throttle after curl to prevent fork exhaustion
+    wait 2>/dev/null || true
     
     if [ -n "$cdx_result" ] && echo "$cdx_result" | grep -q '\['; then
         # Get first capture date
@@ -36467,6 +36659,10 @@ analyze_web_archive() {
             fi
         fi
     fi
+    
+    # AUDIT FIX: Throttle before next API call
+    wait 2>/dev/null || true
+    sleep 0.1
     
     # 3. Archive.today check
     log_info "  Checking archive.today..."
