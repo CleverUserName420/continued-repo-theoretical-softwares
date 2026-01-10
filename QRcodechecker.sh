@@ -3227,9 +3227,22 @@ check_gnu_parallel() {
             PARALLEL_AVAILABLE=true
             log_info "GNU parallel detected - using for resource-safe parallel execution"
             return 0
+        else
+            log_info "Non-GNU parallel detected (moreutils?) - not compatible, using bash fallback"
         fi
     fi
     log_info "GNU parallel not available - using fallback parallel execution with resource limits"
+    return 1
+}
+
+# Validate a decoder/check name to prevent injection attacks
+# Only allows alphanumeric characters, underscores, and hyphens
+validate_job_name() {
+    local name="$1"
+    if [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        return 0
+    fi
+    log_warning "Invalid job name rejected: $name"
     return 1
 }
 
@@ -3246,6 +3259,14 @@ run_parallel_jobs() {
     
     if [[ ! -f "$job_file" ]]; then
         log_error "Job file not found: $job_file"
+        return 1
+    fi
+    
+    # Validate job file is within expected temp directories
+    local job_file_dir
+    job_file_dir=$(dirname "$job_file" 2>/dev/null)
+    if [[ "$job_file_dir" != "${MMAP_TEMP_DIR:-}" ]] && [[ "$job_file_dir" != "${TEMP_DIR:-}" ]] && [[ "$job_file_dir" != "/tmp"* ]]; then
+        log_error "Job file path not in expected temp directory: $job_file"
         return 1
     fi
     
@@ -3393,6 +3414,10 @@ parallel_decoder_analysis() {
                  --env temp_base \
                  '
                  decoder={}
+                 # Validate decoder name (alphanumeric, underscores, hyphens only)
+                 if [[ ! "$decoder" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                     exit 1
+                 fi
                  result_file="${temp_base}/decoder_${decoder}_$$.txt"
                  case "$decoder" in
                      "zbar")
@@ -3558,6 +3583,10 @@ parallel_threat_intel_check() {
                  '
                  check_info={}
                  check_name="${check_info%%:*}"
+                 # Validate check_name (alphanumeric, underscores, hyphens only)
+                 if [[ ! "$check_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                     exit 1
+                 fi
                  result_file="${temp_base}/threat_${check_name}_$$.txt"
                  echo "checked:$check_name" > "$result_file" 2>/dev/null || true
                  ' < "$check_jobs" 2>/dev/null || true
@@ -4469,7 +4498,7 @@ declare -A OPTIONAL_DEPS=(
     ["decodeqr"]="libdecodeqr C/C++ decoder"
     ["qrdecoder"]="Alternative libdecodeqr decoder"
     ["dmtxread"]="libdmtx DataMatrix decoder"
-    ["parallel"]="GNU parallel - prevents fork resource exhaustion"
+    ["parallel"]="GNU parallel - job parallelization tool that prevents fork resource exhaustion"
 )
 
 check_dependencies() {
@@ -16949,6 +16978,10 @@ multi_decoder_analysis_parallel() {
                      --env TEMP_DIR \
                      '
                      decoder={}
+                     # Validate decoder name (alphanumeric, underscores, hyphens only)
+                     if [[ ! "$decoder" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                         exit 1
+                     fi
                      if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
                          out_file="${MMAP_TEMP_DIR}/_${decoder}_$$.txt"
                      else
