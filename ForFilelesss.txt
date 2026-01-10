@@ -1,0 +1,857 @@
+• abuse.ch Family - ThreatFox (malware IOCs), MalwareBazaar (samples), URLhaus (malicious URLs), Feodo Tracker (botnet C2s), SSL Blacklist/SSLBL (malicious certificates)
+
+• AbuseIPDB - Community-powered IP reputation database for abusive/malicious activity
+
+• AlienVault OTX - Open threat intelligence sharing platform with "Pulses" for campaign tracking, API-enabled
+
+• AlphaSOC - Specialized threat intelligence feeds
+
+• Anomali - Commercial TIP for feed aggregation and correlation
+
+• ANY.RUN - Interactive malware sandbox for fileless and behavioral analysis
+
+• APTnotes - Repository of APT reports with extracted IOCs
+
+• Atomic Red Team - Detection-focused library of fileless attack techniques
+
+• Bambenek Consulting - Targeted C2 and malware feeds
+
+• BGP Ranking - ASN reputation scoring
+
+• Binary Defense - Focused threat feeds
+
+• Blocklist.de - Real-time blocklist for SSH, mail server, Apache attacks
+
+• Botvrij.eu - Dutch data-sharing initiative for botnet IPs
+
+• C2 Tracker (GitHub) - Open-source feed of C2 server infrastructure with raw text exports
+
+• Cape Sandbox - Open-source malware sandbox (self-hosted option)
+
+• Censys - Internet-wide scan data for infrastructure reconnaissance
+
+• Censys Certificates - Deep SSL/TLS certificate analysis for threat hunting
+
+• Check Point ThreatCloud - Real-time threat intelligence community
+
+• CheckPhish.ai - AI-powered phishing URL analysis
+
+• CINSscore - CINS Army IP reputation list
+
+• CIRCL (Luxembourg CERT) - Passive DNS, BGP ranking, CVE search
+
+• CISA (US-CERT) - US government threat bulletins and IOC sharing
+
+• Cisco Talos Intelligence - Major vendor TI platform with free lookup tools
+
+• Clean-MX - Phishing, malware, and botnet realms
+
+• CobaltStrike C2 Tracker (GitHub) - Specialized tracking of CobaltStrike beacons
+
+• Composite Blocking List (CBL) - Specialized in spam/botnet IPs
+
+• Contagio Dump - Historical malware/PDF/office document samples
+
+• Cortex - Integration engine for TIPs to automate IOC enrichment
+
+• Criminal IP - OSINT platform for IPs, domains, C2s, vulnerabilities
+
+• CrowdStrike Falcon Intelligence - Commercial APT/C2 tracking (limited free lookups)
+
+• crt.sh - Certificate transparency log search (for C2 infrastructure profiling)
+
+• Cyble - Aggregated dark web/cybercrime intelligence
+
+• CyberCheck360 - Cross-vendor IOC enrichment platform
+
+• Cybercrime Tracker - Dedicated C2 server tracking (IPs, domains, malware families)
+
+• DNSdumpster - Free domain/subdomain reconnaissance
+
+• DomainTools - WHOIS/DNS intelligence (limited free tier)
+
+• DragonResearchGroup - SSH, RDP, VNC brute-force IP feeds
+
+• DShield.org (SANS ISC) - Top attacking IPs, recommended blocklist
+
+• Emerging Threats (Proofpoint) - Suricata/Snort rules with IOC feeds
+
+• ESET Threat Intelligence - Malware hashes and network IOCs
+
+• CERT-EU - European government cyber threat intelligence
+
+• firehol/blocklist-ipsets (GitHub) - Aggregated IP blocklists
+
+• Fortinet FortiGuard - Threat research and IOCs
+
+• Google Safe Browsing API - Widely-integrated malicious URL database
+
+• GreyNoise - Distinguishes malicious activity from benign internet noise
+
+• GTFOBins - Unix binaries for privilege escalation/fileless techniques
+
+• Hatching Triage (Tria.ge) - Fast automated malware analysis
+
+• Hybrid Analysis - Popular free automated malware sandbox
+
+• IBM X-Force Exchange - Enterprise TI platform with community access
+
+• ID Ransomware - Ransomware identification by encrypted files
+
+• InQuest Labs - IOC database and threat hunting tools
+
+• IPVoid - Multi-engine IP reputation checker (aggregates 100+ sources)
+
+• Joe Sandbox Cloud - Advanced sandbox with community tier
+
+• JPCERT/CC - Japan CERT with APT tracking
+
+• Kaspersky OpenTIP - Free access to Kaspersky threat data
+
+• LOLBAS Project - Living Off The Land Binaries And Scripts (Windows)
+
+• LOOBins - Living Off the Orchard (macOS binaries)
+
+• Malc0de Database - Malicious URLs and IP blacklist
+
+• Malpedia - Malware taxonomy and reference resource
+
+• MalShare - Community malware sample repository
+
+• Malware Domain List - Community-curated malicious domains
+
+• Malware Traffic Analysis - PCAP repository with real infection IOCs
+
+• Mandiant Threat Intelligence - APT attribution and C2 infrastructure (commercial)
+
+• Microsoft Defender Threat Intelligence (formerly RiskIQ PassiveTotal) - Infrastructure/passive DNS analysis
+
+• MISP - Self-hosted open-source threat intelligence sharing platform
+
+• MISP Communities - Access to shared MISP instances (CIRCLlu, FIRST, etc.)
+
+• Netlab 360 - Chinese security firm with excellent botnet/C2 tracking (DDoS, IoT malware)
+
+• OneTracker/Threat-Intel. xyz - Aggregators linking hundreds of free IOC feeds
+
+• OpenBL.org - Blacklist of IPs with malicious activity (FTP, SSH, mail)
+
+• OpenCTI - Open-source cyber threat intelligence platform
+
+• OpenPhish - Phishing feed with free tier
+
+• PhishStats - Phishing IOC aggregator
+
+• PhishTank - Community phishing URL verification database
+
+• Polyswarm - Crowdsourced threat detection marketplace
+
+• Pulsedive - Aggregated OSINT feeds with enrichment and risk scoring
+
+• RansomLook - Aggregator of ransomware leak sites
+
+• Ransomware Tracker Sites - Various platforms tracking ransomware leak/payment infrastructure
+
+• Ransomwhere (by Recorded Future) - Ransomware payment/leak tracking
+
+• Recorded Future - Extensive C2/APT tracking (free lookups available)
+
+• Red Canary Threat Detection Report - Annual analysis including fileless trends
+
+• RST IoC Lookup - API service aggregating 260+ TI sources with scoring
+
+• SANS Internet Storm Center (ISC) - DShield database of malicious IPs, handler IPs
+
+• SecurityTrails - Historical DNS/WHOIS/subdomain intelligence
+
+• Secureworks Counter Threat Unit (CTU) - Dell SecureWorks intelligence
+
+• Shadowserver Foundation - Botnet sinkhole data, scanning reports, vulnerable device tracking
+
+• Shodan - Search engine for internet-connected devices (critical for C2 research)
+
+• Shodan Honeyscore - Identifies honeypots vs. real infrastructure
+
+• SOCRadar - Advanced enrichment and threat intelligence platform
+
+• SORBS - Spam and open proxy database
+
+• Spamhaus - Multiple blocklists (DROP, EDROP, etc.) for network/email protection
+
+• stamparm/maltrail (GitHub) - Malicious traffic detection system with extensive feeds
+
+• StopForumSpam - Forum/email spam IP/domain database
+
+• Team Cymru - Bogon lists, IP-to-ASN mapping, malware hashes
+
+• ThaiCERT IoC Feed - Thai government IOC repository
+
+• ThreatBook (WeiBu) - Chinese multi-source IOC aggregator with global data
+
+• ThreatConnect - Commercial TIP for centralized feed management
+
+• ThreatCrowd - Threat intelligence data mining and infrastructure graphing
+
+• ThreatJammer - Community-driven IP/domain reputation API
+
+• ThreatMiner - Infrastructure correlation and visualization tool
+
+• ThreatQuotient - Commercial TIP with integration APIs
+
+• ThreatSTOP Check IoC - Free lookup for IP/domain reputation against malware IOC database
+
+• Tor Exit Node Lists - For identifying Tor-related network traffic
+
+• Trend Micro Threat Encyclopedia - Malware/vulnerability database
+
+• UK NCSC - UK National Cyber Security Centre threat reports
+
+• Unit 42 (Palo Alto Networks) - APT/C2 intelligence reports with IOCs
+
+• URLScan. io - Advanced URL analysis for phishing and drive-by downloads
+
+• URLVoid - Multi-engine domain/URL reputation checker
+
+• VirusBay - Community malware sample sharing (successor to ViruSign)
+
+• VirusTotal - Multi-engine file/URL/domain/IP scanning and sandbox analysis
+
+• VX Underground - Malware collection archive
+
+• VXVault - Malware URL database
+
+• YETI - Open-source threat intel repository Based on your comprehensive list, here are **additional reputable IOC databases and resources** that are missing, specifically focused on **C2 servers, fileless malware, IP/domain reputation, and cybercrime**:
+
+---
+
+## **C2 Server & Infrastructure Tracking**
+
+• **Sliver C2 Tracker** - Community tracking of Sliver C2 framework infrastructure
+
+• **Brute Ratel C2 Detection** - Emerging tracking efforts for Brute Ratel (BRc4) infrastructure
+
+• **Mythic C2 Infrastructure Lists** - Tracking for Mythic framework deployments
+
+• **Empire/Covenant C2 Trackers** - Community-maintained lists for PowerShell Empire and Covenant
+
+• **Robtex** - Network intelligence tool for DNS/IP/ASN relationship mapping (C2 infrastructure pivoting)
+
+• **myip.ms** - Deep IP/ASN intelligence with blacklist checking and network correlation
+
+---
+
+## **IP Reputation & Blocklists**
+
+• **IPsum** - Aggregated threat intelligence feed combining 50+ IP blocklists into single feed
+
+• **CI Army List** - Collective Intelligence curated IP blocklist
+
+• **Blocklist.net. ua** - Ukrainian-maintained real-time IP blocklist
+
+• **Project Honeypot** - Distributed system for identifying spammers and email address harvesters
+
+• **Reputation Block List (RBL. jp)** - Japanese-maintained multi-category IP reputation database
+
+• **StopForumSpam API** - Real-time API for forum/comment spam IP detection
+
+• **DataPlane. org** - Real-time feeds of attack sources (SSH, SIP, VNC, RDP)
+
+• **Quad9 Threat Intelligence** - DNS-based threat blocking intelligence (query-accessible)
+
+---
+
+## **Domain & DNS Intelligence**
+
+• **OpenDNS Umbrella Investigate** - Historical DNS/domain relationships and threat scoring (limited free tier)
+
+• **Farsight Security DNSDB** - Massive passive DNS database (academic/researcher access available)
+
+• **Spyse** - Search engine for internet assets with domain/IP/certificate correlation
+
+• **WhoisXML API** - Extensive WHOIS/DNS/subdomain enumeration intelligence
+
+• **DNSTwist** - Domain permutation engine for typosquatting/phishing detection
+
+• **dnstwister** - Online version with monitoring for domain squatting
+
+---
+
+## **Fileless Malware & Living Off the Land**
+
+• **LOTS Project (Living Off Trusted Sites)** - Catalog of legitimate services abused for malicious purposes (file hosting, C2, exfiltration)
+
+• **WADComs** - Interactive reference for Windows/Active Directory attack tradecraft
+
+• **MalAPI. io** - Catalog of Windows APIs commonly abused in malware (including fileless techniques)
+
+• **Atomic Threat Coverage** - Detection/response playbooks linked to ATT&CK techniques (fileless focus)
+
+• **MITRE ATT&CK Navigator** - Visual framework for mapping fileless techniques and defenses
+
+---
+
+## **Malware Sample Repositories & Analysis**
+
+• **Malware. lu** - Long-running malware sample and IOC repository
+
+• **Das Malwerk** - German malware archive (historical samples)
+
+• **KernelMode.info** - Community malware analysis forum with sample sharing
+
+• **Zeltser's Malicious Website List** - Curated collection of malicious and compromised sites
+
+• **VirusBay** - Already listed but worth emphasizing for samples
+
+• **Hatching. io Community Feed** - Public IOCs from Triage Sandbox submissions
+
+---
+
+## **Dark Web & Underground Monitoring**
+
+• **Intel471** - Commercial dark web/underground forum monitoring (limited free IOCs)
+
+• **Flashpoint** - Deep/dark web intelligence (commercial with some public reports)
+
+• **Sixgill** - Dark web threat intelligence platform
+
+• **Digital Shadows (ReliaQuest)** - Dark web and external threat intelligence
+
+• **KELA** - Cybercrime intelligence from underground forums and markets
+
+• **ThreatMon** - Dark web monitoring with IOC extraction
+
+---
+
+## **APT & Targeted Threat Tracking**
+
+• **APT Groups & Operations Tracker (MITRE)** - Official catalog of APT groups with techniques/IOCs
+
+• **ThaiCERT APT Feed** - Already listed but worth noting for SE Asia focus
+
+• **CERT-FR** - French CERT with excellent APT/C2 analysis reports
+
+• **CERT-Bund** - German CERT with technical alerts and IOCs
+
+• **AusCERT** - Australian CERT with regional threat intelligence
+
+• **CNCERT/CC** - China National CERT (Chinese language, excellent APT tracking)
+
+• **CERT-IN** - Indian CERT with advisories and IOCs
+
+• **NCSC-FI** - Finnish CERT with structured IOC feeds
+
+---
+
+## **Phishing & Social Engineering**
+
+• **APWG (Anti-Phishing Working Group)** - Global phishing trends and statistics
+
+• **Phishing.Database** - Extensive phishing URL repository with active feeds
+
+• **CertStream** - Real-time certificate transparency log monitor (detect phishing domains)
+
+• **Phishing Catcher** - Tool for identifying suspicious domains from certificate logs
+
+---
+
+## **Threat Intelligence Platforms & Aggregators**
+
+• **IntelOwl** - Open-source OSINT tool aggregating 100+ analyzers/connectors
+
+• **TheHive Project** - Open-source security incident response platform with IOC correlation
+
+• **CRITS (Collaborative Research Into Threats)** - Open-source threat intelligence platform
+
+• **Awesome Threat Intelligence (GitHub)** - Curated list of TI resources (meta-resource)
+
+• **ThreatIngestor** - Automated IOC extraction and integration tool
+
+• **TIQ-test** - Tool for testing/evaluating threat intelligence feeds
+
+---
+
+## **Specialized & Regional**
+
+• **URLhaus Abuse Domains** - Abuse.ch's specific domain abuse tracking (complement to main URLhaus)
+
+• **VXHeaven** - Historical malware archive (now discontinued but mirrors exist)
+
+• **MalwareWorld** - Malware sample collection with IOC extraction
+
+• **LabsCORES** - Brazilian threat intelligence initiative
+
+• **CERT. at** - Austrian CERT with IOC feeds
+
+---
+
+## **Tor & Anonymization Networks**
+
+• **Tor Project Relay Lists** - Official lists of Tor entry/exit nodes (for C2 detection)
+
+• **I2P Router Lists** - I2P network node lists (for anonymized C2 detection)
+
+• **Dan. me. uk Tor Exit List** - Real-time API for Tor exit node checking
+
+---
+
+## **Certificate & SSL Intelligence**
+
+• **Qualys SSL Labs** - SSL/TLS configuration analysis (identify weak C2 infrastructure)
+
+• **Censys Certificates** - Already listed but critical for C2 profiling
+
+• **SSLMate Cert Spotter** - Certificate transparency monitoring with alerting
+
+---
+
+## **Sandbox & Behavioral Analysis**
+
+• **app.any.run Public Submissions** - Public malware analysis feed from ANY.RUN
+
+• **Joe Sandbox Ultimate Reports** - Public analysis reports with IOC extraction
+
+• **Hatching Triage Public Feed** - Already noted above
+
+---
+
+## **IoT & Botnet Specific**
+
+• **Shodan Malware Hunter** - Shodan-curated feed of compromised IoT devices
+
+• **BinaryEdge** - Internet-wide scanning for vulnerable/compromised devices
+
+• **GreyNoise RIOT (Rule It Out)** - Benign service identification to reduce false positives
+
+• **Bad Packets** - Honeypot-based threat intelligence for exploit attempts
+
+---
+
+## **GitHub Repositories & Open-Source Feeds**
+
+• **huntdio/threat-intelligence** - Aggregated threat feeds on GitHub
+
+• **mitchellkrogza/Ultimate. Hosts. Blacklist** - Massive consolidated host file
+
+• **stamparm/ipsum** - Daily-updated threat intelligence feed (IPsum mentioned above)
+
+• **eset/malware-ioc** - ESET's public IOC repository
+
+• **pan-unit42/iocs** - Palo Alto Unit 42 IOC repository
+
+• **sophoslabs/IoCs** - Sophos public IOC releases
+
+---
+
+## **Commercial Platforms with Free Tiers**
+
+• **Anomali ThreatStream** - Free community edition available
+
+• **EclecticIQ Platform** - Community edition for feed aggregation
+
+• **ThreatQ** - Limited free access to feed database Here are **additional missing databases and IOC lists** not yet covered in your comprehensive compilation:
+
+---
+
+## **C2 Server & Framework Tracking**
+
+• **PoshC2 Tracker** - Tracking infrastructure for PoshC2 (PowerShell C2 framework)
+
+• **Havoc C2 Detection** - Emerging tracking for Havoc C2 framework infrastructure
+
+• **Metasploit C2 Infrastructure** - Community tracking of Metasploit Framework C2 infrastructure
+
+• **Nimplant/Nim-based C2 Trackers** - Tracking Nim language-based C2 frameworks
+
+• **Silver/Sliver Infrastructure Feed** - GitHub-based tracking updates for Sliver infrastructure
+
+• **C2 Matrix** - Comprehensive comparison and tracking resource for C2 frameworks
+
+• **C3 (Custom Command and Control) Tracker** - F-Secure's C2 framework infrastructure tracking
+
+• **Koadic C2 Detection** - JScript/VBScript RAT infrastructure tracking
+
+• **Merlin C2 Infrastructure** - Go-based C2 framework tracking
+
+• **Pupy RAT Infrastructure** - Cross-platform RAT C2 tracking
+
+---
+
+## **IP Reputation & Network Intelligence**
+
+• **IPQualityScore (IPQS)** - Fraud detection and IP reputation scoring (free tier)
+
+• **AbuseIPDB API v2** - Enhanced API access with detailed reporting history
+
+• **MaxMind GeoIP2 Anonymous IP** - Identifies VPNs, proxies, Tor exits used by C2s
+
+• **IP2Location** - Geolocation with proxy/VPN/Tor detection capabilities
+
+• **IPinfo.io** - IP intelligence with abuse detection and ASN data
+
+• **Neustar IP Intelligence** - Enterprise IP reputation with limited free lookups
+
+• **Passive Total Community** - Microsoft's community-accessible passive DNS
+
+• **ViewDNS. info** - Suite of DNS/IP intelligence tools (reverse IP, DNS propagation)
+
+• **Hurricane Electric BGP Toolkit** - BGP/ASN intelligence for infrastructure mapping
+
+• **RIPE Stat** - RIR statistics and network intelligence (European focus)
+
+• **BGPView** - Real-time BGP/ASN/prefix intelligence
+
+---
+
+## **Domain & DNS Threat Intelligence**
+
+• **Lookyloo** - Web scraping tool for capturing redirects and tracking malicious infrastructure
+
+• **Bolster (formerly PhishLabs)** - Digital risk protection with domain monitoring
+
+• **Cisco Umbrella Popularity List** - Top 1 million domains (identify anomalies)
+
+• **Majestic Million** - Top 1M sites by backlinks (baseline for anomaly detection)
+
+• **Tranco List** - Research-oriented top sites list (improved Alexa alternative)
+
+• **DomainIQ** - Domain intelligence and monitoring platform
+
+• **Whoxy** - WHOIS API with historical data and reverse WHOIS
+
+• **DNS-OARC** - DNS Operations Analysis and Research Center datasets
+
+• **ZoneFiles. io** - TLD zone file access for research (academic/approved users)
+
+• **Fusemail DNSBL** - DNS blocklist for malicious domains
+
+---
+
+## **Fileless & Memory-Only Malware**
+
+• **Volatility Framework** - Memory forensics for fileless malware analysis (not IOC feed but critical tool)
+
+• **Fileless Malware Repository (GitHub)** - Curated collection of fileless attack samples/IOCs
+
+• **Koadic/Empire/Covenant IOC Repos** - Historical IOCs from published campaigns
+
+• **PowerShell Empire Logs** - Historical campaign artifacts and IOCs
+
+• **Elastic Security Detection Rules** - Detection rules for fileless techniques (open source)
+
+• **Sigma Rules Repository** - Generic SIEM detection rules for fileless attacks
+
+• **RedTeam-Toolkit** - Reference for offensive tools often tracked for C2 activity
+
+---
+
+## **Cryptocurrency & Ransomware Tracking**
+
+• **Chainalysis Reactor** - Blockchain analysis for ransomware payment tracking (commercial)
+
+• **Crystal Blockchain** - Cryptocurrency transaction monitoring
+
+• **Elliptic** - Crypto asset risk management for ransomware tracking
+
+• **Bitcoin Abuse Database** - Community-reported Bitcoin addresses used in cybercrime
+
+• **Ransomware. live** - Real-time tracking of ransomware leak sites and payments
+
+• **DarkTracer** - Dark web monitoring specializing in ransomware leak sites
+
+• **Ransomlooker** - Automated ransomware leak site aggregator
+
+• **Ransomware Payment Tracker** - Community tracking of ransom demands and payments
+
+---
+
+## **Paste Site & Data Leak Monitoring**
+
+• **PasteBin Monitoring Services** - Real-time scraping for leaked credentials/C2 configs
+
+• **Pastebin Alerts (GitHub)** - Open-source tool for monitoring paste sites
+
+• **HaveIBeenPwned API** - Breach data correlation (can identify campaign victims)
+
+• **Snusbase** - Data breach search engine
+
+• **GhostProject** - Historical breach data repository
+
+• **IntelligenceX** - Deep/dark web and data leak search engine
+
+• **LeakCheck** - Data breach search with API access
+
+• **Dehashed** - Breach data search and monitoring
+
+---
+
+## **Exploit & Vulnerability Intelligence**
+
+• **Exploit-DB (Offensive Security)** - Exploit database with network IOCs
+
+• **0day.today** - Zero-day exploit marketplace monitoring
+
+• **VulnDB** - Commercial vulnerability intelligence (limited free access)
+
+• **Nuclei Templates** - Fast vulnerability scanner templates (track exploited vulns used for C2 access)
+
+• **PacketStorm Security** - Exploit and tool repository
+
+• **Metasploit Framework Modules** - Tracking exploits with C2 capabilities
+
+• **Rapid7 AttackerKB** - Community-driven exploit assessment
+
+---
+
+## **Regional & Government CERTs**
+
+• **CERT-SE (Sweden)** - Swedish CERT with IOC feeds
+
+• **CERT-BE (Belgium)** - Belgian CERT threat intelligence
+
+• **CERT-NZ (New Zealand)** - New Zealand CERT advisories
+
+• **CanCERT (Canada)** - Canadian Cyber Centre threat reports
+
+• **CERT. br (Brazil)** - Brazilian CERT with regional threat focus
+
+• **SingCERT (Singapore)** - Singapore CERT threat advisories
+
+• **CERT-MU (Mauritius)** - Mauritian CERT for African region
+
+• **KrCERT (South Korea)** - Korean CERT with APT tracking
+
+• **TW-CERT (Taiwan)** - Taiwanese CERT threat intelligence
+
+• **MyCERT (Malaysia)** - Malaysian CERT advisories
+
+• **CERT-NG (Nigeria)** - Nigerian CERT for West African threats
+
+• **CERT. gov. za (South Africa)** - South African CERT
+
+• **ArCERT (Argentina)** - Argentinian CERT
+
+• **CERT-PA (Panama)** - Panamanian CERT
+
+• **CERT. ee (Estonia)** - Estonian CERT with excellent technical reports
+
+---
+
+## **Cloud & SaaS Threat Intelligence**
+
+• **AWS GuardDuty Threat Intelligence** - AWS-specific threat feed (for users)
+
+• **Google Cloud Threat Intelligence** - GCP security findings
+
+• **Azure Defender Threat Intelligence** - Microsoft Azure threat feeds
+
+• **Cloudflare Radar** - Internet traffic and threat insights
+
+• **Netskope Threat Labs** - Cloud security threat intelligence
+
+• **Zscaler ThreatLabz** - Cloud security threat research
+
+---
+
+## **Mobile Malware & C2**
+
+• **MobSF (Mobile Security Framework)** - Android/iOS malware analysis
+
+• **Koodous** - Android malware community and IOC sharing
+
+• **VirusTotal Mobile** - Mobile-specific threat intelligence
+
+• **AppCensus** - Mobile app privacy and security analysis
+
+• **Ostorlab** - Mobile app security scanning with IOC extraction
+
+---
+
+## **IoT & OT/ICS Threat Intelligence**
+
+• **ICS-CERT (CISA)** - Industrial Control Systems CERT
+
+• **Dragos WorldView** - OT/ICS threat intelligence platform
+
+• **Claroty Team82** - ICS/OT vulnerability research
+
+• **Nozomi Networks Labs** - OT security threat intelligence
+
+• **Shodan ICS Radar** - Internet-connected ICS/SCADA monitoring
+
+• **Censys ICS** - ICS device exposure tracking
+
+• **Mirai Botnet Tracker** - Ongoing tracking of IoT botnet infrastructure
+
+• **Mozi Botnet Tracker** - IoT botnet tracking (successor to Mirai)
+
+---
+
+## **GitHub Repositories & Active Feeds**
+
+• **Abuse.ch IOC Exporters (GitHub)** - Automated export tools for abuse. ch feeds
+
+• **Daily IOC Feed (GitHub - various)** - Multiple daily-updated IOC repositories
+
+• **Cybercrime-Tracker (GitHub)** - Automated C2 tracking scripts
+
+• **Orange-Cyberdefense/russia-ukraine_IOCs** - Conflict-specific IOC tracking
+
+• **curated-intel/Ukraine-Cyber-Operations** - Geopolitical cyber threat IOCs
+
+• **executemalware/Malware-IOCs** - Daily updated malware IOCs
+
+• **0xDanielLopez/TweetFeed** - Twitter-based IOC extraction feed
+
+• **fastfire/deepdarkCTI** - Dark web threat intelligence IOCs
+
+• **blackorbird/APT_REPORT** - Translated APT reports with IOCs (Chinese sources)
+
+• **RedDrip7/APT_Digital_Weapon** - APT tool and infrastructure tracking
+
+• **Bert-JanP/Incident-Response-Powershell** - PowerShell-based threat hunting IOCs
+
+---
+
+## **Threat Intelligence Aggregators & APIs**
+
+• **ThreatMiner API** - Threat data mining with free API access
+
+• **Shodan InternetDB** - Fast, free IP lookup API (subset of Shodan)
+
+• **URLhaus API** - Programmatic access to URLhaus data
+
+• **AlienVault OTX DirectConnect** - API for pulse subscriptions
+
+• **VirusTotal Intelligence** - Premium IOC search capabilities
+
+• **MISP API Integrations** - Connect to public MISP instances
+
+• **Cortex Analyzers** - 100+ pre-built integrations for IOC enrichment
+
+• **ThreatQuotient Integrations** - API connectors for feed aggregation
+
+---
+
+## **Academic & Research Initiatives**
+
+• **CAIDA (Center for Applied Internet Data Analysis)** - Internet infrastructure datasets
+
+• **The Shadowserver Foundation Reports** - Daily network reports with IOCs
+
+• **OpenINTEL** - Academic active DNS measurement project
+
+• **UCSD Network Telescope** - Internet-wide traffic monitoring research
+
+• **Censys University Program** - Free academic access to internet scan data
+
+• **Rapid7 Open Data** - Project Sonar internet-wide scan datasets
+
+---
+
+## **Specialized Malware Families**
+
+• **Raccoon Stealer Tracker** - Specific infostealer C2 tracking
+
+• **RedLine Stealer Database** - Community tracking of RedLine infrastructure
+
+• **AgentTesla Tracker** - . NET-based RAT infrastructure monitoring
+
+• **Emotet Tracker** - Historical and current Emotet botnet tracking (abuse.ch)
+
+• **Qakbot Tracker** - Banking trojan C2 infrastructure
+
+• **IcedID Tracker** - Banking malware infrastructure tracking
+
+• **BazarLoader/BazarBackdoor Tracker** - TrickBot successor C2 tracking
+
+• **Dridex Tracker** - Banking trojan infrastructure
+
+• **TrickBot Tracker** - Historic botnet infrastructure (now largely defunct)
+
+• **TA505 Infrastructure Tracking** - Specific threat actor infrastructure
+
+---
+
+## **Browser Extension & Supply Chain**
+
+• **Chrome Web Store Crawler** - Monitor for malicious extensions
+
+• **CRXcavator** - Chrome extension security scoring
+
+• **npm Security Advisories** - JavaScript package security
+
+• **Snyk Vulnerability Database** - Open-source dependency vulnerabilities
+
+• **Sonatype OSS Index** - Open-source vulnerability database
+
+---
+
+## **SSH/RDP Brute Force & Lateral Movement**
+
+• **SecLists** - Comprehensive wordlists including compromised credential lists
+
+• **IPList (GitHub)** - Aggregated SSH/RDP brute force source IPs
+
+• **Bruteforce Blocker Lists** - Community-maintained brute force IP feeds
+
+---
+
+## **Telegram & Messaging Platform Monitoring**
+
+• **Telegram Threat Intelligence Channels** - Various channels sharing IOCs
+
+• **Discord Threat Intel Servers** - Community servers for IOC sharing
+
+• **Slack Threat Intel Communities** - Private communities with IOC feeds
+
+---
+
+## **Honeypot & Deception Networks**
+
+• **Modern Honey Network (MHN)** - Honeypot management platform with IOC feeds
+
+• **T-Pot** - Multi-honeypot platform with attack data
+
+• **Cowrie Honeypot Feeds** - SSH/Telnet honeypot IOC data
+
+• **Dionaea Honeypot** - Malware capture honeypot data
+
+• **Conpot** - ICS/SCADA honeypot IOC feeds
+
+---
+
+## **DNS Sinkhole & Sinkholing Services**
+
+• **Spamhaus Botnet Controller List** - Known botnet C2s
+
+• **SURBL** - URI reputation data for spam/malware
+
+• **Abuse.ch Sinkhole Data** - Botnet sinkhole statistics
+
+---
+
+## **Browser-Based & JavaScript Threats**
+
+• **MalwareMultiScan** - JavaScript malware detection
+
+• **JSDetox** - JavaScript malware analysis
+
+• **Revelo (de4js)** - JavaScript deobfuscation for IOC extraction
+
+---
+
+## **Automation & Orchestration Platforms**
+
+• **SOAR Playbooks (GitHub)** - Community SOAR workflows for IOC enrichment
+
+• **Shuffle** - Open-source SOAR platform for automation
+
+• **n8n Security Workflows** - Security automation with IOC enrichment
+
+---
+
+## **Satellite & Space-Based Threat Intel**
+
+• **Space-ISAC** - Space industry threat intelligence sharing
+
+• **Satcom Threat Intelligence** - Satellite communication threat tracking
