@@ -2,7 +2,7 @@
 
 # === FORCE USE OF SPECIFIC VENV ===
 if [[ -z "$VIRTUAL_ENV" ]] && [[ -d "$HOME/.venv" ]]; then
-    echo "[INFO] Activating virtual environment:  $HOME/.venv"
+    echo "[INFO] Activating virtual environment: $HOME/.venv"
     source "$HOME/.venv/bin/activate"
     export VIRTUAL_ENV="$HOME/.venv"
     export PATH="$VIRTUAL_ENV/bin:$PATH"
@@ -31033,6 +31033,7 @@ analyze_asn_infrastructure() {
     local asn_findings=()
     local asn_score=0
     local analyzed_count=0
+    local found_suspicious_infra=0
     
     # Extract domains from URLs - more robust pattern
     local domains=$(echo "$content" | safe_grep_oiE 'https?://([a-zA-Z0-9][-a-zA-Z0-9]*[.])+[a-zA-Z]{2,}' | \
@@ -31044,7 +31045,7 @@ analyze_asn_infrastructure() {
     domains=$(echo "$domains" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     
     # Extract IPs
-    local ips=$(echo "$content" | safe_grep_oE "[0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}" | sort -u)
+    local ips=$(echo "$content" | safe_grep_oE "[0-9]{1,3}[. ][0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}" | sort -u)
     
     # Display extracted targets
     if [ -n "$domains" ] || [ -n "$ips" ]; then
@@ -31089,8 +31090,9 @@ analyze_asn_infrastructure() {
                 if [ "AS$asn" = "$bp_asn" ]; then
                     echo -e "${CYAN}│${NC}   ${RED}⚠ BULLETPROOF/HIGH-ABUSE ASN${NC}"
                     log_threat 40 "IP $ip is in known bulletproof/abuse-prone ASN: $bp_asn ($asn_name)"
-                    asn_findings+=("bulletproof_asn:$bp_asn:$ip")
+                    asn_findings+=("bulletproof_asn:$bp_asn: $ip")
                     ((asn_score += 30))
+                    found_suspicious_infra=1
                 fi
             done
             
@@ -31101,30 +31103,35 @@ analyze_asn_infrastructure() {
                     log_warning "IP $ip is in high-risk country: Russia"
                     asn_findings+=("high_risk_country:RU:$ip")
                     ((asn_score += 20))
+                    found_suspicious_infra=1
                     ;;
                 "CN")
                     echo -e "${CYAN}│${NC}   ${YELLOW}⚠ High-risk country: China${NC}"
                     log_warning "IP $ip is in high-risk country: China"
                     asn_findings+=("high_risk_country:CN:$ip")
                     ((asn_score += 20))
+                    found_suspicious_infra=1
                     ;;
                 "IR")
                     echo -e "${CYAN}│${NC}   ${YELLOW}⚠ High-risk country: Iran${NC}"
                     log_warning "IP $ip is in high-risk country: Iran"
                     asn_findings+=("high_risk_country:IR:$ip")
                     ((asn_score += 25))
+                    found_suspicious_infra=1
                     ;;
                 "KP")
                     echo -e "${CYAN}│${NC}   ${RED}⚠ CRITICAL: North Korea${NC}"
                     log_threat 50 "IP $ip is in DPRK (North Korea)"
                     asn_findings+=("high_risk_country:KP:$ip")
                     ((asn_score += 50))
+                    found_suspicious_infra=1
                     ;;
                 "SY")
                     echo -e "${CYAN}│${NC}   ${YELLOW}⚠ High-risk country: Syria${NC}"
                     log_warning "IP $ip is in high-risk country: Syria"
                     asn_findings+=("high_risk_country:SY:$ip")
                     ((asn_score += 25))
+                    found_suspicious_infra=1
                     ;;
             esac
         fi
@@ -31151,6 +31158,7 @@ analyze_asn_infrastructure() {
                 log_warning "Domain registered with high-abuse registrar: $registrar (found in $(basename "$match"))"
                 asn_findings+=("suspicious_registrar:$registrar")
                 ((asn_score += 15))
+                found_suspicious_infra=1
             fi
         done
 
@@ -31165,6 +31173,7 @@ analyze_asn_infrastructure() {
                     log_warning "Domain matched additional IOC registrar pattern: $additional_ioc (found in $(basename "$add_match"))"
                     asn_findings+=("suspicious_registrar:$additional_ioc")
                     ((asn_score += 15))
+                    found_suspicious_infra=1
                 fi
             done < "${TEMP_DIR}/all_additional_iocs.txt"
         fi
@@ -31181,6 +31190,7 @@ analyze_asn_infrastructure() {
                     log_warning "Registrar/WHOIS IP $ip in $(basename "$whois_file") is known malicious (blocklist match)"
                     asn_findings+=("suspicious_registrar_ip:$ip")
                     ((asn_score += 15))
+                    found_suspicious_infra=1
                 fi
                 # Direct match in additional_iocs.txt
                 if [ -f "${TEMP_DIR}/all_additional_iocs.txt" ]; then
@@ -31188,6 +31198,7 @@ analyze_asn_infrastructure() {
                         log_warning "Registrar/WHOIS IP $ip in $(basename "$whois_file") is known malicious (additional_iocs.txt match)"
                         asn_findings+=("suspicious_registrar_ip:$ip")
                         ((asn_score += 15))
+                        found_suspicious_infra=1
                     fi
                 fi
                 # CIDR match in blocklist, if grepcidr exists and any CIDRs are loaded
@@ -31197,6 +31208,7 @@ analyze_asn_infrastructure() {
                             log_warning "Registrar/WHOIS IP $ip in $(basename "$whois_file") is within malicious CIDR $cidr"
                             asn_findings+=("suspicious_registrar_cidr:$cidr($ip)")
                             ((asn_score += 12))
+                            found_suspicious_infra=1
                         }
                     done
                 fi
@@ -31208,6 +31220,7 @@ analyze_asn_infrastructure() {
                             log_warning "Registrar/WHOIS IP $ip in $(basename "$whois_file") is within additional IOC CIDR $additional_cidr"
                             asn_findings+=("suspicious_registrar_cidr:$additional_cidr($ip)")
                             ((asn_score += 12))
+                            found_suspicious_infra=1
                         }
                     done < "${TEMP_DIR}/all_additional_iocs.txt"
                 fi
@@ -31246,6 +31259,12 @@ analyze_asn_infrastructure() {
                     suspicious_registrar:*)
                         log_warning "    └─ Suspicious registrar: ${finding#suspicious_registrar:}"
                         ;;
+                    suspicious_registrar_ip:*)  # UPDATE: Added missing case
+                        log_warning "    └─ Suspicious registrar IP: ${finding#suspicious_registrar_ip:}"
+                        ;;
+                    suspicious_registrar_cidr:*)  # UPDATE: Added missing case
+                        log_warning "    └─ Suspicious registrar CIDR: ${finding#suspicious_registrar_cidr:}"
+                        ;;
                 esac
             done
         fi
@@ -31255,7 +31274,7 @@ analyze_asn_infrastructure() {
         analysis_success_none "ASN-ANALYSIS"
     fi
     
-    # If you have detection variable, e.g. found_suspicious_infra=1
+    # FIX: Variable is now properly initialized and set throughout the function
     if [[ "$found_suspicious_infra" == "1" ]]; then
         echo -e "${RED}[THREAT +187]${NC} Suspicious network infrastructure detected"
     fi
