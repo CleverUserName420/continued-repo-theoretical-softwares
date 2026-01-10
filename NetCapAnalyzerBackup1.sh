@@ -409,16 +409,11 @@ extract_all_ips() {
             tcpdump -nn -r "$PCAP_FILE" 2>/dev/null | grep -oE "${ipv4_regex}|${ipv6_regex}"
         fi
         
-        # Find ALL pcap files (multiple extensions, macOS compatible)
-        sudo find /Users /tmp /var/tmp /Library -type f \( -name "*.pcap" -o -name "*.pcapng" -o -name "*.cap" \) 2>/dev/null | while read -r f; do
+        # Find ALL pcap files (multiple extensions, macOS compatible) using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "\.(pcap|pcapng|cap)$" | while read -r f; do
             if [[ "$f" != "$PCAP_FILE" ]]; then
                 tcpdump -nn -r "$f" 2>/dev/null | grep -oE "${ipv4_regex}|${ipv6_regex}"
             fi
-        done
-        
-        # Also check System folders (your preferred method from the comment)
-        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E ".pcap" | while read -r f; do
-            tcpdump -nn -r "$f" 2>/dev/null | grep -oE "${ipv4_regex}"
         done
         
     } | sort -u > "$all_ips_file"
@@ -436,8 +431,8 @@ extract_all_network_evidence() {
     
     {
         echo "=== PCAP FILES ==="
-        # All accessible pcap files
-        sudo find / \( -name "*.pcap" -o -name "*.pcapng" -o -name "*.cap" \) 2>/dev/null | while read f; do
+        # All accessible pcap files using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "\.(pcap|pcapng|cap)$" | while read f; do
             echo "# From: $f"
             tcpdump -nn -r "$f" 2>/dev/null | grep -oE "$ip_regex"
         done
@@ -473,18 +468,18 @@ extract_all_network_evidence() {
         sudo log show --predicate 'process == "socketfilterfw"' --last 7d 2>/dev/null | grep -oE "$ip_regex"
         
         echo -e "\n=== BROWSER CACHES ==="
-        # Safari
-        find ~/Library/Safari -type f -name "*.db" 2>/dev/null | while read db; do
+        # Safari using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/Safari/.*\.db$" | while read db; do
             strings "$db" 2>/dev/null | grep -oE "$ip_regex"
         done
         
-        # Chrome/Chromium
-        find ~/Library/Application\ Support/Google/Chrome -type f -name "History" -o -name "Cache" 2>/dev/null | while read f; do
+        # Chrome/Chromium using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/Chrome/.*(History|Cache)$" | while read f; do
             strings "$f" 2>/dev/null | grep -oE "$ip_regex"
         done
         
-        # Firefox
-        find ~/Library/Application\ Support/Firefox -type f -name "*.sqlite" 2>/dev/null | while read db; do
+        # Firefox using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/Firefox/.*\.sqlite$" | while read db; do
             strings "$db" 2>/dev/null | grep -oE "$ip_regex"
         done
         
@@ -495,19 +490,16 @@ extract_all_network_evidence() {
         done
         
         echo -e "\n=== APPLICATION LOGS ==="
-        # Common app log locations
-        find ~/Library/Logs -type f 2>/dev/null | while read log; do
-            strings "$log" 2>/dev/null | grep -oE "$ip_regex"
-        done
-        
-        sudo find /Library/Logs -type f 2>/dev/null | while read log; do
+        # Common app log locations using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/Logs/" | while read log; do
             sudo strings "$log" 2>/dev/null | grep -oE "$ip_regex"
         done
         
         echo -e "\n=== VPN/PROXY CONFIGS ==="
-        # VPN configurations
-        sudo find /Library/Preferences -name "*.plist" -exec plutil -p {} \; 2>/dev/null | grep -oE "$ip_regex"
-        find ~/Library/Preferences -name "*.plist" -exec plutil -p {} \; 2>/dev/null | grep -oE "$ip_regex"
+        # VPN configurations using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/Preferences/.*\.plist$" | while read plist; do
+            sudo plutil -p "$plist" 2>/dev/null | grep -oE "$ip_regex"
+        done
         
         echo -e "\n=== NETWORK EXTENSION LOGS ==="
         # Network extensions (VPNs, filters, proxies)
@@ -520,8 +512,9 @@ extract_all_network_evidence() {
         done
         
         echo -e "\n=== KNOWN_HOSTS AND SSH ==="
-        find ~/.ssh -type f 2>/dev/null | while read f; do
-            cat "$f" 2>/dev/null | grep -oE "$ip_regex"
+        # SSH files using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/\.ssh/" | while read f; do
+            sudo cat "$f" 2>/dev/null | grep -oE "$ip_regex"
         done
         
         echo -e "\n=== CERTIFICATE STORES ==="
@@ -530,11 +523,8 @@ extract_all_network_evidence() {
         security dump-keychain -d 2>/dev/null | grep -oE "$ip_regex"
         
         echo -e "\n=== CRASH REPORTS (May contain network state) ==="
-        find ~/Library/Logs/DiagnosticReports -type f 2>/dev/null | while read crash; do
-            strings "$crash" 2>/dev/null | grep -oE "$ip_regex"
-        done
-        
-        sudo find /Library/Logs/DiagnosticReports -type f 2>/dev/null | while read crash; do
+        # Crash reports using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/DiagnosticReports/" | while read crash; do
             sudo strings "$crash" 2>/dev/null | grep -oE "$ip_regex"
         done
         
@@ -546,9 +536,65 @@ extract_all_network_evidence() {
         system_profiler SPNetworkDataType 2>/dev/null | grep -oE "$ip_regex"
         
         echo -e "\n=== SYSDIAGNOSE ARCHIVES (if exist) ==="
-        find /var/tmp -name "sysdiagnose_*.tar.gz" 2>/dev/null | while read archive; do
-            tar -xzOf "$archive" 2>/dev/null | strings | grep -oE "$ip_regex"
+        # Sysdiagnose archives using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "sysdiagnose_.*\.tar\.gz$" | while read archive; do
+            sudo tar -xzOf "$archive" 2>/dev/null | strings | grep -oE "$ip_regex"
         done
+        
+        echo -e "\n=== NETWORK INTERFACE STATISTICS ==="
+        # Network interface stats and configurations
+        ifconfig -a 2>/dev/null | grep -oE "$ip_regex"
+        networksetup -listallhardwareports 2>/dev/null
+        
+        echo -e "\n=== HOSTS FILE ANALYSIS ==="
+        # Check /etc/hosts for suspicious entries
+        cat /etc/hosts 2>/dev/null | grep -oE "$ip_regex"
+        
+        echo -e "\n=== DNS RESOLVER CONFIGURATION ==="
+        # DNS resolver settings
+        scutil --dns 2>/dev/null | grep -oE "$ip_regex"
+        cat /etc/resolv.conf 2>/dev/null | grep -oE "$ip_regex"
+        
+        echo -e "\n=== BLUETOOTH NETWORK CONNECTIONS ==="
+        # Bluetooth network connections (potential exfiltration path)
+        system_profiler SPBluetoothDataType 2>/dev/null | grep -oE "$ip_regex"
+        
+        echo -e "\n=== USB NETWORK DEVICES ==="
+        # USB network devices (potential rogue devices)
+        system_profiler SPUSBDataType 2>/dev/null | grep -iE "(network|ethernet|wifi)" | grep -oE "$ip_regex"
+        
+        echo -e "\n=== KERNEL NETWORK EXTENSIONS ==="
+        # Kernel extensions related to networking using System path search
+        kextstat 2>/dev/null | grep -iE "(network|socket|filter)"
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "\.kext$" | grep -iE "(network|socket|filter)"
+        
+        echo -e "\n=== RECENT NETWORK-RELATED FILE CHANGES ==="
+        # Recent modifications to network config files using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "(hosts|resolv|network|socket)" | while read f; do
+            if [[ -f "$f" ]]; then
+                echo "FILE: $f"
+                cat "$f" 2>/dev/null | grep -oE "$ip_regex"
+            fi
+        done
+        
+        echo -e "\n=== TIME MACHINE NETWORK DESTINATIONS ==="
+        # Time Machine backup destinations (potential data exfiltration)
+        tmutil destinationinfo 2>/dev/null | grep -oE "$ip_regex"
+        
+        echo -e "\n=== SHARING PREFERENCES ==="
+        # Sharing settings (file sharing, screen sharing, etc.)
+        sudo defaults read /Library/Preferences/com.apple.sharing.plist 2>/dev/null | grep -oE "$ip_regex"
+        
+        echo -e "\n=== QUARANTINE DATABASE ==="
+        # Downloaded files with network origins using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "com\.apple\.LaunchServices\.QuarantineEventsV2$" | while read db; do
+            sqlite3 "$db" "SELECT LSQuarantineDataURLString FROM LSQuarantineEvent;" 2>/dev/null | grep -oE "$ip_regex"
+        done
+        
+        echo -e "\n=== APPLICATION FIREWALL RULES ==="
+        # Application firewall configuration
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --listapps 2>/dev/null
+        sudo defaults read /Library/Preferences/com.apple.alf 2>/dev/null | grep -oE "$ip_regex"
         
     } | sort -u > "$evidence_file"
     
@@ -609,13 +655,15 @@ check_persistence() {
     
     {
         echo "=== USER LAUNCH AGENTS ==="
-        find ~/Library/LaunchAgents -type f 2>/dev/null | while read f; do
+        # Launch agents using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/LaunchAgents/" | while read f; do
             echo "FILE: $f"
-            plutil -p "$f" 2>/dev/null | grep -E "(Program|ProgramArguments|Socket|KeepAlive)"
+            sudo plutil -p "$f" 2>/dev/null | grep -E "(Program|ProgramArguments|Socket|KeepAlive)"
         done
         
         echo -e "\n=== SYSTEM LAUNCH DAEMONS ==="
-        sudo find /Library/LaunchDaemons -type f 2>/dev/null | while read f; do
+        # Launch daemons using System path search
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/LaunchDaemons/" | while read f; do
             echo "FILE: $f"
             sudo plutil -p "$f" 2>/dev/null | grep -E "(Program|ProgramArguments|Socket|KeepAlive)"
         done
@@ -673,15 +721,25 @@ detect_suspicious_activity() {
         echo ""
         echo "=== PERSISTENCE MECHANISMS (LaunchAgents/Daemons) ==="
         echo "User LaunchAgents:"
-        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "(LaunchAgents)" | grep -v "^total" | grep -v "^d"
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/LaunchAgents/" | grep -v "^total" | grep -v "^d"
         echo ""
         echo "System LaunchDaemons (modified in last 30 days):"
-        sudo find /Library/LaunchDaemons -type f -mtime -30 -ls 2>/dev/null
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/LaunchDaemons/" | while read f; do
+            # Check if modified in last 30 days using stat
+            if [[ -f "$f" ]]; then
+                mod_time=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)
+                current_time=$(date +%s)
+                days_ago=$(( (current_time - mod_time) / 86400 ))
+                if [[ $days_ago -lt 30 ]]; then
+                    ls -la "$f" 2>/dev/null
+                fi
+            fi
+        done
         
         echo ""
         echo "=== UNUSUAL CRON JOBS ==="
         echo "User crontab:"
-        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "(crontab)"
+        sudo find / -type f -path "*/System/*" 2>/dev/null | grep -E "/crontab$|/cron\."
         
     } > "$suspicious_report"
     
