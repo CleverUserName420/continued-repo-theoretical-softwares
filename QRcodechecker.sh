@@ -2929,7 +2929,8 @@ check_rate_limits() {
     fi
     
     # Count recent API calls
-    local recent_calls=$(grep -c "^[0-9]*:" "$rate_file" 2>/dev/null || echo 0)
+    local recent_calls
+    recent_calls=$(grep -c "^[0-9]*:" "$rate_file" 2>/dev/null) || recent_calls=0
     
     if [ $recent_calls -gt 100 ]; then
         log_warning "High API call rate detected: $recent_calls in last hour"
@@ -3356,7 +3357,7 @@ sync_all_background_jobs() {
     
     # Force garbage collection of zombie processes
     local zombies
-    zombies=$(ps -o pid,stat 2>/dev/null | grep -c 'Z' || echo 0)
+    zombies=$(ps -o pid,stat 2>/dev/null | grep -c 'Z') || zombies=0
     if [[ "$zombies" -gt 0 ]]; then
         log_info "Cleaning up $zombies zombie processes..."
         # Trigger zombie cleanup by waiting on any children
@@ -16828,7 +16829,7 @@ EOF
     local unique_values
     unique_values=$(get_unique_decoded_values "$all_decoded")
     local unique_count
-    unique_count=$(echo "$unique_values" | grep -c . 2>/dev/null || echo 0)
+    unique_count=$(echo "$unique_values" | grep -c . 2>/dev/null) || unique_count=0
     log_info "Reduced to $unique_count unique decoded value(s) after normalization"
     
     # Write unique normalized values to merged file
@@ -24225,9 +24226,17 @@ evaluate_all_yara_rules() {
     
     log_info "  Evaluating YARA-like rules..."
     
+    local rule_count=0
     for rule_name in "${!YARA_RULES[@]}"; do
         local matched_patterns=""
         matched_patterns=$(evaluate_yara_rule "$content" "$rule_name")
+        
+        # Prevent fork exhaustion by allowing process cleanup every few rules
+        rule_count=$((rule_count + 1))
+        if (( rule_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.05
+        fi
         
         if [ -n "$matched_patterns" ]; then
             # Extract severity from rule
@@ -44443,7 +44452,7 @@ detect_multiple_qr_codes() {
     local temp_result=$(create_secure_temp_file "multi_qr") || return 1
     local num_codes=0
     if run_isolated_with_output 30 "$temp_result" zbarimg "$image"; then
-        num_codes=$(grep -c "QR-Code" "$temp_result" 2>/dev/null || echo 0)
+        num_codes=$(grep -c "QR-Code" "$temp_result" 2>/dev/null) || num_codes=0
     fi
     rm -f "$temp_result" 2>/dev/null
     
