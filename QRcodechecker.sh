@@ -2179,25 +2179,33 @@ validate_resource_limits() {
     local stack_limit
     stack_limit=$(ulimit -s 2>/dev/null || echo "0")
     
-    if [ "$stack_limit" != "unlimited" ] && [ "$stack_limit" -lt 8192 ] 2>/dev/null; then
-        log_warning "Stack size limit is low: ${stack_limit}KB (recommended: 8192KB+)"
-        log_warning "  This can cause segfaults in deep recursion or native code"
-        log_info "  To increase: ulimit -s 8192"
-        ((issues++))
-        
-        # Try to increase stack limit
-        if ulimit -s 8192 2>/dev/null; then
-            log_info "  Stack limit increased to 8MB"
+    # Validate stack_limit is numeric before comparison
+    if [[ "$stack_limit" =~ ^[0-9]+$ ]]; then
+        if [ "$stack_limit" -lt 8192 ]; then
+            log_warning "Stack size limit is low: ${stack_limit}KB (recommended: 8192KB+)"
+            log_warning "  This can cause segfaults in deep recursion or native code"
+            log_info "  To increase: ulimit -s 8192"
+            ((issues++))
+            
+            # Try to increase stack limit
+            if ulimit -s 8192 2>/dev/null; then
+                log_info "  Stack limit increased to 8MB"
+            fi
+        else
+            log_info "  Stack limit: ${stack_limit}KB (OK)"
         fi
+    elif [ "$stack_limit" = "unlimited" ]; then
+        log_info "  Stack limit: unlimited (OK)"
     else
-        log_info "  Stack limit: ${stack_limit}KB (OK)"
+        log_info "  Stack limit: $stack_limit (could not validate)"
     fi
     
     # Check virtual memory limit
     local mem_limit
     mem_limit=$(ulimit -v 2>/dev/null || echo "unlimited")
     
-    if [ "$mem_limit" != "unlimited" ] && [ "$mem_limit" -lt $((512 * 1024)) ] 2>/dev/null; then
+    # Validate mem_limit is numeric before comparison
+    if [[ "$mem_limit" =~ ^[0-9]+$ ]] && [ "$mem_limit" -lt $((512 * 1024)) ]; then
         log_warning "Virtual memory limit is low: ${mem_limit}KB"
         ((issues++))
     fi
@@ -2206,7 +2214,8 @@ validate_resource_limits() {
     local fd_limit
     fd_limit=$(ulimit -n 2>/dev/null || echo "256")
     
-    if [ "$fd_limit" -lt 256 ] 2>/dev/null; then
+    # Validate fd_limit is numeric before comparison
+    if [[ "$fd_limit" =~ ^[0-9]+$ ]] && [ "$fd_limit" -lt 256 ]; then
         log_warning "File descriptor limit is low: $fd_limit (recommended: 256+)"
         ((issues++))
     fi
@@ -2269,9 +2278,10 @@ except ImportError:
 if sys.platform == 'darwin':
     try:
         import multiprocessing
-        if multiprocessing.get_start_method(allow_none=True) == 'fork':
+        start_method = multiprocessing.get_start_method(allow_none=True)
+        if start_method == 'fork':
             # fork can cause issues with certain libraries on macOS
-            pass  # Just noting it
+            issues.append("Multiprocessing uses 'fork' (may cause issues with GUI/OpenCL)")
     except:
         pass
 
@@ -2332,14 +2342,21 @@ validate_native_extensions() {
         local module_name="${mod_info%%:*}"
         local package_name="${mod_info##*:}"
         
-        # Test module import with crash protection
+        # Validate module_name contains only safe characters (alphanumeric, underscore, dot)
+        if ! [[ "$module_name" =~ ^[a-zA-Z0-9_.]+$ ]]; then
+            log_warning "  $package_name: Invalid module name, skipping"
+            continue
+        fi
+        
+        # Use timeout command if available, otherwise run with subshell timeout
         local test_result
-        test_result=$(timeout 10 "$python_cmd" 2>&1 <<PYTEST
+        if command -v timeout &>/dev/null; then
+            test_result=$(timeout 10 "$python_cmd" -c "
 import sys
 import signal
 
 def handler(signum, frame):
-    print("SIGNAL: " + str(signum))
+    print('SIGNAL: ' + str(signum))
     sys.exit(139)
 
 signal.signal(signal.SIGSEGV, handler)
@@ -2347,14 +2364,36 @@ signal.signal(signal.SIGABRT, handler)
 signal.signal(signal.SIGBUS, handler)
 
 try:
-    __import__("$module_name")
-    print("OK")
+    __import__('$module_name')
+    print('OK')
 except ImportError:
-    print("NOT_INSTALLED")
+    print('NOT_INSTALLED')
 except Exception as e:
-    print(f"ERROR: {e}")
-PYTEST
-) || test_result="CRASH"
+    print(f'ERROR: {e}')
+" 2>&1) || test_result="CRASH"
+        else
+            # Fallback for systems without timeout command
+            test_result=$("$python_cmd" -c "
+import sys
+import signal
+
+def handler(signum, frame):
+    print('SIGNAL: ' + str(signum))
+    sys.exit(139)
+
+signal.signal(signal.SIGSEGV, handler)
+signal.signal(signal.SIGABRT, handler)
+signal.signal(signal.SIGBUS, handler)
+
+try:
+    __import__('$module_name')
+    print('OK')
+except ImportError:
+    print('NOT_INSTALLED')
+except Exception as e:
+    print(f'ERROR: {e}')
+" 2>&1) || test_result="CRASH"
+        fi
         
         case "$test_result" in
             *"OK"*)
@@ -2428,8 +2467,10 @@ validate_environment_variables() {
     # Check PYTHONPATH for potential conflicts
     if [ -n "${PYTHONPATH:-}" ]; then
         log_info "  PYTHONPATH is set: $PYTHONPATH"
-        # Check for potential conflicts
-        if echo "$PYTHONPATH" | grep -qE "x86_64|i386" && [[ "$(uname -m)" == "arm64" ]]; then
+        # Check for potential conflicts - handle both arm64 (macOS) and aarch64 (Linux)
+        local host_arch
+        host_arch=$(uname -m 2>/dev/null)
+        if echo "$PYTHONPATH" | grep -qE "x86_64|i386" && [[ "$host_arch" == "arm64" || "$host_arch" == "aarch64" ]]; then
             log_warning "PYTHONPATH may contain x86_64 paths on ARM64 system"
             ((issues++))
         fi
