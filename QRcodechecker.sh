@@ -2929,7 +2929,8 @@ check_rate_limits() {
     fi
     
     # Count recent API calls
-    local recent_calls=$(grep -c "^[0-9]*:" "$rate_file" 2>/dev/null || echo 0)
+    local recent_calls
+    recent_calls=$(grep -c "^[0-9]*:" "$rate_file" 2>/dev/null) || recent_calls=0
     
     if [ $recent_calls -gt 100 ]; then
         log_warning "High API call rate detected: $recent_calls in last hour"
@@ -3356,7 +3357,7 @@ sync_all_background_jobs() {
     
     # Force garbage collection of zombie processes
     local zombies
-    zombies=$(ps -o pid,stat 2>/dev/null | grep -c 'Z' || echo 0)
+    zombies=$(ps -o pid,stat 2>/dev/null | grep -c 'Z') || zombies=0
     if [[ "$zombies" -gt 0 ]]; then
         log_info "Cleaning up $zombies zombie processes..."
         # Trigger zombie cleanup by waiting on any children
@@ -16828,7 +16829,7 @@ EOF
     local unique_values
     unique_values=$(get_unique_decoded_values "$all_decoded")
     local unique_count
-    unique_count=$(echo "$unique_values" | grep -c . 2>/dev/null || echo 0)
+    unique_count=$(echo "$unique_values" | grep -c . 2>/dev/null) || unique_count=0
     log_info "Reduced to $unique_count unique decoded value(s) after normalization"
     
     # Write unique normalized values to merged file
@@ -19237,7 +19238,8 @@ analyze_image_metadata() {
         local binwalk_output="${EVIDENCE_DIR}/binwalk_$(basename "$image").txt"
         binwalk "$image" > "$binwalk_output" 2>/dev/null
         
-        local embedded_files=$(grep -c "0x" "$binwalk_output" 2>/dev/null || echo "0")
+        local embedded_files
+        embedded_files=$(grep -c "0x" "$binwalk_output" 2>/dev/null) || embedded_files=0
         if [ "$embedded_files" -gt 3 ]; then
             log_forensic_detection 30 \
                 "Multiple Embedded Files Detected" \
@@ -24225,9 +24227,17 @@ evaluate_all_yara_rules() {
     
     log_info "  Evaluating YARA-like rules..."
     
+    local rule_count=0
     for rule_name in "${!YARA_RULES[@]}"; do
         local matched_patterns=""
         matched_patterns=$(evaluate_yara_rule "$content" "$rule_name")
+        
+        # Prevent fork exhaustion by allowing process cleanup every few rules
+        rule_count=$((rule_count + 1))
+        if (( rule_count % 5 == 0 )); then
+            wait 2>/dev/null || true
+            sleep 0.05
+        fi
         
         if [ -n "$matched_patterns" ]; then
             # Extract severity from rule
@@ -26676,10 +26686,15 @@ analyze_hardware_exploits() {
             done
             echo ""
             echo "Risk Categories:"
-            echo "  Buffer Overflow: $(echo "${hardware_findings[@]}" | grep -c "buffer" || echo 0)"
-            echo "  POS Terminals: $(echo "${hardware_findings[@]}" | grep -c "pos" || echo 0)"
-            echo "  IoT Devices: $(echo "${hardware_findings[@]}" | grep -c "iot" || echo 0)"
-            echo "  Cameras/RTSP: $(echo "${hardware_findings[@]}" | grep -c "rtsp\|camera" || echo 0)"
+            local _buf_cnt _pos_cnt _iot_cnt _cam_cnt
+            _buf_cnt=$(echo "${hardware_findings[@]}" | grep -c "buffer") || _buf_cnt=0
+            _pos_cnt=$(echo "${hardware_findings[@]}" | grep -c "pos") || _pos_cnt=0
+            _iot_cnt=$(echo "${hardware_findings[@]}" | grep -c "iot") || _iot_cnt=0
+            _cam_cnt=$(echo "${hardware_findings[@]}" | grep -c "rtsp\|camera") || _cam_cnt=0
+            echo "  Buffer Overflow: $_buf_cnt"
+            echo "  POS Terminals: $_pos_cnt"
+            echo "  IoT Devices: $_iot_cnt"
+            echo "  Cameras/RTSP: $_cam_cnt"
             echo ""
         } >> "$HARDWARE_EXPLOIT_REPORT"
         
@@ -27121,11 +27136,17 @@ analyze_fileless_malware() {
             done
             echo ""
             echo "Technique Categories:"
-            echo "  LOLBAS (Windows): $(printf '%s\n' "${fileless_findings[@]}" | grep -c "lolbas" || echo 0)"
-            echo "  GTFOBins (Linux): $(printf '%s\n' "${fileless_findings[@]}" | grep -c "gtfobins" || echo 0)"
-            echo "  AMSI Bypass: $(printf '%s\n' "${fileless_findings[@]}" | grep -c "amsi" || echo 0)"
-            echo "  Office Macros: $(printf '%s\n' "${fileless_findings[@]}" | grep -c -E "office|ole" || echo 0)"
-            echo "  PowerShell: $(printf '%s\n' "${fileless_findings[@]}" | grep -c -E "ps_|powershell" || echo 0)"
+            local _lolbas_cnt _gtfobins_cnt _amsi_cnt _office_cnt _ps_cnt
+            _lolbas_cnt=$(printf '%s\n' "${fileless_findings[@]}" | grep -c "lolbas") || _lolbas_cnt=0
+            _gtfobins_cnt=$(printf '%s\n' "${fileless_findings[@]}" | grep -c "gtfobins") || _gtfobins_cnt=0
+            _amsi_cnt=$(printf '%s\n' "${fileless_findings[@]}" | grep -c "amsi") || _amsi_cnt=0
+            _office_cnt=$(printf '%s\n' "${fileless_findings[@]}" | grep -c -E "office|ole") || _office_cnt=0
+            _ps_cnt=$(printf '%s\n' "${fileless_findings[@]}" | grep -c -E "ps_|powershell") || _ps_cnt=0
+            echo "  LOLBAS (Windows): $_lolbas_cnt"
+            echo "  GTFOBins (Linux): $_gtfobins_cnt"
+            echo "  AMSI Bypass: $_amsi_cnt"
+            echo "  Office Macros: $_office_cnt"
+            echo "  PowerShell: $_ps_cnt"
             echo ""
             echo "MITRE ATT&CK Mapping:"
             echo "  T1059 - Command and Scripting Interpreter"
@@ -33526,7 +33547,8 @@ analyze_injection_attacks() {
     fi
     
     # GraphQL alias-based DoS - simplified check
-    local alias_count=$(echo "$content" | safe_grep_coE '[[:alnum:]_]+[[:space:]]*:[[:space:]]*[[:alnum:]_]+[[:space:]]*\(' 2>/dev/null || echo 0)
+    local alias_count
+    alias_count=$(echo "$content" | safe_grep_coE '[[:alnum:]_]+[[:space:]]*:[[:space:]]*[[:alnum:]_]+[[:space:]]*\(' 2>/dev/null) || alias_count=0
     if [ "$alias_count" -gt 10 ] 2>/dev/null; then
         log_threat 50 "Potential GraphQL alias-based DoS (excessive aliases)"
         injection_findings+=("graphql_alias_dos")
@@ -35318,7 +35340,8 @@ analyze_js_browser_exploits() {
     
     # Check for iframe injections
     # Note: Use tr to ensure clean integer - grep -c can output multiple lines on multi-line input
-    local iframe_count=$(echo "$analysis_content" | grep -ciE '<iframe' 2>/dev/null | tr -d '\n' | grep -oE '^[0-9]+' || echo 0)
+    local iframe_count
+    iframe_count=$(echo "$analysis_content" | grep -ciE '<iframe' 2>/dev/null | tr -d '\n' | grep -oE '^[0-9]+') || iframe_count=0
     iframe_count=${iframe_count:-0}
     if [ "$iframe_count" -gt 0 ] 2>/dev/null; then
         echo "" >> "$js_report"
@@ -35348,7 +35371,8 @@ analyze_js_browser_exploits() {
     fi
     
     # Check for external script loading
-    local script_count=$(echo "$analysis_content" | grep -ciE '<script[^>]+src' 2>/dev/null | tr -d '\n' | grep -oE '^[0-9]+' || echo 0)
+    local script_count
+    script_count=$(echo "$analysis_content" | grep -ciE '<script[^>]+src' 2>/dev/null | tr -d '\n' | grep -oE '^[0-9]+') || script_count=0
     script_count=${script_count:-0}
     if [ "$script_count" -gt 10 ] 2>/dev/null; then
         js_findings+=("excessive_scripts:$script_count")
@@ -40577,7 +40601,8 @@ analyze_polyglot_files() {
     
     if command -v binwalk &> /dev/null; then
         local binwalk_output=$(binwalk "$file" 2>/dev/null | head -50)
-        local embedded_count=$(echo "$binwalk_output" | grep -cE "^[0-9]+" 2>/dev/null || echo 0)
+        local embedded_count
+        embedded_count=$(echo "$binwalk_output" | grep -cE "^[0-9]+" 2>/dev/null) || embedded_count=0
         
         if [ "${embedded_count:-0}" -gt 2 ]; then
             ((polyglot_score += 30))
@@ -44443,7 +44468,7 @@ detect_multiple_qr_codes() {
     local temp_result=$(create_secure_temp_file "multi_qr") || return 1
     local num_codes=0
     if run_isolated_with_output 30 "$temp_result" zbarimg "$image"; then
-        num_codes=$(grep -c "QR-Code" "$temp_result" 2>/dev/null || echo 0)
+        num_codes=$(grep -c "QR-Code" "$temp_result" 2>/dev/null) || num_codes=0
     fi
     rm -f "$temp_result" 2>/dev/null
     
