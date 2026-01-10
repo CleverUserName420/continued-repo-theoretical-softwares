@@ -9891,36 +9891,23 @@ normalize_decoder_output() {
     
     local normalized="$raw_output"
     
-    # Remove common decoder metadata prefixes (case-insensitive)
-    # ZBar format: "QR-Code:", "CODE-128:", "EAN-13:", etc.
-    normalized=$(echo "$normalized" | sed -E 's/^[A-Za-z0-9]+-[A-Za-z0-9]+:[[:space:]]*//')
+    # Remove null bytes and carriage returns first (replace CR with nothing, not newline)
+    normalized=$(printf '%s' "$normalized" | tr -d '\0\r')
     
-    # Remove type indicators like "[QR]", "[Code128]", "[EAN13]"
-    normalized=$(echo "$normalized" | sed -E 's/^\[[A-Za-z0-9_-]+\][[:space:]]*//')
-    
-    # Remove common debug/info prefixes
-    normalized=$(echo "$normalized" | sed -E 's/^(Data|Result|Decoded|Content|Value):[[:space:]]*//i')
-    
-    # Remove timestamp prefixes like "[2024-01-01 12:00:00]" or "2024-01-01T12:00:00Z:"
-    normalized=$(echo "$normalized" | sed -E 's/^\[[0-9]{4}-[0-9]{2}-[0-9]{2}[T[:space:]][0-9:]+[^]]*\][[:space:]]*//')
-    normalized=$(echo "$normalized" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+[A-Z]*:[[:space:]]*//')
-    
-    # Remove position/coordinate metadata like "(x=10, y=20)"
-    normalized=$(echo "$normalized" | sed -E 's/\(x=[0-9]+,[[:space:]]*y=[0-9]+\)[[:space:]]*//')
-    
-    # Remove quality/confidence scores like "confidence: 0.99" or "[score: 100]"
-    normalized=$(echo "$normalized" | sed -E 's/\[(confidence|score|quality)[[:space:]]*:[[:space:]]*[0-9.]+\][[:space:]]*//gi')
-    normalized=$(echo "$normalized" | sed -E 's/(confidence|score|quality)[[:space:]]*:[[:space:]]*[0-9.]+[[:space:]]*//gi')
-    
-    # Remove barcode type suffixes like " (QR_CODE)" or " [QRCODE]"
-    normalized=$(echo "$normalized" | sed -E 's/[[:space:]]*\((QR_?CODE|CODE[_-]?128|EAN[_-]?13|UPC[_-]?A|AZTEC|PDF417|DATAMATRIX)[^)]*\)$//i')
-    normalized=$(echo "$normalized" | sed -E 's/[[:space:]]*\[(QR_?CODE|CODE[_-]?128|EAN[_-]?13|UPC[_-]?A|AZTEC|PDF417|DATAMATRIX)[^]]*\]$//i')
-    
-    # Strip leading/trailing whitespace
-    normalized=$(echo "$normalized" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-    
-    # Remove null bytes and normalize line endings
-    normalized=$(echo "$normalized" | tr -d '\0' | tr '\r' '\n')
+    # Use a single sed with multiple expressions for efficiency
+    # This addresses all normalization in fewer subprocess calls
+    normalized=$(printf '%s' "$normalized" | sed -E \
+        -e 's/^(QR-Code|CODE-128|CODE-39|CODE-93|EAN-13|EAN-8|UPC-A|UPC-E|PDF417|AZTEC|DATAMATRIX|DATA-MATRIX|MAXICODE|CODABAR|ITF|ITF-14|ISBN-10|ISBN-13|ISSN):[[:space:]]*//i' \
+        -e 's/^\[[A-Za-z0-9_-]+\][[:space:]]*//' \
+        -e 's/^(Data|Result|Decoded|Content|Value):[[:space:]]*//i' \
+        -e 's/^\[[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9:]+[^]]*\][[:space:]]*//' \
+        -e 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+[A-Z]*:[[:space:]]*//' \
+        -e 's/\(x=[0-9]+,[[:space:]]*y=[0-9]+\)[[:space:]]*//' \
+        -e 's/\[(confidence|score|quality)[[:space:]]*:[[:space:]]*[0-9.]+\][[:space:]]*//gi' \
+        -e 's/(confidence|score|quality)[[:space:]]*:[[:space:]]*[0-9.]+[[:space:]]*$//gi' \
+        -e 's/[[:space:]]*\((QR_?CODE|CODE[_-]?128|EAN[_-]?13|UPC[_-]?A|AZTEC|PDF417|DATAMATRIX)[^)]*\)$//i' \
+        -e 's/[[:space:]]*\[(QR_?CODE|CODE[_-]?128|EAN[_-]?13|UPC[_-]?A|AZTEC|PDF417|DATAMATRIX)[^]]*\]$//i' \
+        -e 's/^[[:space:]]+//;s/[[:space:]]+$//')
     
     echo "$normalized"
 }
