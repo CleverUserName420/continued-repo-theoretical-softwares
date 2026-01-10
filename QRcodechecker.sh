@@ -3413,9 +3413,9 @@ parallel_decoder_analysis() {
                  --env image_file \
                  --env temp_base \
                  '
-                 decoder={}
+                 decoder="{}"
                  # Validate decoder name (alphanumeric, underscores, hyphens only)
-                 if [[ ! "$decoder" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                 if [[ -z "$decoder" ]] || [[ ! "$decoder" =~ ^[a-zA-Z0-9_-]+$ ]]; then
                      exit 1
                  fi
                  result_file="${temp_base}/decoder_${decoder}_$$.txt"
@@ -4892,6 +4892,7 @@ declare -a HARDCODED_MALICIOUS_DOMAINS=(
     "exfil-endpoint.mom"
     "c2-relay.xin"
     "proxy-c2.kim"
+    "scnv.io"
 )
 
 # KNOWN MALICIOUS DOMAINS DATABASE
