@@ -15534,7 +15534,7 @@ EOF
     fi
 
     # --- DECODER 25: PDF417 (IDs, driver's licenses, boarding passes) ---
-    local out_pdf417="${TEMP_DIR}_pdf417.txt"
+    local out_pdf417="$(get_mmap_temp_path "pdf417" ".txt")"
     log_info "  [25/50] Trying PDF417 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15627,7 +15627,7 @@ EOF
     fi
 
     # --- DECODER 28: CODE128 (High-density alphanumeric) ---
-    local out_code128="${TEMP_DIR}_code128.txt"
+    local out_code128="$(get_mmap_temp_path "code128" ".txt")"
     log_info "  [28/50] Trying Code 128 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15658,7 +15658,7 @@ EOF
     fi
 
     # --- DECODER 29: CODE39 (Automotive VINs, defense LOGMARS) ---
-    local out_code39="${TEMP_DIR}_code39.txt"
+    local out_code39="$(get_mmap_temp_path "code39" ".txt")"
     log_info "  [29/50] Trying Code 39 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15906,7 +15906,7 @@ EOF
     fi
 
     # --- DECODER 37: CODE93 (Higher density Code 39 variant) ---
-    local out_code93="${TEMP_DIR}_code93.txt"
+    local out_code93="$(get_mmap_temp_path "code93" ".txt")"
     log_info "  [37/50] Trying Code 93 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15968,7 +15968,7 @@ EOF
     fi
 
     # --- DECODER 39: QR MODEL 1 (Legacy QR) ---
-    local out_qr_model1="${TEMP_DIR}_qr_model1.txt"
+    local out_qr_model1="$(get_mmap_temp_path "qr_model1" ".txt")"
     log_info "  [39/50] Trying QR Model 1 decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -16206,7 +16206,7 @@ EOF
     fi
 
     # --- DECODER 47: GS1 DataBar ---
-    local out_gs1="${TEMP_DIR}_gs1_databar.txt"
+    local out_gs1="$(get_mmap_temp_path "gs1_databar" ".txt")"
     log_info "  [47/50] Trying GS1 DataBar decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -16266,7 +16266,7 @@ EOF
     fi
 
     # --- DECODER 49: Code 11 ---
-    local out_code11="${TEMP_DIR}_code11.txt"
+    local out_code11="$(get_mmap_temp_path "code11" ".txt")"
     log_info "  [49/50] Trying Code 11 decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -16469,7 +16469,13 @@ multi_decoder_analysis_parallel() {
         return 10
     fi
     
-    local allowed_temp_dir="${TEMP_DIR}/"
+    # Use mmap-backed temp directory
+    local allowed_temp_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        allowed_temp_dir="${MMAP_TEMP_DIR}/"
+    else
+        allowed_temp_dir="${TEMP_DIR}/"
+    fi
     mkdir -p "$allowed_temp_dir" 2>/dev/null
     
     # Priority-based decoder groups
@@ -16482,10 +16488,19 @@ multi_decoder_analysis_parallel() {
     local all_decoded=""
     local decoder_results=()
     
-    # Shared aggregation files
-    local aggregate_output="${TEMP_DIR}/aggregate_$$.txt"
-    local aggregate_summary="${TEMP_DIR}/aggregate_$$_summary.txt"
-    local lock_file="${TEMP_DIR}/aggregate_$$.lock"
+    # Shared aggregation files - use mmap-backed storage
+    local aggregate_output
+    local aggregate_summary
+    local lock_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        aggregate_output="${MMAP_TEMP_DIR}/aggregate_$$.txt"
+        aggregate_summary="${MMAP_TEMP_DIR}/aggregate_$$_summary.txt"
+        lock_file="${MMAP_TEMP_DIR}/aggregate_$$.lock"
+    else
+        aggregate_output="${TEMP_DIR}/aggregate_$$.txt"
+        aggregate_summary="${TEMP_DIR}/aggregate_$$_summary.txt"
+        lock_file="${TEMP_DIR}/aggregate_$$.lock"
+    fi
     
     : > "$aggregate_output"
     : > "$aggregate_summary"
@@ -16528,8 +16543,13 @@ multi_decoder_analysis_parallel() {
                 sleep 0.1
             done
             
-            # Launch decoder in background
-            local out_file="${TEMP_DIR}/_${decoder}_$$.txt"
+            # Launch decoder in background - use mmap-backed storage
+            local out_file
+            if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+                out_file="${MMAP_TEMP_DIR}/_${decoder}_$$.txt"
+            else
+                out_file="${TEMP_DIR}/_${decoder}_$$.txt"
+            fi
             register_temp_file "$out_file"
             
             (
@@ -18137,7 +18157,13 @@ analyze_steganography() {
 
     ### === zsteg (PNG only; multi-check) === ###
     if command -v zsteg &> /dev/null && file "$image" 2>/dev/null | grep -qi "PNG"; then
-        local zsteg_output="${TEMP_DIR}/zsteg_$(basename "$image").txt"
+        # Use mmap-backed temp for zsteg output
+        local zsteg_output
+        if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+            zsteg_output="${MMAP_TEMP_DIR}/zsteg_$(basename "$image").txt"
+        else
+            zsteg_output="${TEMP_DIR}/zsteg_$(basename "$image").txt"
+        fi
         run_isolated_with_output 30 "$zsteg_output" zsteg "$image" || true
         if [[ -f "$zsteg_output" ]]; then
             if grep -qiE "(http|https|ftp|data:|base64)" "$zsteg_output" 2>/dev/null; then
@@ -18272,6 +18298,9 @@ import os
 import mmap
 import tempfile
 
+# Use mmap-backed temp directory if available
+mmap_temp = os.environ.get('QR_MMAP_TEMP', tempfile.gettempdir())
+
 try:
     from PIL import Image
     import numpy as np
@@ -18289,8 +18318,8 @@ try:
     
     # For very large images, use chunked processing with mmap
     if total_pixels > 1000000:  # > 1 megapixel
-        # Create a temporary memory-mapped file for LSB storage
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.lsb')
+        # Create a temporary memory-mapped file for LSB storage in mmap-backed directory
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.lsb', dir=mmap_temp)
         try:
             # Calculate size needed for LSB data
             array_size = total_pixels * 3  # 3 channels
@@ -18402,6 +18431,9 @@ import tempfile
 import struct
 from collections import Counter
 
+# Use mmap-backed temp directory if available
+mmap_temp = os.environ.get('QR_MMAP_TEMP', tempfile.gettempdir())
+
 try:
     from PIL import Image
     
@@ -18418,8 +18450,8 @@ try:
     
     # For large images, use chunked sampling with mmap
     if total_pixels > 1000000:  # > 1 megapixel
-        # Create mmap for storing color samples
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.colors')
+        # Create mmap for storing color samples in mmap-backed directory
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.colors', dir=mmap_temp)
         try:
             # Sample every Nth pixel to keep memory bounded
             sample_rate = max(1, total_pixels // 500000)  # Max ~500K samples
@@ -18991,13 +19023,21 @@ perform_ocr_analysis() {
         filetype=$(file --mime-type -b "$image")
     fi
 
+    # Determine mmap-backed temp directory
+    local ocr_temp_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        ocr_temp_dir="${MMAP_TEMP_DIR}"
+    else
+        ocr_temp_dir="${TEMP_DIR}"
+    fi
+
     # PDF: extract images embedded in PDF QR documents for OCR
     if [[ "$extension" =~ ^pdf$ ]] || [[ "$filetype" =~ ^application/pdf$ ]]; then
         if command -v pdfimages &> /dev/null; then
             log_info "PDF detected: extracting image streams for QR OCR"
-            mkdir -p "${TEMP_DIR}/pdf_ocr"
-            pdfimages -all "$image" "${TEMP_DIR}/pdf_ocr/extract" 2>/dev/null
-            extracted_files=($(ls "${TEMP_DIR}/pdf_ocr"/extract* 2>/dev/null))
+            mkdir -p "${ocr_temp_dir}/pdf_ocr"
+            pdfimages -all "$image" "${ocr_temp_dir}/pdf_ocr/extract" 2>/dev/null
+            extracted_files=($(ls "${ocr_temp_dir}/pdf_ocr"/extract* 2>/dev/null))
         else
             log_warning "pdfimages not available; cannot analyze PDF images for QR code OCR"
             return
@@ -19005,7 +19045,7 @@ perform_ocr_analysis() {
     # SVG: extract embedded QR payload as text
     elif [[ "$extension" == "svg" ]] || [[ "$filetype" == "image/svg+xml" ]]; then
         log_info "SVG detected: extracting embedded QR code payload text"
-        local svg_txt="${TEMP_DIR}/svg_ocr_$(basename "$image").txt"
+        local svg_txt="${ocr_temp_dir}/svg_ocr_$(basename "$image").txt"
         if command -v xmllint &> /dev/null; then
             xmllint --xpath '//text()' "$image" 2>/dev/null > "$svg_txt" || true
         else
@@ -19015,10 +19055,10 @@ perform_ocr_analysis() {
     # Video: extract frames to catch QR codes in moving images
     elif [[ "$extension" =~ ^(mp4|webm|mkv|avi)$ ]] || [[ "$filetype" =~ ^video/ ]]; then
         if command -v ffmpeg &> /dev/null; then
-            mkdir -p "${TEMP_DIR}/vid_ocr"
+            mkdir -p "${ocr_temp_dir}/vid_ocr"
             log_info "Video detected: extracting frames for QR code OCR"
-            ffmpeg -loglevel quiet -i "$image" -vf "fps=1" "${TEMP_DIR}/vid_ocr/frame_%03d.png"
-            extracted_files=($(ls "${TEMP_DIR}/vid_ocr"/frame_*.png 2>/dev/null))
+            ffmpeg -loglevel quiet -i "$image" -vf "fps=1" "${ocr_temp_dir}/vid_ocr/frame_%03d.png"
+            extracted_files=($(ls "${ocr_temp_dir}/vid_ocr"/frame_*.png 2>/dev/null))
         else
             log_warning "ffmpeg not available; cannot analyze video frames for QR code OCR"
             return
@@ -19052,8 +19092,16 @@ perform_ocr_analysis() {
 
         log_info "OCR scanning $f for QR code threats and payloads..."
 
-        local ocr_output="${TEMP_DIR}/ocr_$(basename "$f").txt"
-        local norm_output="${TEMP_DIR}/ocrnorm_$(basename "$f").txt"
+        # Use mmap-backed temp for OCR output
+        local ocr_output
+        local norm_output
+        if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+            ocr_output="${MMAP_TEMP_DIR}/ocr_$(basename "$f").txt"
+            norm_output="${MMAP_TEMP_DIR}/ocrnorm_$(basename "$f").txt"
+        else
+            ocr_output="${TEMP_DIR}/ocr_$(basename "$f").txt"
+            norm_output="${TEMP_DIR}/ocrnorm_$(basename "$f").txt"
+        fi
 
         tesseract "$f" "${ocr_output%.txt}" -l eng --psm 6 2>/dev/null
 
@@ -19751,7 +19799,13 @@ check_domain_whois() {
 
     log_info "Checking WHOIS for QR code domain: $domain"
 
-    local whois_file="${TEMP_DIR}/whois_${domain//\//_}_$(date +%s).txt"
+    # Use mmap-backed temp for whois data
+    local whois_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        whois_file="${MMAP_TEMP_DIR}/whois_${domain//\//_}_$(date +%s).txt"
+    else
+        whois_file="${TEMP_DIR}/whois_${domain//\//_}_$(date +%s).txt"
+    fi
     timeout 10 whois "$domain" > "$whois_file" 2>/dev/null || return
 
     # Domain age analysis (new domains in QR code payloads = high risk)
@@ -19825,7 +19879,13 @@ check_domain_dns() {
 
     log_info "Checking DNS records for QR code payload domain: $domain"
 
-    local dns_file="${TEMP_DIR}/dns_${domain//\//_}_$(date +%s).txt"
+    # Use mmap-backed temp for dns data
+    local dns_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        dns_file="${MMAP_TEMP_DIR}/dns_${domain//\//_}_$(date +%s).txt"
+    else
+        dns_file="${TEMP_DIR}/dns_${domain//\//_}_$(date +%s).txt"
+    fi
 
     {
         echo "=== A Records ==="
@@ -19910,7 +19970,13 @@ check_ssl_certificate() {
 
     log_info "Checking SSL certificate for QR code domain: $domain"
 
-    local cert_file="${TEMP_DIR}/cert_${domain//\//_}_$(date +%s).txt"
+    # Use mmap-backed temp for cert data
+    local cert_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        cert_file="${MMAP_TEMP_DIR}/cert_${domain//\//_}_$(date +%s).txt"
+    else
+        cert_file="${TEMP_DIR}/cert_${domain//\//_}_$(date +%s).txt"
+    fi
 
     timeout 5 openssl s_client -connect "${domain}:443" -servername "$domain" </dev/null 2>/dev/null | \
         openssl x509 -noout -text > "$cert_file" 2>/dev/null
@@ -19983,8 +20049,19 @@ check_ssl_certificate() {
 load_threat_intelligence() {
     log_info "Loading threat intelligence feeds..."
     
+    # Determine mmap-backed threat intel directory
+    local threat_intel_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        threat_intel_dir="${MMAP_TEMP_DIR}/threat_intel"
+    else
+        threat_intel_dir="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}"
+    fi
+    
     # Create threat intel directories
-    mkdir -p "${TEMP_DIR}/threat_intel"
+    mkdir -p "$threat_intel_dir"
+    
+    # Export for use by subfunctions
+    export THREAT_INTEL_DIR="$threat_intel_dir"
     
     if [ "$NETWORK_CHECK" = true ]; then
         # Download OpenPhish feed
@@ -20033,7 +20110,7 @@ load_threat_intelligence() {
 }
 
 download_openphish_feed() {
-    local feed_file="${TEMP_DIR}/threat_intel/openphish.txt"
+    local feed_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/openphish.txt"
     
     log_info "  Downloading OpenPhish feed..."
     
@@ -20048,7 +20125,7 @@ download_openphish_feed() {
 }
 
 download_urlhaus_feed() {
-    local feed_file="${TEMP_DIR}/threat_intel/urlhaus.txt"
+    local feed_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/urlhaus.txt"
     
     log_info "  Downloading URLhaus feed..."
     
@@ -20067,19 +20144,19 @@ download_abuse_ch_feeds() {
     
     # SSL blacklist
     curl -sfL --max-time 30 "https://sslbl.abuse.ch/blacklist/sslblacklist.csv" > \
-        "${TEMP_DIR}/threat_intel/sslbl.csv" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/sslbl.csv" 2>/dev/null
     
     # Malware bazaar recent additions
     curl -sfL --max-time 30 "https://bazaar.abuse.ch/export/txt/md5/recent/" > \
-        "${TEMP_DIR}/threat_intel/malware_bazaar_md5.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malware_bazaar_md5.txt" 2>/dev/null
     
     # Feodo Tracker
     curl -sfL --max-time 30 "https://feodotracker.abuse.ch/downloads/ipblocklist.txt" > \
-        "${TEMP_DIR}/threat_intel/feodo_ips.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" 2>/dev/null
     
     # ThreatFox IOCs
     curl -sfL --max-time 30 "https://threatfox.abuse.ch/export/json/recent/" > \
-        "${TEMP_DIR}/threat_intel/threatfox.json" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/threatfox.json" 2>/dev/null
     
     log_success "  Abuse.ch feeds loaded"
 }
@@ -20089,22 +20166,22 @@ download_public_blocklists() {
     
     # Spamhaus DROP list
     curl -sfL --max-time 30 "https://www.spamhaus.org/drop/drop.txt" > \
-        "${TEMP_DIR}/threat_intel/spamhaus_drop.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt" 2>/dev/null
     
     # Emergingthreats compromised IPs
     curl -sfL --max-time 30 "https://rules.emergingthreats.net/blockrules/compromised-ips.txt" > \
-        "${TEMP_DIR}/threat_intel/et_compromised.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_compromised.txt" 2>/dev/null
     
     # Ransomware tracker domains
     curl -sfL --max-time 30 "https://ransomwaretracker.abuse.ch/downloads/RW_DOMBL.txt" > \
-        "${TEMP_DIR}/threat_intel/ransomware_domains.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ransomware_domains.txt" 2>/dev/null
     
     log_success "  Public blocklists loaded"
 }
 
 load_phishtank_data() {
     local api_key="$PHISHTANK_API_KEY"
-    local feed_file="${TEMP_DIR}/threat_intel/phishtank.json"
+    local feed_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/phishtank.json"
     
     log_info "  Loading PhishTank data..."
     
@@ -20126,7 +20203,7 @@ load_otx_pulses() {
     log_info "  Loading OTX AlienVault pulses..."
     
     # Get subscribed pulses
-    local pulses_file="${TEMP_DIR}/threat_intel/otx_pulses.json"
+    local pulses_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/otx_pulses.json"
     
     curl -sfL --max-time 30 \
         -H "X-OTX-API-KEY: $api_key" \
@@ -20138,7 +20215,7 @@ load_otx_pulses() {
         
         # Extract IOCs from pulses
         jq -r '.results[].indicators[]? | select(.type == "URL" or .type == "domain" or .type == "IPv4") | .indicator' \
-            "$pulses_file" > "${TEMP_DIR}/threat_intel/otx_iocs.txt" 2>/dev/null
+            "$pulses_file" > "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/otx_iocs.txt" 2>/dev/null
     else
         log_warning "  Failed to load OTX pulses"
     fi
@@ -20154,20 +20231,20 @@ download_spamhaus_drop() {
     
     # DROP list
     curl -sfL --max-time 30 "https://www.spamhaus.org/drop/drop.txt" > \
-        "${TEMP_DIR}/threat_intel/spamhaus_drop.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt" 2>/dev/null
     
     # EDROP list
     curl -sfL --max-time 30 "https://www.spamhaus.org/drop/edrop.txt" > \
-        "${TEMP_DIR}/threat_intel/spamhaus_edrop.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_edrop.txt" 2>/dev/null
     
     # Parse and load IPs
-    if [ -s "${TEMP_DIR}/threat_intel/spamhaus_drop.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             local ip_range=$(echo "$line" | awk '{print $1}')
             [[ -n "$ip_range" ]] && KNOWN_MALICIOUS_IPS["$ip_range"]="Spamhaus DROP"
-        done < "${TEMP_DIR}/threat_intel/spamhaus_drop.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt"
         log_success "  Spamhaus DROP/EDROP: IPs loaded"
     else
         log_warning "  Failed to download Spamhaus lists"
@@ -20180,15 +20257,15 @@ download_emerging_threats_feed() {
     
     # Compromised IPs
     curl -sfL --max-time 30 "https://rules.emergingthreats.net/blockrules/compromised-ips.txt" > \
-        "${TEMP_DIR}/threat_intel/et_compromised.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_compromised.txt" 2>/dev/null
     
     # Emerging Block IPs
     curl -sfL --max-time 30 "https://rules.emergingthreats.net/fwrules/emerging-Block-IPs.txt" > \
-        "${TEMP_DIR}/threat_intel/et_block_ips.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_block_ips.txt" 2>/dev/null
     
     # Parse and load IPs
     local count=0
-    for file in "${TEMP_DIR}/threat_intel/et_"*.txt; do
+    for file in "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_"*.txt; do
         [ -f "$file" ] || continue
         while IFS= read -r ip; do
             [[ "$ip" =~ ^# ]] && continue
@@ -20209,7 +20286,7 @@ download_emerging_threats_feed() {
 download_cisa_kev() {
     log_info "  Downloading CISA KEV database..."
     
-    local kev_file="${TEMP_DIR}/threat_intel/cisa_kev.json"
+    local kev_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/cisa_kev.json"
     
     curl -sfL --max-time 30 "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json" > \
         "$kev_file" 2>/dev/null
@@ -20235,29 +20312,29 @@ download_feodo_tracker_extended() {
     
     # IP blocklist
     curl -sfL --max-time 30 "https://feodotracker.abuse.ch/downloads/ipblocklist.txt" > \
-        "${TEMP_DIR}/threat_intel/feodo_ips.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" 2>/dev/null
     
     # Domain blocklist
     curl -sfL --max-time 30 "https://feodotracker.abuse.ch/downloads/domainblocklist.txt" > \
-        "${TEMP_DIR}/threat_intel/feodo_domains.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_domains.txt" 2>/dev/null
     
     # Load IPs
-    if [ -s "${TEMP_DIR}/threat_intel/feodo_ips.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             local ip=$(echo "$line" | awk '{print $1}')
             [[ -n "$ip" ]] && KNOWN_C2_IPS["$ip"]="Feodo Tracker"
-        done < "${TEMP_DIR}/threat_intel/feodo_ips.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt"
     fi
     
     # Load domains
-    if [ -s "${TEMP_DIR}/threat_intel/feodo_domains.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_domains.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             KNOWN_C2_DOMAINS["$line"]="Feodo Tracker"
-        done < "${TEMP_DIR}/threat_intel/feodo_domains.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_domains.txt"
         log_success "  Feodo Tracker: C2 IPs and domains loaded"
     else
         log_warning "  Failed to download Feodo Tracker feeds"
@@ -20270,33 +20347,33 @@ download_sslbl_extended() {
     
     # SSL IP blacklist
     curl -sfL --max-time 30 "https://sslbl.abuse.ch/blacklist/sslipblacklist.txt" > \
-        "${TEMP_DIR}/threat_intel/sslbl_ips.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/sslbl_ips.txt" 2>/dev/null
     
     # SSL blacklist CSV
     curl -sfL --max-time 30 "https://sslbl.abuse.ch/blacklist/sslblacklist.csv" > \
-        "${TEMP_DIR}/threat_intel/sslbl.csv" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/sslbl.csv" 2>/dev/null
     
     # JA3 fingerprints
     curl -sfL --max-time 30 "https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv" > \
-        "${TEMP_DIR}/threat_intel/ja3_fingerprints.csv" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ja3_fingerprints.csv" 2>/dev/null
     
     # Load IPs
-    if [ -s "${TEMP_DIR}/threat_intel/sslbl_ips.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/sslbl_ips.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             local ip=$(echo "$line" | awk '{print $1}')
             [[ -n "$ip" ]] && KNOWN_MALICIOUS_IPS["$ip"]="SSLBL"
-        done < "${TEMP_DIR}/threat_intel/sslbl_ips.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/sslbl_ips.txt"
     fi
     
     # Load JA3 fingerprints
-    if [ -s "${TEMP_DIR}/threat_intel/ja3_fingerprints.csv" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ja3_fingerprints.csv" ]; then
         while IFS=',' read -r ja3 reason; do
             [[ "$ja3" =~ ^# ]] && continue
             [[ -z "$ja3" ]] && continue
             KNOWN_JA3_FINGERPRINTS["$ja3"]="$reason"
-        done < "${TEMP_DIR}/threat_intel/ja3_fingerprints.csv"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ja3_fingerprints.csv"
         log_success "  SSLBL Extended: IPs and JA3 fingerprints loaded"
     else
         log_warning "  Failed to download SSLBL extended feeds"
@@ -20308,7 +20385,7 @@ download_ransomware_tracker() {
     log_info "  Downloading ransomware IOCs (ThreatFox)..."
     
     # Use ThreatFox for ransomware IOCs since RansomwareTracker is archived
-    local threatfox_file="${TEMP_DIR}/threat_intel/threatfox_ransomware.json"
+    local threatfox_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/threatfox_ransomware.json"
     
     curl -sfL --max-time 30 "https://threatfox.abuse.ch/export/json/recent/" > "$threatfox_file" 2>/dev/null
     
@@ -20337,34 +20414,34 @@ download_bambenek_feeds() {
     
     # C2 Domain Master List
     curl -sfL --max-time 30 "https://osint.bambenekconsulting.com/feeds/c2-dommasterlist.txt" > \
-        "${TEMP_DIR}/threat_intel/bambenek_c2_domains.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_domains.txt" 2>/dev/null
     
     # C2 IP Master List
     curl -sfL --max-time 30 "https://osint.bambenekconsulting.com/feeds/c2-ipmasterlist.txt" > \
-        "${TEMP_DIR}/threat_intel/bambenek_c2_ips.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_ips.txt" 2>/dev/null
     
     # DGA Feed
     curl -sfL --max-time 30 "https://osint.bambenekconsulting.com/feeds/dga-feed.txt" > \
-        "${TEMP_DIR}/threat_intel/bambenek_dga.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_dga.txt" 2>/dev/null
     
     # Load C2 domains
-    if [ -s "${TEMP_DIR}/threat_intel/bambenek_c2_domains.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_domains.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             local domain=$(echo "$line" | awk -F, '{print $1}')
             [[ -n "$domain" ]] && KNOWN_C2_DOMAINS["$domain"]="Bambenek C2"
-        done < "${TEMP_DIR}/threat_intel/bambenek_c2_domains.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_domains.txt"
     fi
     
     # Load C2 IPs
-    if [ -s "${TEMP_DIR}/threat_intel/bambenek_c2_ips.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_ips.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             local ip=$(echo "$line" | awk -F, '{print $1}')
             [[ -n "$ip" ]] && KNOWN_C2_IPS["$ip"]="Bambenek C2"
-        done < "${TEMP_DIR}/threat_intel/bambenek_c2_ips.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_ips.txt"
         log_success "  Bambenek Consulting: C2 feeds loaded"
     else
         log_warning "  Failed to download Bambenek feeds"
@@ -20376,14 +20453,14 @@ download_talos_feed() {
     log_info "  Downloading Cisco Talos Intelligence feed..."
     
     curl -sfL --max-time 30 "https://www.talosintelligence.com/documents/ip-blacklist" > \
-        "${TEMP_DIR}/threat_intel/talos_blacklist.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/talos_blacklist.txt" 2>/dev/null
     
-    if [ -s "${TEMP_DIR}/threat_intel/talos_blacklist.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/talos_blacklist.txt" ]; then
         while IFS= read -r ip; do
             [[ "$ip" =~ ^# ]] && continue
             [[ -z "$ip" ]] && continue
             KNOWN_MALICIOUS_IPS["$ip"]="Cisco Talos"
-        done < "${TEMP_DIR}/threat_intel/talos_blacklist.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/talos_blacklist.txt"
         log_success "  Cisco Talos: Blacklist loaded"
     else
         log_warning "  Failed to download Cisco Talos feed"
@@ -20394,7 +20471,7 @@ download_talos_feed() {
 download_threatfox_iocs() {
     log_info "  Downloading ThreatFox IOC database..."
     
-    local threatfox_file="${TEMP_DIR}/threat_intel/threatfox_recent.json"
+    local threatfox_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/threatfox_recent.json"
     
     curl -sfL --max-time 30 "https://threatfox.abuse.ch/export/json/recent/" > "$threatfox_file" 2>/dev/null
     
@@ -20441,31 +20518,31 @@ download_malwarebazaar_hashes() {
     
     # SHA256 recent hashes
     curl -sfL --max-time 30 "https://bazaar.abuse.ch/export/txt/sha256/recent/" > \
-        "${TEMP_DIR}/threat_intel/malwarebazaar_sha256.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_sha256.txt" 2>/dev/null
     
     # MD5 recent hashes
     curl -sfL --max-time 30 "https://bazaar.abuse.ch/export/txt/md5/recent/" > \
-        "${TEMP_DIR}/threat_intel/malwarebazaar_md5.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_md5.txt" 2>/dev/null
     
     local count=0
     # Load SHA256 hashes
-    if [ -s "${TEMP_DIR}/threat_intel/malwarebazaar_sha256.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_sha256.txt" ]; then
         while IFS= read -r hash; do
             [[ "$hash" =~ ^# ]] && continue
             [[ -z "$hash" ]] && continue
             KNOWN_MALWARE_HASHES["$hash"]="MalwareBazaar"
             ((count++))
-        done < "${TEMP_DIR}/threat_intel/malwarebazaar_sha256.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_sha256.txt"
     fi
     
     # Load MD5 hashes
-    if [ -s "${TEMP_DIR}/threat_intel/malwarebazaar_md5.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_md5.txt" ]; then
         while IFS= read -r hash; do
             [[ "$hash" =~ ^# ]] && continue
             [[ -z "$hash" ]] && continue
             KNOWN_MALWARE_HASHES["$hash"]="MalwareBazaar"
             ((count++))
-        done < "${TEMP_DIR}/threat_intel/malwarebazaar_md5.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_md5.txt"
     fi
     
     if [ $count -gt 0 ]; then
@@ -20485,7 +20562,7 @@ download_malpedia_families() {
         return
     fi
     
-    local malpedia_file="${TEMP_DIR}/threat_intel/malpedia_families.json"
+    local malpedia_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malpedia_families.json"
     
     curl -sfL --max-time 30 \
         -H "Authorization: apitoken $MALPEDIA_API_KEY" \
@@ -20517,21 +20594,21 @@ download_misp_warninglists() {
     # Disposable email domains
     curl -sfL --max-time 30 \
         "https://raw.githubusercontent.com/MISP/misp-warninglists/main/lists/disposable-email/list.json" > \
-        "${TEMP_DIR}/threat_intel/misp_disposable_emails.json" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/misp_disposable_emails.json" 2>/dev/null
     
     # Parking domains
     curl -sfL --max-time 30 \
         "https://raw.githubusercontent.com/MISP/misp-warninglists/main/lists/parking-domain/list.json" > \
-        "${TEMP_DIR}/threat_intel/misp_parking_domains.json" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/misp_parking_domains.json" 2>/dev/null
     
     local count=0
     # Load disposable email domains
-    if [ -s "${TEMP_DIR}/threat_intel/misp_disposable_emails.json" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/misp_disposable_emails.json" ]; then
         while read -r domain; do
             [[ -z "$domain" ]] && continue
             DISPOSABLE_EMAIL_DOMAINS["$domain"]="MISP Disposable"
             ((count++))
-        done < <(jq -r '.list[]?' "${TEMP_DIR}/threat_intel/misp_disposable_emails.json" 2>/dev/null)
+        done < <(jq -r '.list[]?' "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/misp_disposable_emails.json" 2>/dev/null)
     fi
     
     if [ $count -gt 0 ]; then
@@ -20545,7 +20622,7 @@ download_misp_warninglists() {
 download_inquest_iocs() {
     log_info "  Downloading InQuest IOCs..."
     
-    local inquest_file="${TEMP_DIR}/threat_intel/inquest_iocs.json"
+    local inquest_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/inquest_iocs.json"
     
     curl -sfL --max-time 30 "https://labs.inquest.net/api/iocdb/list" > "$inquest_file" 2>/dev/null
     
@@ -20590,7 +20667,7 @@ download_anyrun_iocs() {
     # ANY.RUN public feed (if available without API key)
     # Note: Full API access requires API key
     if [ -n "$ANYRUN_API_KEY" ]; then
-        local anyrun_file="${TEMP_DIR}/threat_intel/anyrun_iocs.json"
+        local anyrun_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/anyrun_iocs.json"
         
         curl -sfL --max-time 30 \
             -H "Authorization: API-Key $ANYRUN_API_KEY" \
@@ -20616,7 +20693,7 @@ download_triage_iocs() {
         return
     fi
     
-    local triage_file="${TEMP_DIR}/threat_intel/triage_iocs.json"
+    local triage_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/triage_iocs.json"
     
     curl -sfL --max-time 30 \
         -H "Authorization: Bearer $TRIAGE_API_KEY" \
@@ -20771,8 +20848,8 @@ check_against_threat_intel() {
     case "$ioc_type" in
         "url")
             # OpenPhish
-            if [ -f "${TEMP_DIR}/threat_intel/openphish.txt" ]; then
-                if grep -qF "$ioc" "${TEMP_DIR}/threat_intel/openphish.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/openphish.txt" ]; then
+                if grep -qF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/openphish.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "PHISHING URL DETECTED" \
                         "$ioc" \
@@ -20785,8 +20862,8 @@ check_against_threat_intel() {
             fi
             
             # URLhaus
-            if [ -f "${TEMP_DIR}/threat_intel/urlhaus.txt" ]; then
-                if grep -qF "$ioc" "${TEMP_DIR}/threat_intel/urlhaus.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/urlhaus.txt" ]; then
+                if grep -qF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/urlhaus.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "MALWARE URL DETECTED" \
                         "$ioc" \
@@ -20799,8 +20876,8 @@ check_against_threat_intel() {
             fi
             
             # PhishTank
-            if [ -f "${TEMP_DIR}/threat_intel/phishtank.json" ]; then
-                if jq -e ".[] | select(.url == \"$ioc\")" "${TEMP_DIR}/threat_intel/phishtank.json" > /dev/null 2>&1; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/phishtank.json" ]; then
+                if jq -e ".[] | select(.url == \"$ioc\")" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/phishtank.json" > /dev/null 2>&1; then
                     log_forensic_detection 100 \
                         "VERIFIED PHISHING URL" \
                         "$ioc" \
@@ -20814,8 +20891,8 @@ check_against_threat_intel() {
             ;;
         "domain")
             # Ransomware domains
-            if [ -f "${TEMP_DIR}/threat_intel/ransomware_domains.txt" ]; then
-                if grep -qiF "$ioc" "${TEMP_DIR}/threat_intel/ransomware_domains.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ransomware_domains.txt" ]; then
+                if grep -qiF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ransomware_domains.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "RANSOMWARE DOMAIN DETECTED" \
                         "domain:$ioc" \
@@ -20829,8 +20906,8 @@ check_against_threat_intel() {
             fi
             
             # OTX IOCs
-            if [ -f "${TEMP_DIR}/threat_intel/otx_iocs.txt" ]; then
-                if grep -qiF "$ioc" "${TEMP_DIR}/threat_intel/otx_iocs.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/otx_iocs.txt" ]; then
+                if grep -qiF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/otx_iocs.txt" 2>/dev/null; then
                     log_forensic_detection 80 \
                         "Threat Intelligence Match - OTX" \
                         "domain:$ioc" \
@@ -20845,8 +20922,8 @@ check_against_threat_intel() {
             ;;
         "ip")
             # Spamhaus DROP
-            if [ -f "${TEMP_DIR}/threat_intel/spamhaus_drop.txt" ]; then
-                if grep -qF "$ioc" "${TEMP_DIR}/threat_intel/spamhaus_drop.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt" ]; then
+                if grep -qF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "BLOCKED IP DETECTED - Spamhaus DROP" \
                         "ip:$ioc" \
@@ -20860,8 +20937,8 @@ check_against_threat_intel() {
             fi
             
             # Feodo Tracker
-            if [ -f "${TEMP_DIR}/threat_intel/feodo_ips.txt" ]; then
-                if grep -qF "$ioc" "${TEMP_DIR}/threat_intel/feodo_ips.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" ]; then
+                if grep -qF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "BANKING TROJAN C2 DETECTED" \
                         "ip:$ioc, type:banking_trojan_c2" \
@@ -20875,8 +20952,8 @@ check_against_threat_intel() {
             fi
             
             # ET Compromised
-            if [ -f "${TEMP_DIR}/threat_intel/et_compromised.txt" ]; then
-                if grep -qF "$ioc" "${TEMP_DIR}/threat_intel/et_compromised.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_compromised.txt" ]; then
+                if grep -qF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_compromised.txt" 2>/dev/null; then
                     log_forensic_detection 80 \
                         "Compromised IP Detected" \
                         "ip:$ioc" \
@@ -20890,8 +20967,8 @@ check_against_threat_intel() {
             ;;
         "hash")
             # Malware Bazaar
-            if [ -f "${TEMP_DIR}/threat_intel/malware_bazaar_md5.txt" ]; then
-                if grep -qiF "$ioc" "${TEMP_DIR}/threat_intel/malware_bazaar_md5.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malware_bazaar_md5.txt" ]; then
+                if grep -qiF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malware_bazaar_md5.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "KNOWN MALWARE HASH DETECTED" \
                         "hash:$ioc" \
@@ -21099,7 +21176,7 @@ check_cisa_kev() {
     local content="$1"
     set -u
     
-    if [ ! -s "${TEMP_DIR}/threat_intel/cisa_kev.json" ]; then
+    if [ ! -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/cisa_kev.json" ]; then
         return
     fi
     
@@ -27935,7 +28012,7 @@ check_tor_exit_nodes() {
     fi
     
     # Download Tor exit node list (cached)
-    local tor_list="${TEMP_DIR}/threat_intel/tor_exits.txt"
+    local tor_list="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/tor_exits.txt"
     
     if [ ! -f "$tor_list" ]; then
         curl -sfL --max-time 15 "https://check.torproject.org/exit-addresses" > "$tor_list" 2>/dev/null
@@ -37674,8 +37751,8 @@ analyze_social_threat_tracking() {
     
     # This would integrate with real threat intelligence APIs
     # For now, check against local threat intel we've downloaded
-    if [ -d "${TEMP_DIR}/threat_intel" ]; then
-        for feed_file in "${TEMP_DIR}/threat_intel"/*.txt; do
+    if [ -d "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}" ]; then
+        for feed_file in "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}"/*.txt; do
             [ -f "$feed_file" ] || continue
             if grep -qi "$domain" "$feed_file" 2>/dev/null || grep -qi "$url" "$feed_file" 2>/dev/null; then
                 local feed_name=$(basename "$feed_file" .txt)
@@ -40036,10 +40113,10 @@ analyze_c2_frameworks() {
     done
     
     # Also check against downloaded threat intel C2 feeds
-    if [[ -f "${TEMP_DIR}/threat_intel/feodo_ips.txt" ]]; then
+    if [[ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" ]]; then
         local c2_match
         c2_match=$(echo "$content" | safe_grep_oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -5 | while read -r ip; do
-            grep -qF "$ip" "${TEMP_DIR}/threat_intel/feodo_ips.txt" 2>/dev/null && echo "$ip"
+            grep -qF "$ip" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" 2>/dev/null && echo "$ip"
         done)
         if [[ -n "$c2_match" ]]; then
             log_threat 80 "C2 IP match from Feodo Tracker: $c2_match"
@@ -40276,7 +40353,7 @@ check_greynoise() {
 }
 
 download_enhanced_threat_feeds() {
-    local feeds_dir="${TEMP_DIR}/threat_intel"
+    local feeds_dir="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}"
     mkdir -p "$feeds_dir" 2>/dev/null
     local feeds_loaded=0
     
