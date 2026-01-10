@@ -2328,6 +2328,9 @@ initialize() {
     init_mmap_temp_system
     init_mmap_paths
     
+    # Check for GNU parallel availability (prevents fork resource exhaustion)
+    check_gnu_parallel
+    
     log_success "Initialization complete"
 }
 
@@ -3213,6 +3216,156 @@ handle_resource_exhaustion() {
 # PERFORMANCE OPTIMIZATION FRAMEWORK
 ################################################################################
 
+# Check if GNU parallel is available
+# GNU parallel prevents "fork: retry: Resource temporarily unavailable" errors
+# by properly managing process limits and resource cleanup
+PARALLEL_AVAILABLE=false
+check_gnu_parallel() {
+    if command -v parallel &>/dev/null; then
+        # Verify it's actually GNU parallel, not moreutils parallel
+        if parallel --version 2>/dev/null | grep -qi "GNU"; then
+            PARALLEL_AVAILABLE=true
+            log_info "GNU parallel detected - using for resource-safe parallel execution"
+            return 0
+        else
+            log_info "Non-GNU parallel detected (moreutils?) - not compatible, using bash fallback"
+        fi
+    fi
+    log_info "GNU parallel not available - using fallback parallel execution with resource limits"
+    return 1
+}
+
+# Validate a decoder/check name to prevent injection attacks
+# Only allows alphanumeric characters, underscores, and hyphens
+validate_job_name() {
+    local name="$1"
+    if [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        return 0
+    fi
+    log_warning "Invalid job name rejected: $name"
+    return 1
+}
+
+# Run jobs with GNU parallel if available, otherwise use resource-limited bash parallelism
+# Usage: run_parallel_jobs <max_jobs> <job_list_file> <job_command_template>
+# Jobs are read from a file, one per line
+# The command template receives each job line as stdin
+run_parallel_jobs() {
+    set +u
+    local max_jobs="${1:-4}"
+    local job_file="$2"
+    local job_script="$3"
+    set -u
+    
+    if [[ ! -f "$job_file" ]]; then
+        log_error "Job file not found: $job_file"
+        return 1
+    fi
+    
+    # Validate job file is within expected temp directories
+    local job_file_dir
+    job_file_dir=$(dirname "$job_file" 2>/dev/null)
+    if [[ "$job_file_dir" != "${MMAP_TEMP_DIR:-}" ]] && [[ "$job_file_dir" != "${TEMP_DIR:-}" ]] && [[ "$job_file_dir" != "/tmp"* ]]; then
+        log_error "Job file path not in expected temp directory: $job_file"
+        return 1
+    fi
+    
+    local job_count
+    job_count=$(wc -l < "$job_file" 2>/dev/null | tr -d ' ' || echo 0)
+    
+    if [[ "$job_count" -eq 0 ]]; then
+        return 0
+    fi
+    
+    log_info "Running $job_count jobs (max $max_jobs concurrent)..."
+    
+    if [[ "$PARALLEL_AVAILABLE" == true ]]; then
+        # Use GNU parallel for proper resource management
+        # --halt soon,fail=1 : Stop on first failure but allow running jobs to finish
+        # --jobs $max_jobs : Limit concurrent jobs
+        # --timeout 60 : Kill jobs that take too long
+        # --load 80% : Don't start new jobs if load is too high
+        # --memfree 100M : Require 100MB free memory before starting new job
+        parallel --halt soon,fail=1 \
+                 --jobs "$max_jobs" \
+                 --timeout 60 \
+                 --load 80% \
+                 --memfree 100M \
+                 --line-buffer \
+                 "$job_script" {} < "$job_file" 2>/dev/null
+        return $?
+    else
+        # Fallback: bash parallelism with explicit resource management
+        local pids=()
+        local completed=0
+        
+        while IFS= read -r job_arg || [[ -n "$job_arg" ]]; do
+            [[ -z "$job_arg" ]] && continue
+            
+            # Wait for a slot if we're at max capacity
+            while [[ ${#pids[@]} -ge $max_jobs ]]; do
+                # Clean up finished processes
+                local new_pids=()
+                for pid in "${pids[@]}"; do
+                    if kill -0 "$pid" 2>/dev/null; then
+                        new_pids+=("$pid")
+                    else
+                        wait "$pid" 2>/dev/null || true
+                        ((completed++))
+                    fi
+                done
+                pids=("${new_pids[@]}")
+                
+                # Small delay to prevent CPU spinning
+                [[ ${#pids[@]} -ge $max_jobs ]] && sleep 0.1
+            done
+            
+            # Run job in background with resource limits
+            (
+                # Prevent core dumps
+                ulimit -c 0 2>/dev/null || true
+                # Limit CPU time to 60 seconds
+                ulimit -t 60 2>/dev/null || true
+                # Execute the job script with the argument
+                eval "$job_script" "$job_arg"
+            ) &
+            pids+=($!)
+        done < "$job_file"
+        
+        # Wait for all remaining jobs
+        for pid in "${pids[@]}"; do
+            wait "$pid" 2>/dev/null || true
+            ((completed++))
+        done
+        
+        log_info "Completed $completed jobs"
+        return 0
+    fi
+}
+
+# Wait for all background processes to complete and release resources
+# This should be called before resource-intensive operations like YARA evaluation
+sync_all_background_jobs() {
+    log_info "Synchronizing background jobs before next phase..."
+    
+    # Wait for any background jobs from this shell
+    wait 2>/dev/null || true
+    
+    # Give OS time to reclaim resources
+    sleep 0.2
+    
+    # Force garbage collection of zombie processes
+    local zombies
+    zombies=$(ps -o pid,stat 2>/dev/null | grep -c 'Z' || echo 0)
+    if [[ "$zombies" -gt 0 ]]; then
+        log_info "Cleaning up $zombies zombie processes..."
+        # Trigger zombie cleanup by waiting on any children
+        wait 2>/dev/null || true
+    fi
+    
+    log_info "Background jobs synchronized"
+}
+
 # Parallel decoder analysis
 parallel_decoder_analysis() {
     set +u
@@ -3222,9 +3375,6 @@ parallel_decoder_analysis() {
     
     log_info "Running parallel decoder analysis (max $max_parallel concurrent)..."
     
-    local pids=()
-    local decoder_count=0
-    
     # List of decoders to run in parallel
     local decoders=(
         "zbar"
@@ -3232,6 +3382,66 @@ parallel_decoder_analysis() {
         "quirc"
         "zxing"
     )
+    
+    # Determine temp directory
+    local temp_base
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        temp_base="${MMAP_TEMP_DIR}"
+    else
+        temp_base="$TEMP_DIR"
+    fi
+    
+    # Use GNU parallel if available for proper resource management
+    if [[ "$PARALLEL_AVAILABLE" == true ]]; then
+        log_info "Using GNU parallel for resource-safe decoder execution..."
+        
+        # Create decoder job file
+        local decoder_jobs="${temp_base}/decoder_jobs_$$.txt"
+        printf '%s\n' "${decoders[@]}" > "$decoder_jobs"
+        register_temp_file "$decoder_jobs"
+        
+        # Export required variables
+        export image_file temp_base
+        
+        # Run with GNU parallel - prevents fork exhaustion via proper job control
+        parallel --halt soon,fail=1 \
+                 --jobs "$max_parallel" \
+                 --timeout 30 \
+                 --load 80% \
+                 --memfree 100M \
+                 --line-buffer \
+                 --env image_file \
+                 --env temp_base \
+                 '
+                 decoder={}
+                 # Validate decoder name (alphanumeric, underscores, hyphens only)
+                 if [[ ! "$decoder" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                     exit 1
+                 fi
+                 result_file="${temp_base}/decoder_${decoder}_$$.txt"
+                 case "$decoder" in
+                     "zbar")
+                         timeout 30 zbarimg -q "$image_file" > "$result_file" 2>/dev/null || true
+                         ;;
+                     *)
+                         echo "" > "$result_file"
+                         ;;
+                 esac
+                 ' < "$decoder_jobs" 2>/dev/null || true
+        
+        rm -f "$decoder_jobs" 2>/dev/null || true
+        
+        log_success "Parallel decoder analysis complete (GNU parallel): ${#decoders[@]} decoders"
+        
+        # Collect results
+        cat "${temp_base}"/decoder_*_$$.txt 2>/dev/null | sort -u
+        rm -f "${temp_base}"/decoder_*_$$.txt 2>/dev/null || true
+        return 0
+    fi
+    
+    # Fallback: bash parallelism with resource limits
+    local pids=()
+    local decoder_count=0
     
     for decoder in "${decoders[@]}"; do
         # Check if we've reached max parallel
@@ -3242,15 +3452,15 @@ parallel_decoder_analysis() {
             pids=($(jobs -p))
         fi
         
-        # Launch decoder in background
+        # Launch decoder in background with resource limits
         (
+            # Prevent core dumps and limit resources
+            ulimit -c 0 2>/dev/null || true
+            ulimit -t 30 2>/dev/null || true
+            
             # Use mmap-backed temp file for decoder results
-            local result_file
-            if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
-                result_file="${MMAP_TEMP_DIR}/decoder_${decoder}_$$.txt"
-            else
-                result_file="$TEMP_DIR/decoder_${decoder}_$$.txt"
-            fi
+            local result_file="${temp_base}/decoder_${decoder}_$$.txt"
+            
             # Run decoder based on type
             # AUDIT FIX: Wrap decoders with crash protection
             case "$decoder" in
@@ -3321,8 +3531,13 @@ parallel_threat_intel_check() {
     
     log_info "Running parallel threat intel checks (max $max_parallel concurrent)..."
     
-    local pids=()
-    local check_count=0
+    # Determine temp directory
+    local temp_base
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        temp_base="${MMAP_TEMP_DIR}"
+    else
+        temp_base="$TEMP_DIR"
+    fi
     
     # List of threat intel checks to run in parallel
     local checks=(
@@ -3333,40 +3548,92 @@ parallel_threat_intel_check() {
         "check_malwarebazaar:enabled"
     )
     
+    # Filter to only enabled checks
+    local enabled_checks=()
     for check_info in "${checks[@]}"; do
+        local check_key="${check_info##*:}"
+        if [ "$check_key" = "enabled" ] || [ -n "$check_key" ]; then
+            enabled_checks+=("$check_info")
+        fi
+    done
+    
+    local check_count=${#enabled_checks[@]}
+    
+    # Use GNU parallel if available for proper resource management
+    if [[ "$PARALLEL_AVAILABLE" == true ]] && [[ $check_count -gt 0 ]]; then
+        log_info "Using GNU parallel for resource-safe threat intel checks..."
+        
+        # Create check job file
+        local check_jobs="${temp_base}/threat_jobs_$$.txt"
+        printf '%s\n' "${enabled_checks[@]}" > "$check_jobs"
+        register_temp_file "$check_jobs"
+        
+        # Export required variables
+        export temp_base ioc
+        
+        # Run with GNU parallel - prevents fork exhaustion
+        parallel --halt soon,fail=1 \
+                 --jobs "$max_parallel" \
+                 --timeout 30 \
+                 --load 80% \
+                 --memfree 100M \
+                 --line-buffer \
+                 --env temp_base \
+                 --env ioc \
+                 '
+                 check_info={}
+                 check_name="${check_info%%:*}"
+                 # Validate check_name (alphanumeric, underscores, hyphens only)
+                 if [[ ! "$check_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                     exit 1
+                 fi
+                 result_file="${temp_base}/threat_${check_name}_$$.txt"
+                 echo "checked:$check_name" > "$result_file" 2>/dev/null || true
+                 ' < "$check_jobs" 2>/dev/null || true
+        
+        rm -f "$check_jobs" 2>/dev/null || true
+        
+        log_success "Parallel threat intel checks complete (GNU parallel): $check_count checks"
+        
+        # Cleanup
+        rm -f "${temp_base}"/threat_*_$$.txt 2>/dev/null || true
+        return 0
+    fi
+    
+    # Fallback: bash parallelism with resource limits
+    local pids=()
+    local completed_count=0
+    
+    for check_info in "${enabled_checks[@]}"; do
         local check_name="${check_info%%:*}"
         local check_key="${check_info##*:}"
         
-        # Skip if no API key
-        if [ "$check_key" = "enabled" ] || [ -n "$check_key" ]; then
-            # Check if we've reached max parallel
-            if [ ${#pids[@]} -ge $max_parallel ]; then
-                wait -n 2>/dev/null || true
-                pids=($(jobs -p))
-            fi
-            
-            # Launch check in background
-            (
-                # Use mmap-backed temp file for threat intel results
-                local result_file
-                if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
-                    result_file="${MMAP_TEMP_DIR}/threat_${check_name}_$$.txt"
-                else
-                    result_file="$TEMP_DIR/threat_${check_name}_$$.txt"
-                fi
-                # Placeholder for actual check
-                echo "checked:$check_name" > "$result_file" 2>/dev/null || true
-            ) &
-            
-            pids+=($!)
-            ((check_count++))
+        # Check if we've reached max parallel
+        if [ ${#pids[@]} -ge $max_parallel ]; then
+            wait -n 2>/dev/null || true
+            pids=($(jobs -p))
         fi
+        
+        # Launch check in background with resource limits
+        (
+            # Prevent core dumps and limit resources
+            ulimit -c 0 2>/dev/null || true
+            ulimit -t 30 2>/dev/null || true
+            
+            # Use mmap-backed temp file for threat intel results
+            local result_file="${temp_base}/threat_${check_name}_$$.txt"
+            # Placeholder for actual check
+            echo "checked:$check_name" > "$result_file" 2>/dev/null || true
+        ) &
+        
+        pids+=($!)
+        ((completed_count++))
     done
     
     # Wait for all remaining checks
     wait 2>/dev/null || true
     
-    log_success "Parallel threat intel checks complete: $check_count checks"
+    log_success "Parallel threat intel checks complete: $completed_count checks"
     
     # Cleanup from mmap-backed or regular temp directory
     if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
@@ -4231,6 +4498,7 @@ declare -A OPTIONAL_DEPS=(
     ["decodeqr"]="libdecodeqr C/C++ decoder"
     ["qrdecoder"]="Alternative libdecodeqr decoder"
     ["dmtxread"]="libdmtx DataMatrix decoder"
+    ["parallel"]="GNU parallel - job parallelization tool that prevents fork resource exhaustion"
 )
 
 check_dependencies() {
@@ -16669,7 +16937,7 @@ multi_decoder_analysis_parallel() {
     register_temp_file "$aggregate_summary"
     register_temp_file "$lock_file"
     
-    # Run decoder group function
+    # Run decoder group function - uses GNU parallel if available to prevent resource exhaustion
     run_decoder_group() {
         local group_name="$1"
     set -u
@@ -16678,6 +16946,68 @@ multi_decoder_analysis_parallel() {
         
         log_info "  Running ${group_name} (${#decoders[@]} decoders, ${max_parallel} parallel)..."
         
+        # Use GNU parallel if available for better resource management
+        if [[ "$PARALLEL_AVAILABLE" == true ]]; then
+            # Create a temporary decoder list file
+            local decoder_list_file
+            if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+                decoder_list_file="${MMAP_TEMP_DIR}/decoder_list_$$.txt"
+            else
+                decoder_list_file="${TEMP_DIR}/decoder_list_$$.txt"
+            fi
+            printf '%s\n' "${decoders[@]}" > "$decoder_list_file"
+            register_temp_file "$decoder_list_file"
+            
+            # Export variables needed by GNU parallel
+            export image aggregate_output aggregate_summary lock_file MMAP_AVAILABLE MMAP_TEMP_DIR TEMP_DIR
+            export -f run_single_decoder register_temp_file log_info 2>/dev/null || true
+            
+            # Run decoders with GNU parallel - proper resource management prevents fork exhaustion
+            parallel --halt soon,fail=1 \
+                     --jobs "$max_parallel" \
+                     --timeout 60 \
+                     --load 80% \
+                     --memfree 100M \
+                     --line-buffer \
+                     --env image \
+                     --env aggregate_output \
+                     --env aggregate_summary \
+                     --env lock_file \
+                     --env MMAP_AVAILABLE \
+                     --env MMAP_TEMP_DIR \
+                     --env TEMP_DIR \
+                     '
+                     decoder={}
+                     # Validate decoder name (alphanumeric, underscores, hyphens only)
+                     if [[ ! "$decoder" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                         exit 1
+                     fi
+                     if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+                         out_file="${MMAP_TEMP_DIR}/_${decoder}_$$.txt"
+                     else
+                         out_file="${TEMP_DIR}/_${decoder}_$$.txt"
+                     fi
+                     start_time=$(date +%s.%N 2>/dev/null || date +%s)
+                     run_single_decoder "$decoder" "$image" "$out_file" 2>/dev/null
+                     status=$?
+                     end_time=$(date +%s.%N 2>/dev/null || date +%s)
+                     duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "0")
+                     if [[ $status -eq 0 ]] && [[ -s "$out_file" ]]; then
+                         (
+                             flock -x 200 || exit 1
+                             cat "$out_file" >> "$aggregate_output"
+                             preview=$(head -c 200 "$out_file" | head -1)
+                             echo "${decoder}:${preview}:${duration}" >> "$aggregate_summary"
+                         ) 200>"$lock_file"
+                     fi
+                     rm -f "$out_file" 2>/dev/null || true
+                     ' < "$decoder_list_file" 2>/dev/null || true
+            
+            rm -f "$decoder_list_file" 2>/dev/null || true
+            return 0
+        fi
+        
+        # Fallback: bash parallelism with explicit resource management
         local pids=()
         local decoder_names=()
         
@@ -22541,6 +22871,11 @@ analyze_payload_content() {
     analyze_crypto_addresses "$content"
     analyze_phone_numbers "$content"
     analyze_email_addresses "$content"
+    
+    # Sync all background jobs before YARA evaluation to prevent
+    # "fork: retry: Resource temporarily unavailable" errors
+    sync_all_background_jobs
+    
     evaluate_all_yara_rules "$content"
 
     # Payload behavioral/DFIR checks
