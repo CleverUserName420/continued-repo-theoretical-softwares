@@ -125,6 +125,9 @@ cleanup_handler() {
         find "$TEMP_DIR" -type f -name "*.tmp" -delete 2>/dev/null || true
         find "$TEMP_DIR" -type f -name "*.key" -delete 2>/dev/null || true
     fi
+    
+    # Clean mmap temp directory
+    cleanup_mmap_temp
 }
 
 # Set up trap handlers
@@ -138,7 +141,9 @@ trap 'echo "[WARNING] Received SIGTERM - cleaning up..."; cleanup_handler 143' T
 
 # Validate and sanitize file paths (prevent path traversal)
 sanitize_path() {
+    set +u
     local input_path="$1"
+    set -u
     local sanitized
     
     # Remove null bytes
@@ -160,8 +165,10 @@ sanitize_path() {
 
 # Validate string input (length and character restrictions)
 validate_string_input() {
+    set +u
     local input="$1"
     local max_length="${2:-8192}"
+    set -u
     
     # Check length
     if [[ ${#input} -gt $max_length ]]; then
@@ -180,13 +187,17 @@ validate_string_input() {
 
 # Sanitize content for safe shell use (prevent command injection)
 sanitize_for_shell() {
+    set +u
     local input="$1"
+    set -u
     printf '%q' "$input"
 }
 
 # AUDIT: Sanitize for logging (mask sensitive data/PII)
 sanitize_for_log() {
+    set +u
     local input="$1"
+    set -u
     local sanitized="$input"
     
     # Mask API keys
@@ -213,7 +224,9 @@ sanitize_for_log() {
 
 # Validate URL format
 validate_url() {
+    set +u
     local url="$1"
+    set -u
     
     # Basic URL validation
     if [[ ! "$url" =~ ^https?://[^[:space:]]+$ ]]; then
@@ -231,7 +244,9 @@ validate_url() {
 
 # Validate IP address format
 validate_ip() {
+    set +u
     local ip="$1"
+    set -u
     
     # IPv4 validation
     if [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
@@ -259,7 +274,9 @@ validate_ip() {
 
 # Validate Bitcoin address with checksum
 validate_bitcoin_address() {
+    set +u
     local address="$1"
+    set -u
     
     # Bitcoin address patterns (P2PKH, P2SH, Bech32)
     # P2PKH: starts with 1, 26-35 chars
@@ -282,7 +299,9 @@ validate_bitcoin_address() {
 
 # Validate Ethereum address with EIP-55 checksum
 validate_ethereum_address() {
+    set +u
     local address="$1"
+    set -u
     
     # Ethereum address: 0x followed by 40 hex chars
     if [[ "$address" =~ ^0x[a-fA-F0-9]{40}$ ]]; then
@@ -294,7 +313,9 @@ validate_ethereum_address() {
 
 # Validate E.164 phone number format
 validate_phone_e164() {
+    set +u
     local phone="$1"
+    set -u
     
     # E.164 format: + followed by 1-15 digits
     if [[ "$phone" =~ ^\+[1-9][0-9]{1,14}$ ]]; then
@@ -306,7 +327,9 @@ validate_phone_e164() {
 
 # Validate IBAN with checksum
 validate_iban() {
+    set +u
     local iban="$1"
+    set -u
     
     # Remove spaces and convert to uppercase
     iban=$(echo "$iban" | tr -d ' ' | tr '[:lower:]' '[:upper:]')
@@ -323,7 +346,9 @@ validate_iban() {
 
 # Validate credit card using Luhn algorithm
 validate_credit_card() {
+    set +u
     local card="$1"
+    set -u
     
     # Remove spaces and dashes
     card=$(echo "$card" | tr -d ' -')
@@ -361,7 +386,9 @@ validate_credit_card() {
 
 # Validate SSN format (PII detection)
 validate_ssn_format() {
+    set +u
     local ssn="$1"
+    set -u
     
     # SSN format: XXX-XX-XXXX or XXXXXXXXX
     if [[ "$ssn" =~ ^[0-9]{3}-?[0-9]{2}-?[0-9]{4}$ ]]; then
@@ -406,7 +433,9 @@ validate_ipv6_address() {
 
 # Validate Tor v3 onion address
 validate_onion_v3() {
+    set +u
     local address="$1"
+    set -u
     
     # Tor v3 onion: 56 base32 chars + .onion
     if [[ "$address" =~ ^[a-z2-7]{56}\.onion$ ]]; then
@@ -423,7 +452,9 @@ validate_onion_v3() {
 
 # Validate I2P address
 validate_i2p_address() {
+    set +u
     local address="$1"
+    set -u
     
     # I2P address: base32 encoded (52 chars) + .i2p or base64 (516+ chars) + .b32.i2p
     if [[ "$address" =~ ^[a-z2-7]{52}\.i2p$ ]]; then
@@ -439,7 +470,9 @@ validate_i2p_address() {
 
 # Validate magnet URI
 validate_magnet_uri() {
+    set +u
     local uri="$1"
+    set -u
     
     # Magnet link: magnet:?xt=urn:btih: followed by 40 (SHA-1) or 64 (SHA-256) hex chars
     if [[ "$uri" =~ ^magnet:\?xt=urn:btih:[a-fA-F0-9]{40} ]] || \
@@ -452,7 +485,9 @@ validate_magnet_uri() {
 
 # Validate Decentralized Identifier (DID)
 validate_did_identifier() {
+    set +u
     local did="$1"
+    set -u
     
     # DID format: did:method:identifier
     # Examples: did:example:123456, did:ethr:0x..., did:key:z...
@@ -467,12 +502,17 @@ validate_did_identifier() {
 # AUDIT: SECURE TEMPORARY FILE HANDLING
 ################################################################################
 
-# Create secure temporary file using mktemp
+# Create secure temporary file using mktemp - uses mmap-backed storage when available
 create_secure_temp_file() {
     local prefix="${1:-qr_scan}"
     local temp_file
     
-    if [[ -n "${TEMP_DIR:-}" ]] && [[ -d "${TEMP_DIR:-}" ]]; then
+    # Prefer mmap-backed temp directory if available
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        temp_file=$(mktemp "${MMAP_TEMP_DIR}/${prefix}.XXXXXXXXXX" 2>/dev/null) || {
+            temp_file=$(mktemp "${TEMP_DIR:-/tmp}/${prefix}.XXXXXXXXXX" 2>/dev/null) || return 1
+        }
+    elif [[ -n "${TEMP_DIR:-}" ]] && [[ -d "${TEMP_DIR:-}" ]]; then
         temp_file=$(mktemp "${TEMP_DIR}/${prefix}.XXXXXXXXXX" 2>/dev/null) || {
             temp_file=$(mktemp "/tmp/${prefix}.XXXXXXXXXX" 2>/dev/null) || return 1
         }
@@ -489,12 +529,17 @@ create_secure_temp_file() {
     echo "$temp_file"
 }
 
-# Create secure temporary directory
+# Create secure temporary directory - uses mmap-backed storage when available
 create_secure_temp_dir() {
     local prefix="${1:-qr_dir}"
     local temp_dir
     
-    if [[ -n "${TEMP_DIR:-}" ]] && [[ -d "${TEMP_DIR:-}" ]]; then
+    # Prefer mmap-backed temp directory if available
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        temp_dir=$(mktemp -d "${MMAP_TEMP_DIR}/${prefix}.XXXXXXXXXX" 2>/dev/null) || {
+            temp_dir=$(mktemp -d "${TEMP_DIR:-/tmp}/${prefix}.XXXXXXXXXX" 2>/dev/null) || return 1
+        }
+    elif [[ -n "${TEMP_DIR:-}" ]] && [[ -d "${TEMP_DIR:-}" ]]; then
         temp_dir=$(mktemp -d "${TEMP_DIR}/${prefix}.XXXXXXXXXX" 2>/dev/null) || {
             temp_dir=$(mktemp -d "/tmp/${prefix}.XXXXXXXXXX" 2>/dev/null) || return 1
         }
@@ -506,11 +551,308 @@ create_secure_temp_dir() {
     echo "$temp_dir"
 }
 
+################################################################################
+# MMAP/VIRTUAL MEMORY BACKED TEMP FILE SYSTEM
+# Ensures all temp files use virtual memory for efficient large-scale processing
+################################################################################
+
+# Global mmap temp directory - uses tmpfs/ramfs when available
+MMAP_TEMP_DIR=""
+MMAP_AVAILABLE=false
+
+# Initialize mmap-backed temp directory
+# Uses tmpfs on Linux, RAM disk on macOS if available, falls back to /tmp
+init_mmap_temp_system() {
+    log_info "Initializing mmap-backed temp file system..."
+    
+    local mmap_base=""
+    
+    # Check for tmpfs (Linux) - memory-backed filesystem
+    if [[ "$OSTYPE" == "linux"* ]]; then
+        # Prefer /dev/shm (POSIX shared memory) as it's always tmpfs
+        if [[ -d "/dev/shm" ]] && [[ -w "/dev/shm" ]]; then
+            mmap_base="/dev/shm"
+            log_info "  Using /dev/shm (POSIX shared memory - tmpfs backed)"
+        # Check /run/user/$UID (systemd user runtime)
+        elif [[ -d "/run/user/$(id -u)" ]] && [[ -w "/run/user/$(id -u)" ]]; then
+            mmap_base="/run/user/$(id -u)"
+            log_info "  Using /run/user/$(id -u) (systemd user runtime - tmpfs backed)"
+        # Check if /tmp is tmpfs
+        elif mount 2>/dev/null | grep -q "^tmpfs on /tmp"; then
+            mmap_base="/tmp"
+            log_info "  Using /tmp (tmpfs backed)"
+        fi
+    # macOS - check for RAM disk
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # Check if a RAM disk exists at common mount points
+        if [[ -d "/Volumes/RAMDisk" ]] && [[ -w "/Volumes/RAMDisk" ]]; then
+            mmap_base="/Volumes/RAMDisk"
+            log_info "  Using /Volumes/RAMDisk (RAM disk)"
+        # Use /tmp which is often backed by APFS with compression
+        else
+            mmap_base="/tmp"
+            log_info "  Using /tmp (APFS with compression - efficient virtual memory)"
+        fi
+    fi
+    
+    # Fallback to regular /tmp but leverage OS virtual memory
+    if [[ -z "$mmap_base" ]]; then
+        mmap_base="/tmp"
+        log_info "  Using /tmp with OS virtual memory management"
+    fi
+    
+    # Create our mmap temp directory
+    MMAP_TEMP_DIR="${mmap_base}/qr_mmap_${TIMESTAMP}_$$"
+    if mkdir -p "$MMAP_TEMP_DIR" 2>/dev/null && chmod 700 "$MMAP_TEMP_DIR" 2>/dev/null; then
+        MMAP_AVAILABLE=true
+        register_temp_file "$MMAP_TEMP_DIR"
+        log_success "  mmap temp directory: $MMAP_TEMP_DIR"
+    else
+        # Fallback to TEMP_DIR
+        MMAP_TEMP_DIR="${TEMP_DIR:-/tmp}/mmap_$$"
+        mkdir -p "$MMAP_TEMP_DIR" 2>/dev/null || true
+        chmod 700 "$MMAP_TEMP_DIR" 2>/dev/null || true
+        log_warning "  Fallback mmap directory: $MMAP_TEMP_DIR"
+    fi
+    
+    # Set environment hint for Python to use mmap
+    export QR_MMAP_TEMP="$MMAP_TEMP_DIR"
+    
+    return 0
+}
+
+# Create mmap-backed temp file
+# These files are backed by virtual memory and efficiently handle large data
+create_mmap_temp_file() {
+    set +u
+    local prefix="${1:-qr_mmap}"
+    local size_hint="${2:-0}"  # Optional size hint in bytes for pre-allocation
+    set -u
+    
+    local mmap_file
+    
+    # Use mmap directory if available
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "$MMAP_TEMP_DIR" ]]; then
+        mmap_file=$(mktemp "${MMAP_TEMP_DIR}/${prefix}.XXXXXXXXXX" 2>/dev/null)
+    else
+        # Fallback to regular temp with explicit mmap hint
+        mmap_file=$(mktemp "${TEMP_DIR:-/tmp}/${prefix}.XXXXXXXXXX" 2>/dev/null)
+    fi
+    
+    if [[ -z "$mmap_file" ]]; then
+        return 1
+    fi
+    
+    chmod 600 "$mmap_file" 2>/dev/null || true
+    
+    # Pre-allocate file if size hint provided (enables efficient mmap)
+    if [[ "$size_hint" -gt 0 ]] 2>/dev/null; then
+        # Use fallocate if available (Linux) or dd (portable)
+        if command -v fallocate &>/dev/null; then
+            fallocate -l "$size_hint" "$mmap_file" 2>/dev/null || true
+        elif command -v dd &>/dev/null; then
+            dd if=/dev/zero of="$mmap_file" bs=1 count=0 seek="$size_hint" 2>/dev/null || true
+        fi
+    fi
+    
+    register_temp_file "$mmap_file"
+    echo "$mmap_file"
+}
+
+# Create mmap-backed temp directory for decoder results
+create_mmap_decoder_dir() {
+    local decoder_name="${1:-decoder}"
+    local decoder_dir
+    
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "$MMAP_TEMP_DIR" ]]; then
+        decoder_dir="${MMAP_TEMP_DIR}/decoder_${decoder_name}_$$"
+    else
+        decoder_dir="${TEMP_DIR:-/tmp}/decoder_${decoder_name}_$$"
+    fi
+    
+    mkdir -p "$decoder_dir" 2>/dev/null || true
+    chmod 700 "$decoder_dir" 2>/dev/null || true
+    echo "$decoder_dir"
+}
+
+# Get streamlined temp path for a specific purpose
+# Usage: get_temp_path "purpose" -> returns path in mmap-backed directory
+get_mmap_temp_path() {
+    set +u
+    local purpose="${1:-temp}"
+    local extension="${2:-.tmp}"
+    set -u
+    
+    local safe_purpose
+    safe_purpose=$(echo "$purpose" | tr -cd 'a-zA-Z0-9_-')
+    
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "$MMAP_TEMP_DIR" ]]; then
+        echo "${MMAP_TEMP_DIR}/${safe_purpose}_$$${extension}"
+    else
+        echo "${TEMP_DIR:-/tmp}/${safe_purpose}_$$${extension}"
+    fi
+}
+
+# Streamlined temp file paths for common operations
+# These are all mmap-backed when available
+declare -A MMAP_PATHS
+init_mmap_paths() {
+    # Initialize common mmap-backed paths
+    MMAP_PATHS["decoder_results"]="$(get_mmap_temp_path 'decoder_results' '.txt')"
+    MMAP_PATHS["threat_intel"]="$(get_mmap_temp_path 'threat_intel' '.json')"
+    MMAP_PATHS["yara_scan"]="$(get_mmap_temp_path 'yara_scan' '.txt')"
+    MMAP_PATHS["image_processing"]="$(get_mmap_temp_path 'image_proc' '.bin')"
+    MMAP_PATHS["stego_analysis"]="$(get_mmap_temp_path 'stego' '.dat')"
+    MMAP_PATHS["entropy_data"]="$(get_mmap_temp_path 'entropy' '.dat')"
+    MMAP_PATHS["hash_cache"]="$(get_mmap_temp_path 'hash_cache' '.txt')"
+    MMAP_PATHS["api_cache"]="$(get_mmap_temp_path 'api_cache' '.json')"
+    
+    log_info "  Initialized ${#MMAP_PATHS[@]} streamlined mmap temp paths"
+}
+
+# Get a streamlined mmap path by name
+get_mmap_path() {
+    local name="$1"
+    if [[ -v "MMAP_PATHS[$name]" ]]; then
+        echo "${MMAP_PATHS[$name]}"
+    else
+        get_mmap_temp_path "$name" ".tmp"
+    fi
+}
+
+# Get mmap-backed temp script path
+# Usage: get_mmap_script_path "decoder_name" -> returns mmap-backed .py path
+get_mmap_script_path() {
+    local script_name="${1:-script}"
+    
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        echo "${MMAP_TEMP_DIR}/${script_name}_$$.py"
+    else
+        echo "${TEMP_DIR:-/tmp}/${script_name}_$$.py"
+    fi
+}
+
+# Get mmap-backed temp image path
+# Usage: get_mmap_image_path "purpose" -> returns mmap-backed image path
+get_mmap_image_path() {
+    local purpose="${1:-image}"
+    local extension="${2:-.png}"
+    
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        echo "${MMAP_TEMP_DIR}/${purpose}_$$${extension}"
+    else
+        echo "${TEMP_DIR:-/tmp}/${purpose}_$$${extension}"
+    fi
+}
+
+# Read file using mmap (via Python for large files)
+# Automatically uses mmap for files > 10MB
+mmap_read_file() {
+    set +u
+    local file_path="$1"
+    local max_bytes="${2:-0}"  # 0 = read all
+    set -u
+    
+    if [[ ! -f "$file_path" ]]; then
+        return 1
+    fi
+    
+    local file_size
+    file_size=$(stat -f%z "$file_path" 2>/dev/null || stat -c%s "$file_path" 2>/dev/null || echo 0)
+    
+    # Use mmap for files > 10MB
+    if [[ "$file_size" -gt $((10 * 1024 * 1024)) ]] && command -v python3 &>/dev/null; then
+        python3 -c "
+import mmap
+import sys
+import os
+
+file_path = '$file_path'
+max_bytes = $max_bytes
+
+try:
+    with open(file_path, 'rb') as f:
+        # Memory-map the file
+        mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        if max_bytes > 0:
+            data = mm.read(max_bytes)
+        else:
+            data = mm.read()
+        mm.close()
+        # Output as text (decode if possible)
+        try:
+            sys.stdout.write(data.decode('utf-8', errors='replace'))
+        except:
+            sys.stdout.buffer.write(data)
+except Exception as e:
+    sys.exit(1)
+" 2>/dev/null
+    else
+        # Small file - use cat
+        if [[ "$max_bytes" -gt 0 ]]; then
+            head -c "$max_bytes" "$file_path"
+        else
+            cat "$file_path"
+        fi
+    fi
+}
+
+# Write data using mmap (efficient for large writes)
+mmap_write_file() {
+    set +u
+    local file_path="$1"
+    local data="$2"
+    set -u
+    
+    local data_size=${#data}
+    
+    # Use mmap for data > 1MB
+    if [[ "$data_size" -gt $((1024 * 1024)) ]] && command -v python3 &>/dev/null; then
+        python3 -c "
+import mmap
+import os
+import sys
+
+file_path = '$file_path'
+# Read data from stdin
+data = sys.stdin.buffer.read()
+
+try:
+    # Create/truncate file with proper size
+    with open(file_path, 'wb') as f:
+        f.write(b'\\x00' * len(data))
+    
+    # Memory-map and write
+    with open(file_path, 'r+b') as f:
+        mm = mmap.mmap(f.fileno(), len(data), access=mmap.ACCESS_WRITE)
+        mm.write(data)
+        mm.flush()
+        mm.close()
+except Exception as e:
+    # Fallback to regular write
+    with open(file_path, 'wb') as f:
+        f.write(data)
+" <<< "$data" 2>/dev/null
+    else
+        # Small data - use echo
+        printf '%s' "$data" > "$file_path"
+    fi
+}
+
+# Cleanup mmap temp system
+cleanup_mmap_temp() {
+    if [[ -n "${MMAP_TEMP_DIR:-}" ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        rm -rf "$MMAP_TEMP_DIR" 2>/dev/null || true
+    fi
+}
+
 # AUDIT: Validate that output file path is safe for decoder functions
 # Allows paths in known temp directories (like /tmp/qr_analysis)
 validate_decoder_output_path() {
+    set +u
     local output_file="$1"
     local func_name="${2:-decoder}"
+    set -u
     
     # Check for empty path
     if [ -z "$output_file" ]; then
@@ -530,12 +872,15 @@ validate_decoder_output_path() {
         return 1
     fi
     
-    # Allow paths in safe temp directories
+    # Allow paths in safe temp directories (including mmap-backed paths)
     local safe_prefixes=(
         "/tmp/qr_analysis/"
         "${TEMP_DIR}/"
         "${OUTPUT_DIR}/"
         "/var/tmp/qr_"
+        "${MMAP_TEMP_DIR:-/tmp/qr_mmap}/"
+        "/dev/shm/qr_"
+        "/run/user/"
     )
     
     for prefix in "${safe_prefixes[@]}"; do
@@ -570,8 +915,10 @@ CONSENT_LOG=""
 # Request user consent before uploading data to external services
 # By default, consent is automatic. Use --no-consent to disable.
 request_upload_consent() {
+    set +u
     local service_name="$1"
     local data_description="$2"
+    set -u
     
     # If user explicitly disabled consent, skip external calls
     if [[ "${NO_EXTERNAL_APIS:-false}" == "true" ]]; then
@@ -643,8 +990,10 @@ CUSTODY_EOF
 
 # Record action in chain of custody
 record_custody_action() {
+    set +u
     local action_type="$1"
     local description="$2"
+    set -u
     local artifact="${3:-}"
     local artifact_hash="${4:-}"
     
@@ -664,8 +1013,10 @@ record_custody_action() {
 
 # Add evidence item to chain of custody
 add_evidence_item() {
+    set +u
     local file_path="$1"
     local evidence_type="$2"
+    set -u
     local description="${3:-}"
     
     if [[ ! -f "$file_path" ]]; then
@@ -739,10 +1090,16 @@ load_additional_iocs() {
         done
     fi
     
-    # Process and deduplicate
+    # Process and deduplicate - use mmap-backed storage
     if [[ -f "$temp_ioc_file" ]]; then
-        sort -u "$temp_ioc_file" 2>/dev/null | grep -v '^$' | grep -v '^#' > "${TEMP_DIR}/all_additional_iocs.txt" 2>/dev/null || true
-        IOC_LOAD_COUNT=$(wc -l < "${TEMP_DIR}/all_additional_iocs.txt" 2>/dev/null || echo 0)
+        local ioc_output_file
+        if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+            ioc_output_file="${MMAP_TEMP_DIR}/all_additional_iocs.txt"
+        else
+            ioc_output_file="${TEMP_DIR}/all_additional_iocs.txt"
+        fi
+        sort -u "$temp_ioc_file" 2>/dev/null | grep -v '^$' | grep -v '^#' > "$ioc_output_file" 2>/dev/null || true
+        IOC_LOAD_COUNT=$(wc -l < "$ioc_output_file" 2>/dev/null || echo 0)
         rm -f "$temp_ioc_file" 2>/dev/null || true
     fi
     
@@ -752,16 +1109,24 @@ load_additional_iocs() {
 
 # Check content against all additional IOCs
 check_against_additional_iocs() {
+    set +u
     local content="$1"
     local source_desc="${2:-content}"
+    set -u
     local matches=0
     
-    if [[ ! -f "${TEMP_DIR}/all_additional_iocs.txt" ]]; then
+    # Check mmap-backed or regular temp directory for IOC file
+    local ioc_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -f "${MMAP_TEMP_DIR:-}/all_additional_iocs.txt" ]]; then
+        ioc_file="${MMAP_TEMP_DIR}/all_additional_iocs.txt"
+    elif [[ -f "${TEMP_DIR}/all_additional_iocs.txt" ]]; then
+        ioc_file="${TEMP_DIR}/all_additional_iocs.txt"
+    else
         return 0
     fi
     
     local matched_iocs
-    matched_iocs=$(echo "$content" | grep -Fof "${TEMP_DIR}/all_additional_iocs.txt" 2>/dev/null | head -20 || true)
+    matched_iocs=$(echo "$content" | grep -Fof "$ioc_file" 2>/dev/null | head -20 || true)
     
     if [[ -n "$matched_iocs" ]]; then
         while IFS= read -r ioc; do
@@ -1141,12 +1506,14 @@ log_forensic() {
 # Enhanced threat logging function with detailed structured output
 # Usage: log_threat_detailed score module ioc matched_by severity recommendation [additional_fields...]
 log_threat_detailed() {
+    set +u
     local score="$1"
     local module="$2"
     local ioc="$3"
     local matched_by="$4"
     local severity="$5"
     local recommendation="$6"
+    set -u
     local source_artifact="${CURRENT_ARTIFACT:-Unknown}"
     local decoded_field="${CURRENT_DECODED_CONTENT:-N/A}"
     local file_hash="${CURRENT_ARTIFACT_HASH:-N/A}"
@@ -1193,9 +1560,11 @@ log_threat_detailed() {
 
 # Wrapper function for INFO-level detections with structured output
 log_info_detection() {
+    set +u
     local module="$1"
     local ioc="$2"
     local matched_by="$3"
+    set -u
     local recommendation="${4:-Review this finding}"
     local reference="${5:-N/A}"
     
@@ -1204,9 +1573,11 @@ log_info_detection() {
 
 # Wrapper function for WARNING-level detections with structured output
 log_warning_detection() {
+    set +u
     local module="$1"
     local ioc="$2"
     local matched_by="$3"
+    set -u
     local recommendation="${4:-Investigate this finding}"
     local reference="${5:-N/A}"
     
@@ -1215,9 +1586,11 @@ log_warning_detection() {
 
 # Wrapper function for HIGH-level detections with structured output
 log_high_detection() {
+    set +u
     local module="$1"
     local ioc="$2"
     local matched_by="$3"
+    set -u
     local recommendation="${4:-Take immediate action}"
     local reference="${5:-N/A}"
     
@@ -1226,9 +1599,11 @@ log_high_detection() {
 
 # Wrapper function for CRITICAL-level detections with structured output
 log_critical_detection() {
+    set +u
     local module="$1"
     local ioc="$2"
     local matched_by="$3"
+    set -u
     local recommendation="${4:-IMMEDIATE ACTION REQUIRED}"
     local reference="${5:-N/A}"
     
@@ -1237,7 +1612,9 @@ log_critical_detection() {
 
 # Analysis status output helpers - ALWAYS print to terminal
 analysis_success_none() {
+    set +u
     local analyzer="$1"
+    set -u
     local detection_timestamp=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
     local source_artifact="${CURRENT_ARTIFACT:-Unknown}"
     local decoded_field="${CURRENT_DECODED_CONTENT:-N/A}"
@@ -1249,10 +1626,12 @@ analysis_success_none() {
 }
 
 analysis_success_found() {
+    set +u
     local analyzer="$1"
     local count="$2"
     local details="$3"
     local matched_iocs="$4"  # NEW: Specific IOCs that were matched
+    set -u
     local detection_timestamp=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
     local source_artifact="${CURRENT_ARTIFACT:-Unknown}"
     local decoded_field="${CURRENT_DECODED_CONTENT:-N/A}"
@@ -1314,8 +1693,10 @@ analysis_success_found() {
 }
 
 analysis_error() {
+    set +u
     local analyzer="$1"
     local error_msg="$2"
+    set -u
     local error_details="${3:-No additional details available}"
     local detection_timestamp=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
     local source_artifact="${CURRENT_ARTIFACT:-Unknown}"
@@ -1353,8 +1734,10 @@ analysis_error() {
 
 # Progress indicator for long-running operations
 analysis_progress() {
+    set +u
     local analyzer="$1"
     local status="$2"
+    set -u
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     echo -e "${BLUE}[$timestamp] [⋯ ${analyzer}]${NC} ${status}"
 }
@@ -1365,20 +1748,26 @@ analysis_progress() {
 ################################################################################
 
 json_extract_string() {
+    set +u
     local json="$1"
     local key="$2"
+    set -u
     echo "$json" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
 }
 
 json_extract_number() {
+    set +u
     local json="$1"
     local key="$2"
+    set -u
     echo "$json" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*\([0-9.]*\).*/\1/p' | head -1
 }
 
 json_extract_int() {
+    set +u
     local json="$1"
     local key="$2"
+    set -u
     echo "$json" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1
 }
 
@@ -1390,7 +1779,9 @@ json_extract_int() {
 # Safe grep for extended regex - converts common PCRE patterns to POSIX
 # Usage: safe_grep_E "pattern" <<< "$content"  OR  echo "$content" | safe_grep_E "pattern"
 safe_grep_E() {
+    set +u
     local pattern="$1"
+    set -u
     # Convert common PCRE to POSIX:
     # \s -> [[:space:]]
     # \d -> [0-9]
@@ -1401,28 +1792,36 @@ safe_grep_E() {
 
 # Safe quiet grep for extended regex
 safe_grep_qE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     timeout 2 grep -qE "$pattern" 2>/dev/null
 }
 
 # Safe grep with case-insensitive extended regex
 safe_grep_iE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     grep -iE "$pattern" 2>/dev/null
 }
 
 # Safe quiet case-insensitive grep
 safe_grep_qiE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     grep -qiE "$pattern" 2>/dev/null
 }
 
 # Extract match with extended regex (cross-platform)
 safe_grep_oE() {
+    set +u
     local pattern="$1"
+    set -u
     # AUDIT FIX: Add protections against catastrophic backtracking and long lines
     # 1. Convert PCRE to POSIX
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
@@ -1439,7 +1838,9 @@ safe_grep_oE() {
 
 # Extract match with case-insensitive extended regex
 safe_grep_oiE() {
+    set +u
     local pattern="$1"
+    set -u
     # AUDIT FIX: Add protections against catastrophic backtracking and long lines
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     if command -v timeout &>/dev/null; then
@@ -1452,52 +1853,68 @@ safe_grep_oiE() {
 # AUDIT FIX: Additional safe grep wrappers for QR code content analysis
 # Safe quiet case-insensitive grep (no extended regex)
 safe_grep_qi() {
+    set +u
     local pattern="$1"
+    set -u
     grep -qi "$pattern" 2>/dev/null
 }
 
 # Safe case-insensitive extended regex
 safe_grep_iE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     grep -iE "$pattern" 2>/dev/null
 }
 
 # Safe output match (no extended regex)
 safe_grep_o() {
+    set +u
     local pattern="$1"
+    set -u
     grep -o "$pattern" 2>/dev/null
 }
 
 # Safe count case-insensitive extended regex
 safe_grep_ciE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     grep -ciE "$pattern" 2>/dev/null
 }
 
 # Safe count output extended regex
 safe_grep_coE() {
+    set +u
     local pattern="$1"
+    set -u
     pattern=$(echo "$pattern" | sed 's/\\s/[[:space:]]/g; s/\\d/[0-9]/g; s/\\w/[[:alnum:]_]/g')
     grep -coE "$pattern" 2>/dev/null
 }
 
 # Safe quiet case-insensitive fixed string
 safe_grep_qiF() {
+    set +u
     local pattern="$1"
+    set -u
     grep -qiF "$pattern" 2>/dev/null
 }
 
 # Safe quiet fixed string
 safe_grep_qF() {
+    set +u
     local pattern="$1"
+    set -u
     grep -qF "$pattern" 2>/dev/null
 }
 
 # Safe output fixed string
 safe_grep_oF() {
+    set +u
     local pattern="$1"
+    set -u
     grep -oF "$pattern" 2>/dev/null
 }
 
@@ -1580,10 +1997,12 @@ DETECTION_COUNT=0
 #   $7 = reference (MITRE/CVE/URL reference) [optional]
 #   $8 = severity_label (CRITICAL/HIGH/MEDIUM/LOW/INFO) [optional, auto-calculated from score]
 log_forensic_detection() {
+    set +u
     local score="$1"
     local module="$2"
     local indicator="$3"
     local matched_by="$4"
+    set -u
     local field="${5:-QR decoded content}"
     local recommendation="${6:-Review and investigate}"
     local reference="${7:-}"
@@ -1640,9 +2059,11 @@ log_forensic_detection() {
 
 # AUDIT: Convenience wrappers for different severity levels
 log_detection_critical() {
+    set +u
     local module="$1"
     local indicator="$2"
     local matched_by="$3"
+    set -u
     local field="${4:-QR decoded content}"
     local recommendation="${5:-IMMEDIATE ACTION REQUIRED - Block and investigate}"
     local reference="${6:-}"
@@ -1650,9 +2071,11 @@ log_detection_critical() {
 }
 
 log_detection_high() {
+    set +u
     local module="$1"
     local indicator="$2"
     local matched_by="$3"
+    set -u
     local field="${4:-QR decoded content}"
     local recommendation="${5:-High priority review required}"
     local reference="${6:-}"
@@ -1660,9 +2083,11 @@ log_detection_high() {
 }
 
 log_detection_medium() {
+    set +u
     local module="$1"
     local indicator="$2"
     local matched_by="$3"
+    set -u
     local field="${4:-QR decoded content}"
     local recommendation="${5:-Review and assess risk}"
     local reference="${6:-}"
@@ -1670,9 +2095,11 @@ log_detection_medium() {
 }
 
 log_detection_low() {
+    set +u
     local module="$1"
     local indicator="$2"
     local matched_by="$3"
+    set -u
     local field="${4:-QR decoded content}"
     local recommendation="${5:-Monitor and log}"
     local reference="${6:-}"
@@ -1680,9 +2107,11 @@ log_detection_low() {
 }
 
 log_detection_info() {
+    set +u
     local module="$1"
     local indicator="$2"
     local matched_by="$3"
+    set -u
     local field="${4:-QR decoded content}"
     local recommendation="${5:-For information only}"
     local reference="${6:-}"
@@ -1691,7 +2120,9 @@ log_detection_info() {
 
 # AUDIT: Updated log_threat to use forensic format with specific pattern information
 log_threat_forensic() {
+    set +u
     local score="$1"
+    set -u
     shift
     local msg="$*"
     
@@ -1714,8 +2145,10 @@ log_threat_forensic() {
 
 # IP Address Extraction and Display
 extract_and_display_ips() {
+    set +u
     local content="$1"
     local source_name="${2:-content}"
+    set -u
     
     # Extract IPv4 addresses
     local ipv4_addrs=$(echo "$content" | safe_grep_oE '([0-9]{1,3}\.){3}[0-9]{1,3}' 2>/dev/null | sort -u)
@@ -1891,6 +2324,10 @@ initialize() {
     # AUDIT: Load additional IOC databases
     load_additional_iocs
     
+    # Initialize mmap-backed temp file system for efficient processing
+    init_mmap_temp_system
+    init_mmap_paths
+    
     log_success "Initialization complete"
 }
 
@@ -1990,6 +2427,418 @@ check_sandbox_environment() {
     return 1
 }
 
+################################################################################
+# SEGFAULT PREVENTION: Architecture, Environment, and Resource Validation
+# Addresses: Native extension bugs, ABI mismatches, resource exhaustion,
+# wrong architecture binaries, multiprocessing issues, and stack overflows
+################################################################################
+
+# Validate architecture consistency for Python and native binaries
+# Prevents: x86_64/ARM64 mismatch crashes (causes #1, #6, #12)
+validate_architecture_consistency() {
+    log_info "Validating architecture consistency..."
+    
+    local host_arch
+    host_arch=$(uname -m 2>/dev/null || echo "unknown")
+    local arch_issues=0
+    
+    # Get native architecture on macOS (accounts for Rosetta)
+    local native_arch="$host_arch"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # Check if running under Rosetta
+        if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = "1" ]; then
+            log_warning "Running under Rosetta 2 (x86_64 emulation on ARM64)"
+            native_arch="arm64"  # Host is actually ARM64
+        fi
+    fi
+    
+    # Check Python architecture
+    local python_cmd="${DISCOVERED_PATHS[python3]:-python3}"
+    if command -v "$python_cmd" &>/dev/null; then
+        local python_path
+        python_path=$(command -v "$python_cmd" 2>/dev/null)
+        
+        if [ -n "$python_path" ] && command -v file &>/dev/null; then
+            local python_arch
+            python_arch=$(file "$python_path" 2>/dev/null)
+            
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                if [[ "$native_arch" == "arm64" ]] && ! echo "$python_arch" | grep -qiE "arm64|universal"; then
+                    log_warning "Python binary may be x86_64 on ARM64 system"
+                    log_warning "  Binary: $python_path"
+                    log_warning "  This can cause segfaults with ARM64 native extensions"
+                    ((arch_issues++))
+                fi
+            fi
+        fi
+        
+        # Check Python ABI and platform
+        local platform_info
+        platform_info=$("$python_cmd" -c "import platform; print(platform.machine())" 2>/dev/null || echo "unknown")
+        log_info "  Python platform: $platform_info"
+        
+        if [[ "$OSTYPE" == "darwin"* ]] && [[ "$native_arch" == "arm64" ]]; then
+            if [[ "$platform_info" != "arm64" ]] && [[ "$platform_info" != "aarch64" ]]; then
+                log_warning "  Python reports $platform_info but system is $native_arch"
+                ((arch_issues++))
+            fi
+        fi
+    fi
+    
+    if [ $arch_issues -gt 0 ]; then
+        log_warning "Architecture issues detected: $arch_issues"
+        log_warning "Consider using native ARM64 Python on Apple Silicon"
+        return 1
+    fi
+    
+    log_success "Architecture consistency check passed (host: $host_arch)"
+    return 0
+}
+
+# Validate stack and resource limits
+# Prevents: Stack overflow segfaults (cause #4)
+validate_resource_limits() {
+    log_info "Validating resource limits..."
+    
+    local issues=0
+    
+    # Check stack size - minimum 8MB recommended for deep recursion
+    local stack_limit
+    stack_limit=$(ulimit -s 2>/dev/null || echo "0")
+    
+    # Validate stack_limit is numeric before comparison
+    if [[ "$stack_limit" =~ ^[0-9]+$ ]]; then
+        if [ "$stack_limit" -lt 8192 ]; then
+            log_warning "Stack size limit is low: ${stack_limit}KB (recommended: 8192KB+)"
+            log_warning "  This can cause segfaults in deep recursion or native code"
+            log_info "  To increase: ulimit -s 8192"
+            ((issues++))
+            
+            # Try to increase stack limit
+            if ulimit -s 8192 2>/dev/null; then
+                log_info "  Stack limit increased to 8MB"
+            fi
+        else
+            log_info "  Stack limit: ${stack_limit}KB (OK)"
+        fi
+    elif [ "$stack_limit" = "unlimited" ]; then
+        log_info "  Stack limit: unlimited (OK)"
+    else
+        log_info "  Stack limit: $stack_limit (could not validate)"
+    fi
+    
+    # Check virtual memory limit
+    local mem_limit
+    mem_limit=$(ulimit -v 2>/dev/null || echo "unlimited")
+    
+    # Validate mem_limit is numeric before comparison
+    if [[ "$mem_limit" =~ ^[0-9]+$ ]] && [ "$mem_limit" -lt $((512 * 1024)) ]; then
+        log_warning "Virtual memory limit is low: ${mem_limit}KB"
+        ((issues++))
+    fi
+    
+    # Check file descriptor limit
+    local fd_limit
+    fd_limit=$(ulimit -n 2>/dev/null || echo "256")
+    
+    # Validate fd_limit is numeric before comparison
+    if [[ "$fd_limit" =~ ^[0-9]+$ ]] && [ "$fd_limit" -lt 256 ]; then
+        log_warning "File descriptor limit is low: $fd_limit (recommended: 256+)"
+        ((issues++))
+    fi
+    
+    if [ $issues -gt 0 ]; then
+        log_warning "Resource limit issues detected: $issues"
+        return 1
+    fi
+    
+    log_success "Resource limits are adequate"
+    return 0
+}
+
+# Validate Python environment integrity
+# Prevents: Corrupted Python, ABI mismatches (causes #2, #14)
+validate_python_environment() {
+    log_info "Validating Python environment..."
+    
+    local python_cmd="${DISCOVERED_PATHS[python3]:-python3}"
+    local issues=0
+    
+    if ! command -v "$python_cmd" &>/dev/null; then
+        log_warning "Python not found in PATH"
+        return 1
+    fi
+    
+    # Test basic Python functionality
+    if ! "$python_cmd" -c "print('OK')" &>/dev/null; then
+        log_error "Python interpreter test failed"
+        return 1
+    fi
+    
+    # Check for corrupted or partial Python installation
+    local python_check
+    python_check=$("$python_cmd" 2>/dev/null <<'PYCHECK'
+import sys
+import os
+
+issues = []
+
+# Check Python version
+if sys.version_info < (3, 7):
+    issues.append(f"Python version too old: {sys.version}")
+
+# Check for critical standard library modules
+critical_modules = ['os', 'sys', 'json', 'base64', 'hashlib', 'subprocess', 'signal']
+for mod in critical_modules:
+    try:
+        __import__(mod)
+    except ImportError as e:
+        issues.append(f"Missing critical module: {mod}")
+
+# Check for ctypes (needed for many extensions)
+try:
+    import ctypes
+except ImportError:
+    issues.append("ctypes not available - extension loading may fail")
+
+# Check for multiprocessing fork safety (macOS specific)
+if sys.platform == 'darwin':
+    try:
+        import multiprocessing
+        start_method = multiprocessing.get_start_method(allow_none=True)
+        if start_method == 'fork':
+            # fork can cause issues with certain libraries on macOS
+            issues.append("Multiprocessing uses 'fork' (may cause issues with GUI/OpenCL)")
+    except:
+        pass
+
+# Check site-packages exists
+try:
+    import site
+    if not site.getsitepackages():
+        issues.append("No site-packages directories found")
+except:
+    pass
+
+if issues:
+    for issue in issues:
+        print(f"ISSUE: {issue}")
+    print("RESULT: ISSUES_FOUND")
+else:
+    print("RESULT: OK")
+PYCHECK
+) || python_check="RESULT: FAILED"
+    
+    if echo "$python_check" | grep -q "RESULT: OK"; then
+        log_success "Python environment is valid"
+    elif echo "$python_check" | grep -q "RESULT: ISSUES_FOUND"; then
+        log_warning "Python environment issues detected:"
+        echo "$python_check" | grep "ISSUE:" | while read -r line; do
+            log_warning "  ${line#ISSUE: }"
+        done
+        ((issues++))
+    else
+        log_warning "Could not validate Python environment"
+        ((issues++))
+    fi
+    
+    return $issues
+}
+
+# Validate native extensions for common QR/image libraries
+# Prevents: Native extension crashes, ABI mismatches (causes #1, #3, #6)
+validate_native_extensions() {
+    log_info "Validating native extensions..."
+    
+    local python_cmd="${DISCOVERED_PATHS[python3]:-python3}"
+    local issues=0
+    
+    if ! command -v "$python_cmd" &>/dev/null; then
+        return 0  # Skip if no Python
+    fi
+    
+    # Test commonly used libraries that have native extensions
+    local test_modules=(
+        "PIL:pillow"
+        "cv2:opencv-python"
+        "numpy:numpy"
+        "pyzbar.pyzbar:pyzbar"
+    )
+    
+    for mod_info in "${test_modules[@]}"; do
+        local module_name="${mod_info%%:*}"
+        local package_name="${mod_info##*:}"
+        
+        # Validate module_name contains only safe characters (alphanumeric, underscore, dot)
+        if ! [[ "$module_name" =~ ^[a-zA-Z0-9_.]+$ ]]; then
+            log_warning "  $package_name: Invalid module name, skipping"
+            continue
+        fi
+        
+        # Use timeout command if available, otherwise run with subshell timeout
+        local test_result
+        if command -v timeout &>/dev/null; then
+            test_result=$(timeout 10 "$python_cmd" -c "
+import sys
+import signal
+
+def handler(signum, frame):
+    print('SIGNAL: ' + str(signum))
+    sys.exit(139)
+
+signal.signal(signal.SIGSEGV, handler)
+signal.signal(signal.SIGABRT, handler)
+signal.signal(signal.SIGBUS, handler)
+
+try:
+    __import__('$module_name')
+    print('OK')
+except ImportError:
+    print('NOT_INSTALLED')
+except Exception as e:
+    print(f'ERROR: {e}')
+" 2>&1) || test_result="CRASH"
+        else
+            # Fallback for systems without timeout command
+            test_result=$("$python_cmd" -c "
+import sys
+import signal
+
+def handler(signum, frame):
+    print('SIGNAL: ' + str(signum))
+    sys.exit(139)
+
+signal.signal(signal.SIGSEGV, handler)
+signal.signal(signal.SIGABRT, handler)
+signal.signal(signal.SIGBUS, handler)
+
+try:
+    __import__('$module_name')
+    print('OK')
+except ImportError:
+    print('NOT_INSTALLED')
+except Exception as e:
+    print(f'ERROR: {e}')
+" 2>&1) || test_result="CRASH"
+        fi
+        
+        case "$test_result" in
+            *"OK"*)
+                log_info "  $package_name: OK"
+                ;;
+            *"NOT_INSTALLED"*)
+                log_info "  $package_name: not installed"
+                ;;
+            *"SIGNAL"*|*"CRASH"*)
+                log_warning "  $package_name: CRASH DETECTED - possible ABI/architecture issue"
+                ((issues++))
+                ;;
+            *"ERROR"*)
+                log_warning "  $package_name: ${test_result#*ERROR: }"
+                ((issues++))
+                ;;
+        esac
+    done
+    
+    if [ $issues -gt 0 ]; then
+        log_warning "Native extension issues detected: $issues"
+        log_warning "Consider reinstalling affected packages with: pip install --force-reinstall <package>"
+        return 1
+    fi
+    
+    log_success "Native extensions validated"
+    return 0
+}
+
+# Check for environment variable corruption
+# Prevents: Library loading failures, path issues (cause #3)
+validate_environment_variables() {
+    log_info "Validating environment variables..."
+    
+    local issues=0
+    
+    # Check DYLD_LIBRARY_PATH on macOS (can cause issues)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        if [ -n "${DYLD_LIBRARY_PATH:-}" ]; then
+            log_warning "DYLD_LIBRARY_PATH is set: $DYLD_LIBRARY_PATH"
+            log_warning "  This can cause library loading issues on macOS"
+            ((issues++))
+        fi
+        
+        if [ -n "${DYLD_INSERT_LIBRARIES:-}" ]; then
+            log_warning "DYLD_INSERT_LIBRARIES is set"
+            log_warning "  This can cause unexpected behavior"
+            ((issues++))
+        fi
+    fi
+    
+    # Check LD_LIBRARY_PATH on Linux
+    if [[ "$OSTYPE" == "linux"* ]]; then
+        if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+            log_info "  LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+            # Just informational, not necessarily an issue
+        fi
+        
+        if [ -n "${LD_PRELOAD:-}" ]; then
+            log_warning "LD_PRELOAD is set: $LD_PRELOAD"
+            ((issues++))
+        fi
+    fi
+    
+    # Check for PATH issues
+    if ! echo "$PATH" | grep -q '/usr/bin'; then
+        log_warning "PATH does not include /usr/bin"
+        ((issues++))
+    fi
+    
+    # Check PYTHONPATH for potential conflicts
+    if [ -n "${PYTHONPATH:-}" ]; then
+        log_info "  PYTHONPATH is set: $PYTHONPATH"
+        # Check for potential conflicts - handle both arm64 (macOS) and aarch64 (Linux)
+        local host_arch
+        host_arch=$(uname -m 2>/dev/null)
+        if echo "$PYTHONPATH" | grep -qE "x86_64|i386" && [[ "$host_arch" == "arm64" || "$host_arch" == "aarch64" ]]; then
+            log_warning "PYTHONPATH may contain x86_64 paths on ARM64 system"
+            ((issues++))
+        fi
+    fi
+    
+    if [ $issues -gt 0 ]; then
+        log_warning "Environment variable issues detected: $issues"
+        return 1
+    fi
+    
+    log_success "Environment variables validated"
+    return 0
+}
+
+# Master segfault prevention check
+# Runs all validation checks
+run_segfault_prevention_checks() {
+    log_info ""
+    log_info "═══════════════════════════════════════════════════════════════"
+    log_info "  SEGFAULT PREVENTION CHECKS"
+    log_info "═══════════════════════════════════════════════════════════════"
+    
+    local total_issues=0
+    
+    validate_architecture_consistency || ((total_issues++))
+    validate_resource_limits || ((total_issues++))
+    validate_environment_variables || ((total_issues++))
+    validate_python_environment || ((total_issues++))
+    validate_native_extensions || ((total_issues++))
+    
+    log_info ""
+    if [ $total_issues -gt 0 ]; then
+        log_warning "Segfault prevention checks: $total_issues potential issue(s) found"
+        log_warning "The script will continue but may encounter crashes"
+    else
+        log_success "All segfault prevention checks passed"
+    fi
+    
+    return $total_issues
+}
+
 # Validate API key formats
 validate_api_key_formats() {
     log_info "Validating API key formats..."
@@ -2057,12 +2906,17 @@ rotate_api_keys() {
     return 0
 }
 
-# API rate limit tracking
+# API rate limit tracking - uses mmap-backed storage
 check_rate_limits() {
     log_info "Checking API rate limits..."
     
-    # Simple rate limit tracking using temporary file
-    local rate_file="$TEMP_DIR/rate_limits.txt"
+    # Simple rate limit tracking using mmap-backed temporary file
+    local rate_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        rate_file="${MMAP_TEMP_DIR}/rate_limits.txt"
+    else
+        rate_file="$TEMP_DIR/rate_limits.txt"
+    fi
     local current_time=$(date +%s)
     
     # Clean up old entries (older than 1 hour)
@@ -2086,12 +2940,23 @@ check_rate_limits() {
     return 0
 }
 
-# Circuit breaker to prevent cascade failures
+# Circuit breaker to prevent cascade failures - uses mmap-backed storage
 implement_circuit_breaker() {
+    set +u
     local service="$1"
     local failure_threshold="${2:-5}"
+    set -u
     
-    local circuit_file="$TEMP_DIR/circuit_${service}.txt"
+    # Use mmap-backed storage for circuit breaker files
+    local circuit_file
+    local failure_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        circuit_file="${MMAP_TEMP_DIR}/circuit_${service}.txt"
+        failure_file="${MMAP_TEMP_DIR}/failures_${service}.txt"
+    else
+        circuit_file="$TEMP_DIR/circuit_${service}.txt"
+        failure_file="$TEMP_DIR/failures_${service}.txt"
+    fi
     local current_time=$(date +%s)
     
     # Check if circuit is open
@@ -2111,7 +2976,6 @@ implement_circuit_breaker() {
     fi
     
     # Check failure count
-    local failure_file="$TEMP_DIR/failures_${service}.txt"
     local failure_count=$(wc -l < "$failure_file" 2>/dev/null || echo 0)
     
     if [ $failure_count -ge $failure_threshold ]; then
@@ -2224,13 +3088,20 @@ check_dns_resolver() {
 
 # Handle API timeout gracefully
 handle_api_timeout() {
+    set +u
     local service="$1"
     local timeout_duration="${2:-30}"
+    set -u
     
     log_warning "API timeout for $service after ${timeout_duration}s"
     
-    # Record timeout for circuit breaker
-    local failure_file="$TEMP_DIR/failures_${service}.txt"
+    # Record timeout for circuit breaker - use mmap-backed storage
+    local failure_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        failure_file="${MMAP_TEMP_DIR}/failures_${service}.txt"
+    else
+        failure_file="$TEMP_DIR/failures_${service}.txt"
+    fi
     echo "$(date +%s):timeout" >> "$failure_file" 2>/dev/null || true
     
     # Check if circuit should open
@@ -2241,8 +3112,10 @@ handle_api_timeout() {
 
 # Handle malformed API response
 handle_malformed_response() {
+    set +u
     local service="$1"
     local response="$2"
+    set -u
     
     log_warning "Malformed response from $service"
     
@@ -2252,8 +3125,13 @@ handle_malformed_response() {
         log_info "Response snippet: $snippet..."
     fi
     
-    # Record malformed response
-    local failure_file="$TEMP_DIR/failures_${service}.txt"
+    # Record malformed response - use mmap-backed storage
+    local failure_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        failure_file="${MMAP_TEMP_DIR}/failures_${service}.txt"
+    else
+        failure_file="$TEMP_DIR/failures_${service}.txt"
+    fi
     echo "$(date +%s):malformed" >> "$failure_file" 2>/dev/null || true
     
     return 1
@@ -2261,8 +3139,10 @@ handle_malformed_response() {
 
 # Implement retry logic with exponential backoff
 implement_retry_logic() {
+    set +u
     local service="$1"
     local command="$2"
+    set -u
     local max_retries="${3:-3}"
     local base_delay="${4:-2}"
     
@@ -2296,9 +3176,11 @@ implement_retry_logic() {
 
 # Handle resource exhaustion
 handle_resource_exhaustion() {
+    set +u
     local resource_type="$1"  # memory, disk, cpu
     local current_value="$2"
     local threshold="$3"
+    set -u
     
     log_warning "Resource exhaustion detected: $resource_type"
     log_info "Current: $current_value, Threshold: $threshold"
@@ -2333,8 +3215,10 @@ handle_resource_exhaustion() {
 
 # Parallel decoder analysis
 parallel_decoder_analysis() {
+    set +u
     local image_file="$1"
     local max_parallel="${2:-4}"
+    set -u
     
     log_info "Running parallel decoder analysis (max $max_parallel concurrent)..."
     
@@ -2360,7 +3244,13 @@ parallel_decoder_analysis() {
         
         # Launch decoder in background
         (
-            local result_file="$TEMP_DIR/decoder_${decoder}_$$.txt"
+            # Use mmap-backed temp file for decoder results
+            local result_file
+            if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+                result_file="${MMAP_TEMP_DIR}/decoder_${decoder}_$$.txt"
+            else
+                result_file="$TEMP_DIR/decoder_${decoder}_$$.txt"
+            fi
             # Run decoder based on type
             # AUDIT FIX: Wrap decoders with crash protection
             case "$decoder" in
@@ -2410,16 +3300,24 @@ PYZBAR_DECODE
     log_success "Parallel decoder analysis complete: $decoder_count decoders"
     
     # Collect results
-    cat "$TEMP_DIR"/decoder_*_$$.txt 2>/dev/null | sort -u
-    rm -f "$TEMP_DIR"/decoder_*_$$.txt 2>/dev/null || true
+    # Collect results from mmap-backed temp directory
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        cat "${MMAP_TEMP_DIR}"/decoder_*_$$.txt 2>/dev/null | sort -u
+        rm -f "${MMAP_TEMP_DIR}"/decoder_*_$$.txt 2>/dev/null || true
+    else
+        cat "$TEMP_DIR"/decoder_*_$$.txt 2>/dev/null | sort -u
+        rm -f "$TEMP_DIR"/decoder_*_$$.txt 2>/dev/null || true
+    fi
     
     return 0
 }
 
 # Parallel threat intelligence checks
 parallel_threat_intel_check() {
+    set +u
     local ioc="$1"
     local max_parallel="${2:-5}"
+    set -u
     
     log_info "Running parallel threat intel checks (max $max_parallel concurrent)..."
     
@@ -2449,7 +3347,13 @@ parallel_threat_intel_check() {
             
             # Launch check in background
             (
-                local result_file="$TEMP_DIR/threat_${check_name}_$$.txt"
+                # Use mmap-backed temp file for threat intel results
+                local result_file
+                if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+                    result_file="${MMAP_TEMP_DIR}/threat_${check_name}_$$.txt"
+                else
+                    result_file="$TEMP_DIR/threat_${check_name}_$$.txt"
+                fi
                 # Placeholder for actual check
                 echo "checked:$check_name" > "$result_file" 2>/dev/null || true
             ) &
@@ -2464,19 +3368,31 @@ parallel_threat_intel_check() {
     
     log_success "Parallel threat intel checks complete: $check_count checks"
     
-    # Cleanup
-    rm -f "$TEMP_DIR"/threat_*_$$.txt 2>/dev/null || true
+    # Cleanup from mmap-backed or regular temp directory
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        rm -f "${MMAP_TEMP_DIR}"/threat_*_$$.txt 2>/dev/null || true
+    else
+        rm -f "$TEMP_DIR"/threat_*_$$.txt 2>/dev/null || true
+    fi
     
     return 0
 }
 
 # Cache threat intelligence with TTL
 cache_threat_intel() {
+    set +u
     local feed_name="$1"
     local feed_url="$2"
+    set -u
     local ttl_seconds="${3:-3600}"  # Default 1 hour
     
-    local cache_dir="${TEMP_DIR}/feed_cache"
+    # Use mmap-backed cache directory for efficient large feed handling
+    local cache_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        cache_dir="${MMAP_TEMP_DIR}/feed_cache"
+    else
+        cache_dir="${TEMP_DIR}/feed_cache"
+    fi
     mkdir -p "$cache_dir" 2>/dev/null || true
     
     local cache_file="${cache_dir}/${feed_name}.cache"
@@ -2518,12 +3434,21 @@ cache_threat_intel() {
 
 # Incremental YARA scan (skip unchanged content)
 incremental_yara_scan() {
+    set +u
     local target_file="$1"
     local yara_rules="$2"
+    set -u
     
     # Generate content hash
     local content_hash=$(md5sum "$target_file" 2>/dev/null | cut -d' ' -f1 || echo "unknown")
-    local scan_cache="$TEMP_DIR/yara_scan_cache.txt"
+    
+    # Use mmap-backed cache for efficient large file scanning
+    local scan_cache
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        scan_cache="${MMAP_TEMP_DIR}/yara_scan_cache.txt"
+    else
+        scan_cache="$TEMP_DIR/yara_scan_cache.txt"
+    fi
     
     # Check if we've scanned this content before
     if [ -f "$scan_cache" ]; then
@@ -2619,7 +3544,9 @@ analyze_dns_over_https() {
 
 # Validate extended cryptocurrency addresses
 validate_extended_crypto() {
+    set +u
     local address="$1"
+    set -u
     
     # Litecoin addresses (starts with L or M)
     if [[ "$address" =~ ^[LM][a-km-zA-HJ-NP-Z1-9]{26,33}$ ]]; then
@@ -2656,7 +3583,9 @@ validate_extended_crypto() {
 
 # Integrate OpenCTI threat intelligence
 integrate_opencti() {
+    set +u
     local ioc="$1"
+    set -u
     local opencti_url="${OPENCTI_URL:-}"
     local opencti_key="${OPENCTI_API_KEY:-}"
     
@@ -2695,7 +3624,9 @@ integrate_opencti() {
 
 # Detect developer platform abuse
 detect_developer_platform_abuse() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for developer platform abuse..."
     
@@ -2827,7 +3758,9 @@ get_search_paths() {
 
 # Find executable in multiple locations
 find_executable() {
+    set +u
     local cmd="$1"
+    set -u
     local search_paths
     
     # First check if already in PATH using command -v
@@ -3031,7 +3964,9 @@ EOF
 
 # Check if a Python module is installed (with multiple detection methods)
 check_python_module() {
+    set +u
     local module="$1"
+    set -u
     local python_cmd="${DISCOVERED_PATHS[python3]:-python3}"
     
     # Handle special module-to-package name mappings for pip show
@@ -3110,7 +4045,9 @@ check_python_module() {
 
 # Get installation command for missing Python module
 get_python_module_install_cmd() {
+    set +u
     local module="$1"
+    set -u
     local pip_cmd="${DISCOVERED_PATHS[pip3]:-pip3}"
     
     # Handle special module name mappings (import name -> pip package name)
@@ -3178,7 +4115,9 @@ run_auto_detection() {
 
 # Get the path for a discovered dependency
 get_dep_path() {
+    set +u
     local dep="$1"
+    set -u
     echo "${DISCOVERED_PATHS[$dep]:-$dep}"
 }
 
@@ -3189,7 +4128,9 @@ get_python_cmd() {
 
 # Safe module pre-check with crash protection
 safe_check_python_module() {
+    set +u
     local module="$1"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     [[ -z "$python_cmd" ]] && return 1
@@ -3232,7 +4173,9 @@ run_python() {
 
 # Check if Python module is available
 is_python_module_available() {
+    set +u
     local module="$1"
+    set -u
     # Use default empty string to avoid unbound variable error with set -u
     [[ "${DISCOVERED_PYTHON_MODULES[$module]:-}" == "installed" ]]
 }
@@ -5298,7 +6241,9 @@ declare -A OBFUSCATION_PATTERNS=(
 
 # Since bash/grep don't support \uXXXX Unicode escapes, this function uses Python
 detect_unicode_homoglyphs() {
+    set +u
     local content="$1"
+    set -u
     
     # Skip if Python not available
     if ! command -v python3 &>/dev/null; then
@@ -8990,7 +9935,9 @@ init_yara_rules() {
 # Safely validate image can be opened without crashing
 # Returns 0 if valid, 1 if potentially dangerous
 validate_image_safety() {
+    set +u
     local image="$1"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     # First check file exists and has content
@@ -9095,13 +10042,19 @@ PYVALIDATE
 # Usage: run_isolated timeout_seconds command [args...]
 # For commands needing output redirection, use: run_isolated_with_output timeout output_file command [args...]
 run_isolated() {
+    set +u
     local timeout_sec="$1"
+    set -u
     shift
     local cmd=("$@")
     
-    # Create a temp file for exit status communication
+    # Create a temp file for exit status communication - use mmap-backed storage
     local status_file
-    status_file=$(mktemp 2>/dev/null || echo "/tmp/run_isolated_$$_$RANDOM")
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        status_file=$(mktemp "${MMAP_TEMP_DIR}/run_isolated_$$.XXXXXXXXXX" 2>/dev/null) || status_file="${MMAP_TEMP_DIR}/run_isolated_$$_$RANDOM"
+    else
+        status_file=$(mktemp 2>/dev/null || echo "/tmp/run_isolated_$$_$RANDOM")
+    fi
     
     # Run in subshell with timeout, resource limits, and signal handling
     (
@@ -9162,14 +10115,20 @@ run_isolated() {
 # Run a command in isolated subprocess with output to a file (for decoders)
 # Usage: run_isolated_with_output timeout_seconds output_file command [args...]
 run_isolated_with_output() {
+    set +u
     local timeout_sec="$1"
     local output_file="$2"
+    set -u
     shift 2
     local cmd=("$@")
     
-    # Create a temp file for exit status
+    # Create a temp file for exit status - use mmap-backed storage
     local status_file
-    status_file=$(mktemp 2>/dev/null || echo "/tmp/run_isolated_out_$$_$RANDOM")
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        status_file=$(mktemp "${MMAP_TEMP_DIR}/run_isolated_out_$$.XXXXXXXXXX" 2>/dev/null) || status_file="${MMAP_TEMP_DIR}/run_isolated_out_$$_$RANDOM"
+    else
+        status_file=$(mktemp 2>/dev/null || echo "/tmp/run_isolated_out_$$_$RANDOM")
+    fi
     
     # Run in subshell with output redirection INSIDE the subshell
     (
@@ -9227,8 +10186,10 @@ run_isolated_with_output() {
 
 # Safe wrapper for zbarimg with crash protection
 safe_zbarimg() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     
     # Check if zbarimg is available
     if ! command -v zbarimg &>/dev/null; then
@@ -9258,8 +10219,10 @@ safe_zbarimg() {
 
 # Safe wrapper for Python decoder with crash protection
 safe_python_decode() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     run_isolated 30 "$python_cmd" - "$image" "$output_file" <<'PYDECODE'
@@ -9344,7 +10307,9 @@ decode_with_pyzbar() {
 # Safe Python script execution wrapper
 # Usage: safe_python_script timeout_secs script_content
 safe_python_script() {
+    set +u
     local timeout_secs="$1"
+    set -u
     local python_cmd=$(get_python_cmd)
     shift
     
@@ -9668,8 +10633,10 @@ PYENHANCED
     
 # QR decode via BoofCV Java (hardened version)
 decode_qr_boofcv() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local boofcv_jar="/usr/local/lib/boofcv.jar"
 
     # Check BoofCV jar presence
@@ -10422,7 +11389,8 @@ decode_with_imagemagick_zbar() {
     set -u
     
     if command -v convert &> /dev/null && command -v zbarimg &> /dev/null; then
-        local temp_img="${TEMP_DIR}/preprocessed_$(basename "$image")"
+        # Use mmap-backed temp for image preprocessing
+        local temp_img="$(get_mmap_image_path "preprocessed_$(basename "$image")" "")"
         
         # Try multiple preprocessing techniques
         for technique in \
@@ -10683,8 +11651,13 @@ decode_with_tesseract_ocr() {
         return 2
     fi
     
-    # Create preprocessed versions and try OCR on each
-    local temp_dir="${TEMP_DIR}/tesseract_$$"
+    # Create preprocessed versions and try OCR on each - use mmap-backed temp
+    local temp_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        temp_dir="${MMAP_TEMP_DIR}/tesseract_$$"
+    else
+        temp_dir="${TEMP_DIR}/tesseract_$$"
+    fi
     mkdir -p "$temp_dir" 2>/dev/null
     
     (
@@ -10765,8 +11738,9 @@ decode_with_boofcv_extended() {
     fi
     
     if [[ -n "$boofcv_jar" ]] && [[ -f "$boofcv_jar" ]]; then
-        # Create inline Java decoder script
-        local java_code="${TEMP_DIR}/BoofQRDecoder.java"
+        # Create inline Java decoder script - use mmap-backed temp
+        local java_code="$(get_mmap_script_path "BoofQRDecoder")"
+        java_code="${java_code%.py}.java"  # Replace .py extension with .java
         cat > "$java_code" <<'BOOFCV_JAVA'
 import boofcv.abst.fiducial.QrCodeDetector;
 import boofcv.factory.fiducial.FactoryFiducial;
@@ -10792,9 +11766,11 @@ public class BoofQRDecoder {
 }
 BOOFCV_JAVA
         
+        local java_code_dir
+        java_code_dir=$(dirname "$java_code")
         (
             exec 2>/dev/null
-            cd "$TEMP_DIR"
+            cd "$java_code_dir"
             timeout 30 java -cp "$boofcv_jar:." BoofQRDecoder.java "$image" > "$output_file" 2>/dev/null || \
             timeout 30 java -cp "$boofcv_jar" boofcv.examples.fiducial.ExampleDetectQRCode "$image" 2>/dev/null | \
                 grep -v "^$" | head -20 > "$output_file"
@@ -10804,7 +11780,7 @@ BOOFCV_JAVA
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    return 0
 }
 
 # Decoder 17: bwip-js (Node.js barcode library)
@@ -11159,7 +12135,7 @@ decode_with_dynamsoft() {
     
     # Run in completely isolated subprocess with all crash signals trapped
     # Use a separate script file to ensure complete isolation
-    local temp_script="${TEMP_DIR}/dynamsoft_decode_$$.py"
+    local temp_script="$(get_mmap_script_path "dynamsoft_decode")"
     cat > "$temp_script" <<'PYDYNAMSOFT_SCRIPT'
 import sys
 import os
@@ -11278,7 +12254,7 @@ decode_with_zxingcpp() {
     fi
     
     # Create isolated script file
-    local temp_script="${TEMP_DIR}/zxingcpp_decode_$$.py"
+    local temp_script="$(get_mmap_script_path "zxingcpp_decode")"
     cat > "$temp_script" <<'PYZXINGCPP_SCRIPT'
 import sys
 import signal
@@ -11439,7 +12415,7 @@ decode_with_aztec() {
     [[ -z "$python_cmd" ]] && return 2
     
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/aztec_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "aztec_decode")"
         cat > "$temp_script" <<'PYAZTEC_SCRIPT'
 import sys
 import signal
@@ -11558,7 +12534,7 @@ decode_with_pdf417() {
     
     # Try via zxing-cpp with PDF417 filter
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/pdf417_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "pdf417_decode")"
         cat > "$temp_script" <<'PYPDF417_SCRIPT'
 import sys
 import signal
@@ -11680,7 +12656,7 @@ decode_with_maxicode() {
     
     # Try via zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/maxicode_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "maxicode_decode")"
         cat > "$temp_script" <<'PYMAXICODE_SCRIPT'
 import sys
 import signal
@@ -11795,7 +12771,7 @@ PYCODABAR_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/codabar_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "codabar_decode")"
         cat > "$temp_script" <<'PYCODABAR_SCRIPT'
 import sys
 import signal
@@ -11908,7 +12884,7 @@ PYCODE128_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/code128_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "code128_decode")"
         cat > "$temp_script" <<'PYCODE128_SCRIPT'
 import sys
 import signal
@@ -12005,7 +12981,7 @@ PYCODE39_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/code39_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "code39_decode")"
         cat > "$temp_script" <<'PYCODE39_SCRIPT'
 import sys
 import signal
@@ -12177,7 +13153,7 @@ PYEAN_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/ean_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "ean_decode")"
         cat > "$temp_script" <<'PYEAN_SCRIPT'
 import sys
 import signal
@@ -12316,7 +13292,7 @@ decode_with_rmqr() {
     
     # Try zxing-cpp (has rMQR support in newer versions)
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/rmqr_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "rmqr_decode")"
         cat > "$temp_script" <<'PYRMQR_SCRIPT'
 import sys
 import signal
@@ -12414,7 +13390,7 @@ decode_with_hanxin() {
     
     # Try zxing-cpp (has Han Xin support)
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/hanxin_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "hanxin_decode")"
         cat > "$temp_script" <<'PYHANXIN_SCRIPT'
 import sys
 import signal
@@ -12501,7 +13477,7 @@ decode_with_dotcode() {
     
     # Try zxing-cpp (newer versions support DotCode)
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/dotcode_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "dotcode_decode")"
         cat > "$temp_script" <<'PYDOTCODE_SCRIPT'
 import sys
 import signal
@@ -12598,7 +13574,7 @@ decode_with_gridmatrix() {
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/gridmatrix_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "gridmatrix_decode")"
         cat > "$temp_script" <<'PYGRIDMATRIX_SCRIPT'
 import sys
 import signal
@@ -12777,7 +13753,7 @@ PYITF_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/itf_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "itf_decode")"
         cat > "$temp_script" <<'PYITF_SCRIPT'
 import sys
 import signal
@@ -12873,7 +13849,7 @@ PYCODE93_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/code93_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "code93_decode")"
         cat > "$temp_script" <<'PYCODE93_SCRIPT'
 import sys
 import signal
@@ -12947,7 +13923,7 @@ decode_with_universal() {
     
     # Universal decoder using zxing-cpp with ALL formats enabled
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/universal_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "universal_decode")"
         cat > "$temp_script" <<'PYUNIVERSAL_SCRIPT'
 import sys
 import signal
@@ -13049,8 +14025,10 @@ PYUNIVERSAL_SCRIPT
 
 # Decoder 39: QR Code Model 1 (legacy QR format)
 decode_with_qr_model1() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13101,8 +14079,10 @@ PYMODEL1
 
 # Decoder 40: JAB Code (colored 2D barcode)
 decode_with_jabcode() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
         return 1
@@ -13125,8 +14105,10 @@ decode_with_jabcode() {
 
 # Decoder 41: HCCB (High Capacity Color Barcode - Microsoft Tag)
 decode_with_hccb() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13188,8 +14170,10 @@ PYHCCB
 
 # Decoder 42: Micro QR Code (smaller QR variant)
 decode_with_micro_qr() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13245,8 +14229,10 @@ PYMICROQR
 # Detects QR codes generated via HTML5 Canvas, SVG, or JavaScript libraries
 # Common in phishing and fraudulent QR campaigns
 decode_with_html_qr_detector() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13353,8 +14339,10 @@ PYHTMLQR
 
 # Decoder 44: UPC (Universal Product Code) - UPC-A and UPC-E
 decode_with_upc() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13406,8 +14394,10 @@ PYUPC
 
 # Decoder 45: MSI/Plessey - Inventory control barcode
 decode_with_msi() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13461,8 +14451,10 @@ PYMSI
 
 # Decoder 46: Telepen - Pharmacy/Library barcode
 decode_with_telepen() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13516,8 +14508,10 @@ PYTELEPEN
 
 # Decoder 47: GS1 DataBar (RSS) - Retail and coupons
 decode_with_gs1_databar() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13575,8 +14569,10 @@ PYGS1
 
 # Decoder 48: Pharmacode - Pharmaceutical packaging
 decode_with_pharmacode() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13666,8 +14662,10 @@ PYPHARMA
 
 # Decoder 49: Code 11 - Telecommunications barcode
 decode_with_code11() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13721,8 +14719,10 @@ PYCODE11
 
 # Decoder 50: DPD (Deutsche Post) Barcode
 decode_with_dpd() {
+    set +u
     local image="$1"
     local output_file="$2"
+    set -u
     local python_cmd=$(get_python_cmd)
     
     if [[ -z "$image" ]] || [[ ! -f "$image" ]] || [[ ! -r "$image" ]]; then
@@ -13772,12 +14772,19 @@ PYDPD
 }
 
 multi_decoder_analysis() {
+    set +u
     local image="$1"
     local base_output="$2"
     
     log_info "Multi-decoder analysis on $image..."
     
-    local allowed_temp_dir="${TEMP_DIR}/"
+    # Use mmap-backed temp directory for decoder outputs
+    local allowed_temp_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        allowed_temp_dir="${MMAP_TEMP_DIR}/"
+    else
+        allowed_temp_dir="${TEMP_DIR}/"
+    fi
     mkdir -p "$allowed_temp_dir" 2>/dev/null
     local safe_base_name
     safe_base_name="$(basename "$base_output" | tr -c 'a-zA-Z0-9._-' '_')"
@@ -13805,7 +14812,10 @@ multi_decoder_analysis() {
         return $?
     fi
 
-    # Clean previous outputs
+    # Clean previous outputs from mmap or regular temp directory
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        rm -f "${MMAP_TEMP_DIR}"/*.txt 2>/dev/null
+    fi
     rm -f "${TEMP_DIR}"_*.txt 2>/dev/null
 
     # Helper function for crash-safe execution
@@ -13828,6 +14838,7 @@ multi_decoder_analysis() {
         local timeout_secs="$1"
         local out_file="$2"
         local script="$3"
+    set -u
         
         [[ -z "$python_cmd" ]] && return 2
         
@@ -13842,7 +14853,7 @@ multi_decoder_analysis() {
     }
 
     # --- DECODER 1: ZBAR (native command) ---
-    local out_zbar="${TEMP_DIR}_zbar.txt"
+    local out_zbar="$(get_mmap_temp_path "zbar" ".txt")"
     if command -v zbarimg &>/dev/null; then
         log_info "  [1/50] Trying zbar decoder..."
         _safe_run 30 zbarimg -q --raw "$image" > "$out_zbar"
@@ -13859,7 +14870,7 @@ multi_decoder_analysis() {
     fi
 
     # --- DECODER 2: PYZBAR (Python - crash-isolated) ---
-    local out_pyzbar="${TEMP_DIR}_pyzbar.txt"
+    local out_pyzbar="$(get_mmap_temp_path "pyzbar" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [2/50] Trying pyzbar decoder..."
         # AUDIT FIX: Use base64-encoded paths to prevent segfault with special chars
@@ -13905,7 +14916,7 @@ EOF
     fi
     
     # --- DECODER 3: OPENCV QR DETECTOR ---
-    local out_opencv="${TEMP_DIR}_opencv.txt"
+    local out_opencv="$(get_mmap_temp_path "opencv" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [3/50] Trying opencv decoder..."
         # AUDIT FIX: Use base64-encoded paths
@@ -13947,7 +14958,7 @@ EOF
     fi
 
     # --- DECODER 4: QUIRC (native command) ---
-    local out_quirc="${TEMP_DIR}_quirc.txt"
+    local out_quirc="$(get_mmap_temp_path "quirc" ".txt")"
     log_info "  [4/50] Trying quirc decoder..."
     if command -v quirc &>/dev/null; then
         _safe_run 30 quirc "$image" > "$out_quirc"
@@ -13964,7 +14975,7 @@ EOF
     fi
 
     # --- DECODER 5: DMTX (DataMatrix - native command) ---
-    local out_dmtx="${TEMP_DIR}_dmtx.txt"
+    local out_dmtx="$(get_mmap_temp_path "dmtx" ".txt")"
     log_info "  [5/50] Trying dmtx decoder..."
     if command -v dmtxread &>/dev/null; then
         _safe_run 30 dmtxread -n -N1 "$image" > "$out_dmtx"
@@ -13981,7 +14992,7 @@ EOF
     fi
 
       # --- DECODER 6: PYZBAR ENHANCED (multiple processing) ---
-    local out_pyzbar_enh="${TEMP_DIR}_pyzbar_enhanced.txt"
+    local out_pyzbar_enh="$(get_mmap_temp_path "pyzbar_enhanced" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [6/50] Trying pyzbar_enhanced decoder..."
         # AUDIT FIX: Base64-encode paths
@@ -14035,7 +15046,7 @@ EOF
     fi
 
     # --- DECODER 7: MULTI-SCALE ---
-    local out_multiscale="${TEMP_DIR}_multiscale.txt"
+    local out_multiscale="$(get_mmap_temp_path "multiscale" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [7/50] Trying multiscale decoder..."
         # AUDIT FIX: Base64-encode paths
@@ -14084,7 +15095,7 @@ EOF
     fi
 
     # --- DECODER 8: INVERSE/NEGATIVE ---
-    local out_inverse="${TEMP_DIR}_inverse.txt"
+    local out_inverse="$(get_mmap_temp_path "inverse" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [8/50] Trying inverse decoder..."
         (
@@ -14126,7 +15137,7 @@ EOF
     fi
 
     # --- DECODER 9: IMAGEMAGICK + ZBAR (preprocessing) ---
-    local out_imgzbar="${TEMP_DIR}_imgzbar.txt"
+    local out_imgzbar="$(get_mmap_temp_path "imgzbar" ".txt")"
     if command -v convert &>/dev/null && command -v zbarimg &>/dev/null; then
         log_info "  [9/50] Trying imagemagick+zbar decoder..."
         if decode_with_imagemagick_zbar "$image" "$out_imgzbar"; then
@@ -14142,7 +15153,7 @@ EOF
     fi
 
     # --- DECODER 10: DMTXREAD (DataMatrix simple) ---
-    local out_dmtxread="${TEMP_DIR}_dmtxread.txt"
+    local out_dmtxread="$(get_mmap_temp_path "dmtxread" ".txt")"
     if command -v dmtxread &>/dev/null; then
         log_info "  [10/50] Trying dmtxread decoder..."
         if decode_with_dmtxread "$image" "$out_dmtxread"; then
@@ -14158,7 +15169,7 @@ EOF
     fi
 
     # --- DECODER 11: QREADER (Python, crash-hardened) ---
-    local out_qreader="${TEMP_DIR}_qreader.txt"
+    local out_qreader="$(get_mmap_temp_path "qreader" ".txt")"
     if [ -n "$python_cmd" ]; then
         # Pre-check if qreader module exists - wrapped in subshell to catch segfaults
         local qreader_available=false
@@ -14220,7 +15231,7 @@ EOF
     fi
 
     # --- DECODER 12: PYZXING (Python, crash-hardened) ---
-    local out_pyzxing="${TEMP_DIR}_pyzxing.txt"
+    local out_pyzxing="$(get_mmap_temp_path "pyzxing" ".txt")"
     if [ -n "$python_cmd" ]; then
         # Pre-check if pyzxing module exists - wrapped in subshell to catch segfaults
         local pyzxing_available=false
@@ -14278,7 +15289,7 @@ EOF
     fi
 
     # --- DECODER 13: ZXING JAVA CLI (direct JAR execution) ---
-    local out_zxing_java="${TEMP_DIR}_zxing_java.txt"
+    local out_zxing_java="$(get_mmap_temp_path "zxing_java" ".txt")"
     log_info "  [13/50] Trying ZXing Java CLI decoder..."
     if command -v java &>/dev/null; then
         if decode_with_zxing_java_cli "$image" "$out_zxing_java"; then
@@ -14294,7 +15305,7 @@ EOF
     fi
 
     # --- DECODER 14: LIBDECODEQR (C/C++ library) ---
-    local out_libdecodeqr="${TEMP_DIR}_libdecodeqr.txt"
+    local out_libdecodeqr="$(get_mmap_temp_path "libdecodeqr" ".txt")"
     log_info "  [14/50] Trying libdecodeqr decoder..."
     if command -v decodeqr &>/dev/null || command -v qrdecoder &>/dev/null; then
         if decode_with_libdecodeqr "$image" "$out_libdecodeqr"; then
@@ -14310,7 +15321,7 @@ EOF
     fi
 
     # --- DECODER 15: TESSERACT OCR + LEPTONICA (degraded code recovery) ---
-    local out_tesseract="${TEMP_DIR}_tesseract.txt"
+    local out_tesseract="$(get_mmap_temp_path "tesseract" ".txt")"
     log_info "  [15/50] Trying Tesseract OCR decoder..."
     if command -v tesseract &>/dev/null; then
         if decode_with_tesseract_ocr "$image" "$out_tesseract"; then
@@ -14326,7 +15337,7 @@ EOF
     fi
 
     # --- DECODER 16: BOOFCV (Java computer vision) ---
-    local out_boofcv="${TEMP_DIR}_boofcv.txt"
+    local out_boofcv="$(get_mmap_temp_path "boofcv" ".txt")"
     log_info "  [16/50] Trying BoofCV decoder..."
     if command -v java &>/dev/null; then
         # Try original boofcv first, then extended version
@@ -14343,7 +15354,7 @@ EOF
     fi
 
     # --- DECODER 17: BWIP-JS (Node.js barcode library) ---
-    local out_bwipjs="${TEMP_DIR}_bwipjs.txt"
+    local out_bwipjs="$(get_mmap_temp_path "bwipjs" ".txt")"
     log_info "  [17/50] Trying bwip-js decoder..."
     if command -v node &>/dev/null || command -v nodejs &>/dev/null; then
         if decode_with_bwipjs "$image" "$out_bwipjs"; then
@@ -14359,7 +15370,7 @@ EOF
     fi
 
     # --- DECODER 18: JSQR (Node.js QR decoder) ---
-    local out_jsqr="${TEMP_DIR}_jsqr.txt"
+    local out_jsqr="$(get_mmap_temp_path "jsqr" ".txt")"
     log_info "  [18/50] Trying jsQR decoder..."
     if command -v node &>/dev/null || command -v nodejs &>/dev/null; then
         if decode_with_jsqr "$image" "$out_jsqr"; then
@@ -14375,7 +15386,7 @@ EOF
     fi
 
     # --- DECODER 19: PYTHON-BARCODE (1D barcode types) ---
-    local out_pybarcode="${TEMP_DIR}_pybarcode.txt"
+    local out_pybarcode="$(get_mmap_temp_path "pybarcode" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [19/50] Trying python-barcode (1D types) decoder..."
         if decode_with_python_barcode "$image" "$out_pybarcode"; then
@@ -14391,7 +15402,7 @@ EOF
     fi
 
     # --- DECODER 20: OPENCV ARUCO + MULTI-QR ---
-    local out_aruco="${TEMP_DIR}_aruco.txt"
+    local out_aruco="$(get_mmap_temp_path "aruco" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [20/50] Trying OpenCV ArUco/Multi-QR decoder..."
         if decode_with_opencv_aruco "$image" "$out_aruco"; then
@@ -14407,7 +15418,7 @@ EOF
     fi
 
     # --- DECODER 21: DYNAMSOFT BARCODE READER ---
-    local out_dynamsoft="${TEMP_DIR}_dynamsoft.txt"
+    local out_dynamsoft="$(get_mmap_temp_path "dynamsoft" ".txt")"
     if [ -n "$python_cmd" ]; then
         # Pre-check if dbr module exists - wrapped in subshell to catch segfaults during import
         local dbr_available=false
@@ -14436,7 +15447,7 @@ EOF
     fi
 
     # --- DECODER 22: ZXING-CPP (C++ ZXing port) ---
-    local out_zxingcpp="${TEMP_DIR}_zxingcpp.txt"
+    local out_zxingcpp="$(get_mmap_temp_path "zxingcpp" ".txt")"
     log_info "  [22/50] Trying zxing-cpp decoder..."
     # Check for command-line tool first (safer)
     if command -v zxing &>/dev/null; then
@@ -14475,7 +15486,7 @@ EOF
     fi
 
     # --- DECODER 23: GOQR (Go-based QR decoder - fast, memory-safe) ---
-    local out_goqr="${TEMP_DIR}_goqr.txt"
+    local out_goqr="$(get_mmap_temp_path "goqr" ".txt")"
     if command -v gozxing &>/dev/null || command -v goqr &>/dev/null || command -v qrdecode &>/dev/null; then
         log_info "  [23/50] Trying GoQR decoder..."
         if decode_with_goqr "$image" "$out_goqr"; then
@@ -14491,7 +15502,7 @@ EOF
     fi
 
     # --- DECODER 24: AZTEC (Transport tickets, boarding passes) ---
-    local out_aztec="${TEMP_DIR}_aztec.txt"
+    local out_aztec="$(get_mmap_temp_path "aztec" ".txt")"
     log_info "  [24/50] Trying Aztec code decoder..."
     if [ -n "$python_cmd" ]; then
         # Run in isolated subshell to prevent segfaults from killing main process
@@ -14523,7 +15534,7 @@ EOF
     fi
 
     # --- DECODER 25: PDF417 (IDs, driver's licenses, boarding passes) ---
-    local out_pdf417="${TEMP_DIR}_pdf417.txt"
+    local out_pdf417="$(get_mmap_temp_path "pdf417" ".txt")"
     log_info "  [25/50] Trying PDF417 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14554,7 +15565,7 @@ EOF
     fi
 
     # --- DECODER 26: MAXICODE (UPS shipping labels) ---
-    local out_maxicode="${TEMP_DIR}_maxicode.txt"
+    local out_maxicode="$(get_mmap_temp_path "maxicode" ".txt")"
     log_info "  [26/50] Trying MaxiCode decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14585,7 +15596,7 @@ EOF
     fi
 
     # --- DECODER 27: CODABAR (Libraries, blood banks, FedEx) ---
-    local out_codabar="${TEMP_DIR}_codabar.txt"
+    local out_codabar="$(get_mmap_temp_path "codabar" ".txt")"
     log_info "  [27/50] Trying Codabar decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14616,7 +15627,7 @@ EOF
     fi
 
     # --- DECODER 28: CODE128 (High-density alphanumeric) ---
-    local out_code128="${TEMP_DIR}_code128.txt"
+    local out_code128="$(get_mmap_temp_path "code128" ".txt")"
     log_info "  [28/50] Trying Code 128 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14647,7 +15658,7 @@ EOF
     fi
 
     # --- DECODER 29: CODE39 (Automotive VINs, defense LOGMARS) ---
-    local out_code39="${TEMP_DIR}_code39.txt"
+    local out_code39="$(get_mmap_temp_path "code39" ".txt")"
     log_info "  [29/50] Trying Code 39 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14678,7 +15689,7 @@ EOF
     fi
 
     # --- DECODER 30: EAN/UPC (Retail barcodes) ---
-    local out_ean="${TEMP_DIR}_ean.txt"
+    local out_ean="$(get_mmap_temp_path "ean" ".txt")"
     log_info "  [30/50] Trying EAN/UPC decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14709,7 +15720,7 @@ EOF
     fi
 
     # --- DECODER 31: RMQR (Rectangular Micro QR - ISO/IEC 23941) ---
-    local out_rmqr="${TEMP_DIR}_rmqr.txt"
+    local out_rmqr="$(get_mmap_temp_path "rmqr" ".txt")"
     log_info "  [31/50] Trying rMQR decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14740,7 +15751,7 @@ EOF
     fi
 
     # --- DECODER 32: HANXIN (Chinese GB/T 21049 standard) ---
-    local out_hanxin="${TEMP_DIR}_hanxin.txt"
+    local out_hanxin="$(get_mmap_temp_path "hanxin" ".txt")"
     log_info "  [32/50] Trying Han Xin Code decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14771,7 +15782,7 @@ EOF
     fi
 
     # --- DECODER 33: DOTCODE (High-speed industrial printing) ---
-    local out_dotcode="${TEMP_DIR}_dotcode.txt"
+    local out_dotcode="$(get_mmap_temp_path "dotcode" ".txt")"
     log_info "  [33/50] Trying DotCode decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14802,7 +15813,7 @@ EOF
     fi
 
     # --- DECODER 34: GRIDMATRIX (Chinese standard) ---
-    local out_gridmatrix="${TEMP_DIR}_gridmatrix.txt"
+    local out_gridmatrix="$(get_mmap_temp_path "gridmatrix" ".txt")"
     log_info "  [34/50] Trying Grid Matrix decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14833,7 +15844,7 @@ EOF
     fi
 
     # --- DECODER 35: COMPOSITE (GS1 Composite barcodes) ---
-    local out_composite="${TEMP_DIR}_composite.txt"
+    local out_composite="$(get_mmap_temp_path "composite" ".txt")"
     log_info "  [35/50] Trying Composite barcode decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14864,7 +15875,7 @@ EOF
     fi
 
     # --- DECODER 36: ITF (Interleaved 2 of 5) ---
-    local out_itf="${TEMP_DIR}_itf.txt"
+    local out_itf="$(get_mmap_temp_path "itf" ".txt")"
     log_info "  [36/50] Trying ITF decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14895,7 +15906,7 @@ EOF
     fi
 
     # --- DECODER 37: CODE93 (Higher density Code 39 variant) ---
-    local out_code93="${TEMP_DIR}_code93.txt"
+    local out_code93="$(get_mmap_temp_path "code93" ".txt")"
     log_info "  [37/50] Trying Code 93 decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14926,7 +15937,7 @@ EOF
     fi
 
     # --- DECODER 38: UNIVERSAL (All formats with preprocessing) ---
-    local out_universal="${TEMP_DIR}_universal.txt"
+    local out_universal="$(get_mmap_temp_path "universal" ".txt")"
     log_info "  [38/50] Trying Universal decoder (all formats)..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -14957,7 +15968,7 @@ EOF
     fi
 
     # --- DECODER 39: QR MODEL 1 (Legacy QR) ---
-    local out_qr_model1="${TEMP_DIR}_qr_model1.txt"
+    local out_qr_model1="$(get_mmap_temp_path "qr_model1" ".txt")"
     log_info "  [39/50] Trying QR Model 1 decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -14987,7 +15998,7 @@ EOF
     fi
 
     # --- DECODER 40: JAB CODE (Colored 2D barcode) ---
-    local out_jabcode="${TEMP_DIR}_jabcode.txt"
+    local out_jabcode="$(get_mmap_temp_path "jabcode" ".txt")"
     log_info "  [40/50] Trying JAB Code decoder..."
     if decode_with_jabcode "$image" "$out_jabcode"; then
         log_success "  ✓ jabcode: decoded successfully"
@@ -14999,7 +16010,7 @@ EOF
     fi
 
     # --- DECODER 41: HCCB (Microsoft Tag) ---
-    local out_hccb="${TEMP_DIR}_hccb.txt"
+    local out_hccb="$(get_mmap_temp_path "hccb" ".txt")"
     log_info "  [41/50] Trying HCCB decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15029,7 +16040,7 @@ EOF
     fi
 
     # --- DECODER 42: MICRO QR CODE ---
-    local out_micro_qr="${TEMP_DIR}_micro_qr.txt"
+    local out_micro_qr="$(get_mmap_temp_path "micro_qr" ".txt")"
     log_info "  [42/50] Trying Micro QR Code decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15059,7 +16070,7 @@ EOF
     fi
 
     # --- DECODER 43: HTML QR FRAUD DETECTOR (Phishing/Fraud Detection) ---
-    local out_html_qr="${TEMP_DIR}_html_qr.txt"
+    local out_html_qr="$(get_mmap_temp_path "html_qr" ".txt")"
     log_info "  [43/50] Trying HTML-Generated QR Fraud Detector..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15105,7 +16116,7 @@ EOF
     fi
 
     # --- DECODER 44: UPC (Universal Product Code) ---
-    local out_upc="${TEMP_DIR}_upc.txt"
+    local out_upc="$(get_mmap_temp_path "upc" ".txt")"
     log_info "  [44/50] Trying UPC decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15135,7 +16146,7 @@ EOF
     fi
 
     # --- DECODER 45: MSI/Plessey ---
-    local out_msi="${TEMP_DIR}_msi.txt"
+    local out_msi="$(get_mmap_temp_path "msi" ".txt")"
     log_info "  [45/50] Trying MSI/Plessey decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15165,7 +16176,7 @@ EOF
     fi
 
     # --- DECODER 46: Telepen ---
-    local out_telepen="${TEMP_DIR}_telepen.txt"
+    local out_telepen="$(get_mmap_temp_path "telepen" ".txt")"
     log_info "  [46/50] Trying Telepen decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15195,7 +16206,7 @@ EOF
     fi
 
     # --- DECODER 47: GS1 DataBar ---
-    local out_gs1="${TEMP_DIR}_gs1_databar.txt"
+    local out_gs1="$(get_mmap_temp_path "gs1_databar" ".txt")"
     log_info "  [47/50] Trying GS1 DataBar decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15225,7 +16236,7 @@ EOF
     fi
 
     # --- DECODER 48: Pharmacode ---
-    local out_pharmacode="${TEMP_DIR}_pharmacode.txt"
+    local out_pharmacode="$(get_mmap_temp_path "pharmacode" ".txt")"
     log_info "  [48/50] Trying Pharmacode decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15255,7 +16266,7 @@ EOF
     fi
 
     # --- DECODER 49: Code 11 ---
-    local out_code11="${TEMP_DIR}_code11.txt"
+    local out_code11="$(get_mmap_temp_path "code11" ".txt")"
     log_info "  [49/50] Trying Code 11 decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15285,7 +16296,7 @@ EOF
     fi
 
     # --- DECODER 50: DPD (Deutsche Post) Barcode ---
-    local out_dpd="${TEMP_DIR}_dpd.txt"
+    local out_dpd="$(get_mmap_temp_path "dpd" ".txt")"
     log_info "  [50/50] Trying DPD decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15400,9 +16411,11 @@ EOF
 
 # Helper function to run a single decoder
 run_single_decoder() {
+    set +u
     local decoder="$1"
     local image="$2"
     local output="$3"
+    set -u
     
     case "$decoder" in
         zbar) decode_with_zbar "$image" "$output" ;;
@@ -15442,6 +16455,7 @@ run_single_decoder() {
 }
 
 multi_decoder_analysis_parallel() {
+    set +u
     local image="$1"
     local base_output="$2"
     local max_parallel="${3:-4}"
@@ -15455,7 +16469,13 @@ multi_decoder_analysis_parallel() {
         return 10
     fi
     
-    local allowed_temp_dir="${TEMP_DIR}/"
+    # Use mmap-backed temp directory
+    local allowed_temp_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        allowed_temp_dir="${MMAP_TEMP_DIR}/"
+    else
+        allowed_temp_dir="${TEMP_DIR}/"
+    fi
     mkdir -p "$allowed_temp_dir" 2>/dev/null
     
     # Priority-based decoder groups
@@ -15468,10 +16488,19 @@ multi_decoder_analysis_parallel() {
     local all_decoded=""
     local decoder_results=()
     
-    # Shared aggregation files
-    local aggregate_output="${TEMP_DIR}/aggregate_$$.txt"
-    local aggregate_summary="${TEMP_DIR}/aggregate_$$_summary.txt"
-    local lock_file="${TEMP_DIR}/aggregate_$$.lock"
+    # Shared aggregation files - use mmap-backed storage
+    local aggregate_output
+    local aggregate_summary
+    local lock_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        aggregate_output="${MMAP_TEMP_DIR}/aggregate_$$.txt"
+        aggregate_summary="${MMAP_TEMP_DIR}/aggregate_$$_summary.txt"
+        lock_file="${MMAP_TEMP_DIR}/aggregate_$$.lock"
+    else
+        aggregate_output="${TEMP_DIR}/aggregate_$$.txt"
+        aggregate_summary="${TEMP_DIR}/aggregate_$$_summary.txt"
+        lock_file="${TEMP_DIR}/aggregate_$$.lock"
+    fi
     
     : > "$aggregate_output"
     : > "$aggregate_summary"
@@ -15483,6 +16512,7 @@ multi_decoder_analysis_parallel() {
     # Run decoder group function
     run_decoder_group() {
         local group_name="$1"
+    set -u
         shift
         local decoders=("$@")
         
@@ -15513,8 +16543,13 @@ multi_decoder_analysis_parallel() {
                 sleep 0.1
             done
             
-            # Launch decoder in background
-            local out_file="${TEMP_DIR}/_${decoder}_$$.txt"
+            # Launch decoder in background - use mmap-backed storage
+            local out_file
+            if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+                out_file="${MMAP_TEMP_DIR}/_${decoder}_$$.txt"
+            else
+                out_file="${TEMP_DIR}/_${decoder}_$$.txt"
+            fi
             register_temp_file "$out_file"
             
             (
@@ -17122,7 +18157,13 @@ analyze_steganography() {
 
     ### === zsteg (PNG only; multi-check) === ###
     if command -v zsteg &> /dev/null && file "$image" 2>/dev/null | grep -qi "PNG"; then
-        local zsteg_output="${TEMP_DIR}/zsteg_$(basename "$image").txt"
+        # Use mmap-backed temp for zsteg output
+        local zsteg_output
+        if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+            zsteg_output="${MMAP_TEMP_DIR}/zsteg_$(basename "$image").txt"
+        else
+            zsteg_output="${TEMP_DIR}/zsteg_$(basename "$image").txt"
+        fi
         run_isolated_with_output 30 "$zsteg_output" zsteg "$image" || true
         if [[ -f "$zsteg_output" ]]; then
             if grep -qiE "(http|https|ftp|data:|base64)" "$zsteg_output" 2>/dev/null; then
@@ -17257,6 +18298,9 @@ import os
 import mmap
 import tempfile
 
+# Use mmap-backed temp directory if available
+mmap_temp = os.environ.get('QR_MMAP_TEMP', tempfile.gettempdir())
+
 try:
     from PIL import Image
     import numpy as np
@@ -17274,8 +18318,8 @@ try:
     
     # For very large images, use chunked processing with mmap
     if total_pixels > 1000000:  # > 1 megapixel
-        # Create a temporary memory-mapped file for LSB storage
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.lsb')
+        # Create a temporary memory-mapped file for LSB storage in mmap-backed directory
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.lsb', dir=mmap_temp)
         try:
             # Calculate size needed for LSB data
             array_size = total_pixels * 3  # 3 channels
@@ -17387,6 +18431,9 @@ import tempfile
 import struct
 from collections import Counter
 
+# Use mmap-backed temp directory if available
+mmap_temp = os.environ.get('QR_MMAP_TEMP', tempfile.gettempdir())
+
 try:
     from PIL import Image
     
@@ -17403,8 +18450,8 @@ try:
     
     # For large images, use chunked sampling with mmap
     if total_pixels > 1000000:  # > 1 megapixel
-        # Create mmap for storing color samples
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.colors')
+        # Create mmap for storing color samples in mmap-backed directory
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.colors', dir=mmap_temp)
         try:
             # Sample every Nth pixel to keep memory bounded
             sample_rate = max(1, total_pixels // 500000)  # Max ~500K samples
@@ -17581,7 +18628,9 @@ PYENTROPY
 }
 
 check_appended_data() {
+    set +u
     local image="$1"
+    set -u
     local file_type=$(file -b "$image" | cut -d',' -f1)
     
     case "$file_type" in
@@ -17711,7 +18760,9 @@ analyze_image_metadata() {
 }
 
 check_png_structure() {
+    set +u
     local image="$1"
+    set -u
 
     log_info "Analyzing PNG structure and chunk-level integrity..."
 
@@ -17826,7 +18877,9 @@ EOF
 }
 
 check_jpeg_structure() {
+    set +u
     local image="$1"
+    set -u
 
     log_info "Analyzing JPEG structure and forensic markers..."
 
@@ -17956,7 +19009,9 @@ EOF
 ################################################################################
 
 perform_ocr_analysis() {
+    set +u
     local image="$1"
+    set -u
     local filetype=""
     local extension=""
     local extracted_files=()
@@ -17968,13 +19023,21 @@ perform_ocr_analysis() {
         filetype=$(file --mime-type -b "$image")
     fi
 
+    # Determine mmap-backed temp directory
+    local ocr_temp_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        ocr_temp_dir="${MMAP_TEMP_DIR}"
+    else
+        ocr_temp_dir="${TEMP_DIR}"
+    fi
+
     # PDF: extract images embedded in PDF QR documents for OCR
     if [[ "$extension" =~ ^pdf$ ]] || [[ "$filetype" =~ ^application/pdf$ ]]; then
         if command -v pdfimages &> /dev/null; then
             log_info "PDF detected: extracting image streams for QR OCR"
-            mkdir -p "${TEMP_DIR}/pdf_ocr"
-            pdfimages -all "$image" "${TEMP_DIR}/pdf_ocr/extract" 2>/dev/null
-            extracted_files=($(ls "${TEMP_DIR}/pdf_ocr"/extract* 2>/dev/null))
+            mkdir -p "${ocr_temp_dir}/pdf_ocr"
+            pdfimages -all "$image" "${ocr_temp_dir}/pdf_ocr/extract" 2>/dev/null
+            extracted_files=($(ls "${ocr_temp_dir}/pdf_ocr"/extract* 2>/dev/null))
         else
             log_warning "pdfimages not available; cannot analyze PDF images for QR code OCR"
             return
@@ -17982,7 +19045,7 @@ perform_ocr_analysis() {
     # SVG: extract embedded QR payload as text
     elif [[ "$extension" == "svg" ]] || [[ "$filetype" == "image/svg+xml" ]]; then
         log_info "SVG detected: extracting embedded QR code payload text"
-        local svg_txt="${TEMP_DIR}/svg_ocr_$(basename "$image").txt"
+        local svg_txt="${ocr_temp_dir}/svg_ocr_$(basename "$image").txt"
         if command -v xmllint &> /dev/null; then
             xmllint --xpath '//text()' "$image" 2>/dev/null > "$svg_txt" || true
         else
@@ -17992,10 +19055,10 @@ perform_ocr_analysis() {
     # Video: extract frames to catch QR codes in moving images
     elif [[ "$extension" =~ ^(mp4|webm|mkv|avi)$ ]] || [[ "$filetype" =~ ^video/ ]]; then
         if command -v ffmpeg &> /dev/null; then
-            mkdir -p "${TEMP_DIR}/vid_ocr"
+            mkdir -p "${ocr_temp_dir}/vid_ocr"
             log_info "Video detected: extracting frames for QR code OCR"
-            ffmpeg -loglevel quiet -i "$image" -vf "fps=1" "${TEMP_DIR}/vid_ocr/frame_%03d.png"
-            extracted_files=($(ls "${TEMP_DIR}/vid_ocr"/frame_*.png 2>/dev/null))
+            ffmpeg -loglevel quiet -i "$image" -vf "fps=1" "${ocr_temp_dir}/vid_ocr/frame_%03d.png"
+            extracted_files=($(ls "${ocr_temp_dir}/vid_ocr"/frame_*.png 2>/dev/null))
         else
             log_warning "ffmpeg not available; cannot analyze video frames for QR code OCR"
             return
@@ -18029,8 +19092,16 @@ perform_ocr_analysis() {
 
         log_info "OCR scanning $f for QR code threats and payloads..."
 
-        local ocr_output="${TEMP_DIR}/ocr_$(basename "$f").txt"
-        local norm_output="${TEMP_DIR}/ocrnorm_$(basename "$f").txt"
+        # Use mmap-backed temp for OCR output
+        local ocr_output
+        local norm_output
+        if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+            ocr_output="${MMAP_TEMP_DIR}/ocr_$(basename "$f").txt"
+            norm_output="${MMAP_TEMP_DIR}/ocrnorm_$(basename "$f").txt"
+        else
+            ocr_output="${TEMP_DIR}/ocr_$(basename "$f").txt"
+            norm_output="${TEMP_DIR}/ocrnorm_$(basename "$f").txt"
+        fi
 
         tesseract "$f" "${ocr_output%.txt}" -l eng --psm 6 2>/dev/null
 
@@ -18517,7 +19588,9 @@ analyze_decoded_content() {
 }
 
 resolve_url_redirect() {
+    set +u
     local url="$1"
+    set -u
     local max_redirects=10
 
     if [ "$NETWORK_CHECK" = false ]; then
@@ -18561,7 +19634,9 @@ resolve_url_redirect() {
 }
 
 check_homograph_attack() {
+    set +u
     local domain="$1"
+    set -u
 
     # Mixed scripts detection (Latin + non-Latin = visually spoofed QR domains)
     # Use byte pattern detection instead of character ranges for portability
@@ -18642,7 +19717,9 @@ check_homograph_attack() {
 }
 
 check_typosquatting() {
+    set +u
     local domain="$1"
+    set -u
 
     # Scan for QR phishing brand impersonation in domain (case-insensitive)
     for brand in "${PHISHING_BRANDS[@]}"; do
@@ -18711,7 +19788,9 @@ check_typosquatting() {
 }
 
 check_domain_whois() {
+    set +u
     local domain="$1"
+    set -u
 
     if ! command -v whois &> /dev/null || [ "$NETWORK_CHECK" = false ]; then
         log_info "WHOIS unavailable - cannot check QR domain: $domain"
@@ -18720,7 +19799,13 @@ check_domain_whois() {
 
     log_info "Checking WHOIS for QR code domain: $domain"
 
-    local whois_file="${TEMP_DIR}/whois_${domain//\//_}_$(date +%s).txt"
+    # Use mmap-backed temp for whois data
+    local whois_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        whois_file="${MMAP_TEMP_DIR}/whois_${domain//\//_}_$(date +%s).txt"
+    else
+        whois_file="${TEMP_DIR}/whois_${domain//\//_}_$(date +%s).txt"
+    fi
     timeout 10 whois "$domain" > "$whois_file" 2>/dev/null || return
 
     # Domain age analysis (new domains in QR code payloads = high risk)
@@ -18783,7 +19868,9 @@ check_domain_whois() {
 }
 
 check_domain_dns() {
+    set +u
     local domain="$1"
+    set -u
 
     if ! command -v dig &> /dev/null || [ "$NETWORK_CHECK" = false ]; then
         log_info "DNS unavailable - cannot check QR code domain: $domain"
@@ -18792,7 +19879,13 @@ check_domain_dns() {
 
     log_info "Checking DNS records for QR code payload domain: $domain"
 
-    local dns_file="${TEMP_DIR}/dns_${domain//\//_}_$(date +%s).txt"
+    # Use mmap-backed temp for dns data
+    local dns_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        dns_file="${MMAP_TEMP_DIR}/dns_${domain//\//_}_$(date +%s).txt"
+    else
+        dns_file="${TEMP_DIR}/dns_${domain//\//_}_$(date +%s).txt"
+    fi
 
     {
         echo "=== A Records ==="
@@ -18859,7 +19952,9 @@ check_domain_dns() {
 }
 
 check_ssl_certificate() {
+    set +u
     local url="$1"
+    set -u
 
     if [ "$NETWORK_CHECK" = false ]; then
         log_info "SSL check skipped - network checks disabled."
@@ -18875,7 +19970,13 @@ check_ssl_certificate() {
 
     log_info "Checking SSL certificate for QR code domain: $domain"
 
-    local cert_file="${TEMP_DIR}/cert_${domain//\//_}_$(date +%s).txt"
+    # Use mmap-backed temp for cert data
+    local cert_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        cert_file="${MMAP_TEMP_DIR}/cert_${domain//\//_}_$(date +%s).txt"
+    else
+        cert_file="${TEMP_DIR}/cert_${domain//\//_}_$(date +%s).txt"
+    fi
 
     timeout 5 openssl s_client -connect "${domain}:443" -servername "$domain" </dev/null 2>/dev/null | \
         openssl x509 -noout -text > "$cert_file" 2>/dev/null
@@ -18948,8 +20049,19 @@ check_ssl_certificate() {
 load_threat_intelligence() {
     log_info "Loading threat intelligence feeds..."
     
+    # Determine mmap-backed threat intel directory
+    local threat_intel_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        threat_intel_dir="${MMAP_TEMP_DIR}/threat_intel"
+    else
+        threat_intel_dir="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}"
+    fi
+    
     # Create threat intel directories
-    mkdir -p "${TEMP_DIR}/threat_intel"
+    mkdir -p "$threat_intel_dir"
+    
+    # Export for use by subfunctions
+    export THREAT_INTEL_DIR="$threat_intel_dir"
     
     if [ "$NETWORK_CHECK" = true ]; then
         # Download OpenPhish feed
@@ -18998,7 +20110,7 @@ load_threat_intelligence() {
 }
 
 download_openphish_feed() {
-    local feed_file="${TEMP_DIR}/threat_intel/openphish.txt"
+    local feed_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/openphish.txt"
     
     log_info "  Downloading OpenPhish feed..."
     
@@ -19013,7 +20125,7 @@ download_openphish_feed() {
 }
 
 download_urlhaus_feed() {
-    local feed_file="${TEMP_DIR}/threat_intel/urlhaus.txt"
+    local feed_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/urlhaus.txt"
     
     log_info "  Downloading URLhaus feed..."
     
@@ -19032,19 +20144,19 @@ download_abuse_ch_feeds() {
     
     # SSL blacklist
     curl -sfL --max-time 30 "https://sslbl.abuse.ch/blacklist/sslblacklist.csv" > \
-        "${TEMP_DIR}/threat_intel/sslbl.csv" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/sslbl.csv" 2>/dev/null
     
     # Malware bazaar recent additions
     curl -sfL --max-time 30 "https://bazaar.abuse.ch/export/txt/md5/recent/" > \
-        "${TEMP_DIR}/threat_intel/malware_bazaar_md5.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malware_bazaar_md5.txt" 2>/dev/null
     
     # Feodo Tracker
     curl -sfL --max-time 30 "https://feodotracker.abuse.ch/downloads/ipblocklist.txt" > \
-        "${TEMP_DIR}/threat_intel/feodo_ips.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" 2>/dev/null
     
     # ThreatFox IOCs
     curl -sfL --max-time 30 "https://threatfox.abuse.ch/export/json/recent/" > \
-        "${TEMP_DIR}/threat_intel/threatfox.json" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/threatfox.json" 2>/dev/null
     
     log_success "  Abuse.ch feeds loaded"
 }
@@ -19054,22 +20166,22 @@ download_public_blocklists() {
     
     # Spamhaus DROP list
     curl -sfL --max-time 30 "https://www.spamhaus.org/drop/drop.txt" > \
-        "${TEMP_DIR}/threat_intel/spamhaus_drop.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt" 2>/dev/null
     
     # Emergingthreats compromised IPs
     curl -sfL --max-time 30 "https://rules.emergingthreats.net/blockrules/compromised-ips.txt" > \
-        "${TEMP_DIR}/threat_intel/et_compromised.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_compromised.txt" 2>/dev/null
     
     # Ransomware tracker domains
     curl -sfL --max-time 30 "https://ransomwaretracker.abuse.ch/downloads/RW_DOMBL.txt" > \
-        "${TEMP_DIR}/threat_intel/ransomware_domains.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ransomware_domains.txt" 2>/dev/null
     
     log_success "  Public blocklists loaded"
 }
 
 load_phishtank_data() {
     local api_key="$PHISHTANK_API_KEY"
-    local feed_file="${TEMP_DIR}/threat_intel/phishtank.json"
+    local feed_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/phishtank.json"
     
     log_info "  Loading PhishTank data..."
     
@@ -19091,7 +20203,7 @@ load_otx_pulses() {
     log_info "  Loading OTX AlienVault pulses..."
     
     # Get subscribed pulses
-    local pulses_file="${TEMP_DIR}/threat_intel/otx_pulses.json"
+    local pulses_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/otx_pulses.json"
     
     curl -sfL --max-time 30 \
         -H "X-OTX-API-KEY: $api_key" \
@@ -19103,7 +20215,7 @@ load_otx_pulses() {
         
         # Extract IOCs from pulses
         jq -r '.results[].indicators[]? | select(.type == "URL" or .type == "domain" or .type == "IPv4") | .indicator' \
-            "$pulses_file" > "${TEMP_DIR}/threat_intel/otx_iocs.txt" 2>/dev/null
+            "$pulses_file" > "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/otx_iocs.txt" 2>/dev/null
     else
         log_warning "  Failed to load OTX pulses"
     fi
@@ -19119,20 +20231,20 @@ download_spamhaus_drop() {
     
     # DROP list
     curl -sfL --max-time 30 "https://www.spamhaus.org/drop/drop.txt" > \
-        "${TEMP_DIR}/threat_intel/spamhaus_drop.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt" 2>/dev/null
     
     # EDROP list
     curl -sfL --max-time 30 "https://www.spamhaus.org/drop/edrop.txt" > \
-        "${TEMP_DIR}/threat_intel/spamhaus_edrop.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_edrop.txt" 2>/dev/null
     
     # Parse and load IPs
-    if [ -s "${TEMP_DIR}/threat_intel/spamhaus_drop.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             local ip_range=$(echo "$line" | awk '{print $1}')
             [[ -n "$ip_range" ]] && KNOWN_MALICIOUS_IPS["$ip_range"]="Spamhaus DROP"
-        done < "${TEMP_DIR}/threat_intel/spamhaus_drop.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt"
         log_success "  Spamhaus DROP/EDROP: IPs loaded"
     else
         log_warning "  Failed to download Spamhaus lists"
@@ -19145,15 +20257,15 @@ download_emerging_threats_feed() {
     
     # Compromised IPs
     curl -sfL --max-time 30 "https://rules.emergingthreats.net/blockrules/compromised-ips.txt" > \
-        "${TEMP_DIR}/threat_intel/et_compromised.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_compromised.txt" 2>/dev/null
     
     # Emerging Block IPs
     curl -sfL --max-time 30 "https://rules.emergingthreats.net/fwrules/emerging-Block-IPs.txt" > \
-        "${TEMP_DIR}/threat_intel/et_block_ips.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_block_ips.txt" 2>/dev/null
     
     # Parse and load IPs
     local count=0
-    for file in "${TEMP_DIR}/threat_intel/et_"*.txt; do
+    for file in "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_"*.txt; do
         [ -f "$file" ] || continue
         while IFS= read -r ip; do
             [[ "$ip" =~ ^# ]] && continue
@@ -19174,7 +20286,7 @@ download_emerging_threats_feed() {
 download_cisa_kev() {
     log_info "  Downloading CISA KEV database..."
     
-    local kev_file="${TEMP_DIR}/threat_intel/cisa_kev.json"
+    local kev_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/cisa_kev.json"
     
     curl -sfL --max-time 30 "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json" > \
         "$kev_file" 2>/dev/null
@@ -19200,29 +20312,29 @@ download_feodo_tracker_extended() {
     
     # IP blocklist
     curl -sfL --max-time 30 "https://feodotracker.abuse.ch/downloads/ipblocklist.txt" > \
-        "${TEMP_DIR}/threat_intel/feodo_ips.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" 2>/dev/null
     
     # Domain blocklist
     curl -sfL --max-time 30 "https://feodotracker.abuse.ch/downloads/domainblocklist.txt" > \
-        "${TEMP_DIR}/threat_intel/feodo_domains.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_domains.txt" 2>/dev/null
     
     # Load IPs
-    if [ -s "${TEMP_DIR}/threat_intel/feodo_ips.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             local ip=$(echo "$line" | awk '{print $1}')
             [[ -n "$ip" ]] && KNOWN_C2_IPS["$ip"]="Feodo Tracker"
-        done < "${TEMP_DIR}/threat_intel/feodo_ips.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt"
     fi
     
     # Load domains
-    if [ -s "${TEMP_DIR}/threat_intel/feodo_domains.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_domains.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             KNOWN_C2_DOMAINS["$line"]="Feodo Tracker"
-        done < "${TEMP_DIR}/threat_intel/feodo_domains.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_domains.txt"
         log_success "  Feodo Tracker: C2 IPs and domains loaded"
     else
         log_warning "  Failed to download Feodo Tracker feeds"
@@ -19235,33 +20347,33 @@ download_sslbl_extended() {
     
     # SSL IP blacklist
     curl -sfL --max-time 30 "https://sslbl.abuse.ch/blacklist/sslipblacklist.txt" > \
-        "${TEMP_DIR}/threat_intel/sslbl_ips.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/sslbl_ips.txt" 2>/dev/null
     
     # SSL blacklist CSV
     curl -sfL --max-time 30 "https://sslbl.abuse.ch/blacklist/sslblacklist.csv" > \
-        "${TEMP_DIR}/threat_intel/sslbl.csv" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/sslbl.csv" 2>/dev/null
     
     # JA3 fingerprints
     curl -sfL --max-time 30 "https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv" > \
-        "${TEMP_DIR}/threat_intel/ja3_fingerprints.csv" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ja3_fingerprints.csv" 2>/dev/null
     
     # Load IPs
-    if [ -s "${TEMP_DIR}/threat_intel/sslbl_ips.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/sslbl_ips.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             local ip=$(echo "$line" | awk '{print $1}')
             [[ -n "$ip" ]] && KNOWN_MALICIOUS_IPS["$ip"]="SSLBL"
-        done < "${TEMP_DIR}/threat_intel/sslbl_ips.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/sslbl_ips.txt"
     fi
     
     # Load JA3 fingerprints
-    if [ -s "${TEMP_DIR}/threat_intel/ja3_fingerprints.csv" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ja3_fingerprints.csv" ]; then
         while IFS=',' read -r ja3 reason; do
             [[ "$ja3" =~ ^# ]] && continue
             [[ -z "$ja3" ]] && continue
             KNOWN_JA3_FINGERPRINTS["$ja3"]="$reason"
-        done < "${TEMP_DIR}/threat_intel/ja3_fingerprints.csv"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ja3_fingerprints.csv"
         log_success "  SSLBL Extended: IPs and JA3 fingerprints loaded"
     else
         log_warning "  Failed to download SSLBL extended feeds"
@@ -19273,7 +20385,7 @@ download_ransomware_tracker() {
     log_info "  Downloading ransomware IOCs (ThreatFox)..."
     
     # Use ThreatFox for ransomware IOCs since RansomwareTracker is archived
-    local threatfox_file="${TEMP_DIR}/threat_intel/threatfox_ransomware.json"
+    local threatfox_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/threatfox_ransomware.json"
     
     curl -sfL --max-time 30 "https://threatfox.abuse.ch/export/json/recent/" > "$threatfox_file" 2>/dev/null
     
@@ -19302,34 +20414,34 @@ download_bambenek_feeds() {
     
     # C2 Domain Master List
     curl -sfL --max-time 30 "https://osint.bambenekconsulting.com/feeds/c2-dommasterlist.txt" > \
-        "${TEMP_DIR}/threat_intel/bambenek_c2_domains.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_domains.txt" 2>/dev/null
     
     # C2 IP Master List
     curl -sfL --max-time 30 "https://osint.bambenekconsulting.com/feeds/c2-ipmasterlist.txt" > \
-        "${TEMP_DIR}/threat_intel/bambenek_c2_ips.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_ips.txt" 2>/dev/null
     
     # DGA Feed
     curl -sfL --max-time 30 "https://osint.bambenekconsulting.com/feeds/dga-feed.txt" > \
-        "${TEMP_DIR}/threat_intel/bambenek_dga.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_dga.txt" 2>/dev/null
     
     # Load C2 domains
-    if [ -s "${TEMP_DIR}/threat_intel/bambenek_c2_domains.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_domains.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             local domain=$(echo "$line" | awk -F, '{print $1}')
             [[ -n "$domain" ]] && KNOWN_C2_DOMAINS["$domain"]="Bambenek C2"
-        done < "${TEMP_DIR}/threat_intel/bambenek_c2_domains.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_domains.txt"
     fi
     
     # Load C2 IPs
-    if [ -s "${TEMP_DIR}/threat_intel/bambenek_c2_ips.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_ips.txt" ]; then
         while IFS= read -r line; do
             [[ "$line" =~ ^# ]] && continue
             [[ -z "$line" ]] && continue
             local ip=$(echo "$line" | awk -F, '{print $1}')
             [[ -n "$ip" ]] && KNOWN_C2_IPS["$ip"]="Bambenek C2"
-        done < "${TEMP_DIR}/threat_intel/bambenek_c2_ips.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/bambenek_c2_ips.txt"
         log_success "  Bambenek Consulting: C2 feeds loaded"
     else
         log_warning "  Failed to download Bambenek feeds"
@@ -19341,14 +20453,14 @@ download_talos_feed() {
     log_info "  Downloading Cisco Talos Intelligence feed..."
     
     curl -sfL --max-time 30 "https://www.talosintelligence.com/documents/ip-blacklist" > \
-        "${TEMP_DIR}/threat_intel/talos_blacklist.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/talos_blacklist.txt" 2>/dev/null
     
-    if [ -s "${TEMP_DIR}/threat_intel/talos_blacklist.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/talos_blacklist.txt" ]; then
         while IFS= read -r ip; do
             [[ "$ip" =~ ^# ]] && continue
             [[ -z "$ip" ]] && continue
             KNOWN_MALICIOUS_IPS["$ip"]="Cisco Talos"
-        done < "${TEMP_DIR}/threat_intel/talos_blacklist.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/talos_blacklist.txt"
         log_success "  Cisco Talos: Blacklist loaded"
     else
         log_warning "  Failed to download Cisco Talos feed"
@@ -19359,7 +20471,7 @@ download_talos_feed() {
 download_threatfox_iocs() {
     log_info "  Downloading ThreatFox IOC database..."
     
-    local threatfox_file="${TEMP_DIR}/threat_intel/threatfox_recent.json"
+    local threatfox_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/threatfox_recent.json"
     
     curl -sfL --max-time 30 "https://threatfox.abuse.ch/export/json/recent/" > "$threatfox_file" 2>/dev/null
     
@@ -19406,31 +20518,31 @@ download_malwarebazaar_hashes() {
     
     # SHA256 recent hashes
     curl -sfL --max-time 30 "https://bazaar.abuse.ch/export/txt/sha256/recent/" > \
-        "${TEMP_DIR}/threat_intel/malwarebazaar_sha256.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_sha256.txt" 2>/dev/null
     
     # MD5 recent hashes
     curl -sfL --max-time 30 "https://bazaar.abuse.ch/export/txt/md5/recent/" > \
-        "${TEMP_DIR}/threat_intel/malwarebazaar_md5.txt" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_md5.txt" 2>/dev/null
     
     local count=0
     # Load SHA256 hashes
-    if [ -s "${TEMP_DIR}/threat_intel/malwarebazaar_sha256.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_sha256.txt" ]; then
         while IFS= read -r hash; do
             [[ "$hash" =~ ^# ]] && continue
             [[ -z "$hash" ]] && continue
             KNOWN_MALWARE_HASHES["$hash"]="MalwareBazaar"
             ((count++))
-        done < "${TEMP_DIR}/threat_intel/malwarebazaar_sha256.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_sha256.txt"
     fi
     
     # Load MD5 hashes
-    if [ -s "${TEMP_DIR}/threat_intel/malwarebazaar_md5.txt" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_md5.txt" ]; then
         while IFS= read -r hash; do
             [[ "$hash" =~ ^# ]] && continue
             [[ -z "$hash" ]] && continue
             KNOWN_MALWARE_HASHES["$hash"]="MalwareBazaar"
             ((count++))
-        done < "${TEMP_DIR}/threat_intel/malwarebazaar_md5.txt"
+        done < "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malwarebazaar_md5.txt"
     fi
     
     if [ $count -gt 0 ]; then
@@ -19450,7 +20562,7 @@ download_malpedia_families() {
         return
     fi
     
-    local malpedia_file="${TEMP_DIR}/threat_intel/malpedia_families.json"
+    local malpedia_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malpedia_families.json"
     
     curl -sfL --max-time 30 \
         -H "Authorization: apitoken $MALPEDIA_API_KEY" \
@@ -19482,21 +20594,21 @@ download_misp_warninglists() {
     # Disposable email domains
     curl -sfL --max-time 30 \
         "https://raw.githubusercontent.com/MISP/misp-warninglists/main/lists/disposable-email/list.json" > \
-        "${TEMP_DIR}/threat_intel/misp_disposable_emails.json" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/misp_disposable_emails.json" 2>/dev/null
     
     # Parking domains
     curl -sfL --max-time 30 \
         "https://raw.githubusercontent.com/MISP/misp-warninglists/main/lists/parking-domain/list.json" > \
-        "${TEMP_DIR}/threat_intel/misp_parking_domains.json" 2>/dev/null
+        "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/misp_parking_domains.json" 2>/dev/null
     
     local count=0
     # Load disposable email domains
-    if [ -s "${TEMP_DIR}/threat_intel/misp_disposable_emails.json" ]; then
+    if [ -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/misp_disposable_emails.json" ]; then
         while read -r domain; do
             [[ -z "$domain" ]] && continue
             DISPOSABLE_EMAIL_DOMAINS["$domain"]="MISP Disposable"
             ((count++))
-        done < <(jq -r '.list[]?' "${TEMP_DIR}/threat_intel/misp_disposable_emails.json" 2>/dev/null)
+        done < <(jq -r '.list[]?' "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/misp_disposable_emails.json" 2>/dev/null)
     fi
     
     if [ $count -gt 0 ]; then
@@ -19510,7 +20622,7 @@ download_misp_warninglists() {
 download_inquest_iocs() {
     log_info "  Downloading InQuest IOCs..."
     
-    local inquest_file="${TEMP_DIR}/threat_intel/inquest_iocs.json"
+    local inquest_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/inquest_iocs.json"
     
     curl -sfL --max-time 30 "https://labs.inquest.net/api/iocdb/list" > "$inquest_file" 2>/dev/null
     
@@ -19555,7 +20667,7 @@ download_anyrun_iocs() {
     # ANY.RUN public feed (if available without API key)
     # Note: Full API access requires API key
     if [ -n "$ANYRUN_API_KEY" ]; then
-        local anyrun_file="${TEMP_DIR}/threat_intel/anyrun_iocs.json"
+        local anyrun_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/anyrun_iocs.json"
         
         curl -sfL --max-time 30 \
             -H "Authorization: API-Key $ANYRUN_API_KEY" \
@@ -19581,7 +20693,7 @@ download_triage_iocs() {
         return
     fi
     
-    local triage_file="${TEMP_DIR}/threat_intel/triage_iocs.json"
+    local triage_file="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/triage_iocs.json"
     
     curl -sfL --max-time 30 \
         -H "Authorization: Bearer $TRIAGE_API_KEY" \
@@ -19595,8 +20707,10 @@ download_triage_iocs() {
 }
 
 check_against_threat_intel() {
+    set +u
     local ioc="$1"
     local ioc_type="$2"  # url, domain, ip, hash
+    set -u
     
     local matches=0
     
@@ -19734,8 +20848,8 @@ check_against_threat_intel() {
     case "$ioc_type" in
         "url")
             # OpenPhish
-            if [ -f "${TEMP_DIR}/threat_intel/openphish.txt" ]; then
-                if grep -qF "$ioc" "${TEMP_DIR}/threat_intel/openphish.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/openphish.txt" ]; then
+                if grep -qF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/openphish.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "PHISHING URL DETECTED" \
                         "$ioc" \
@@ -19748,8 +20862,8 @@ check_against_threat_intel() {
             fi
             
             # URLhaus
-            if [ -f "${TEMP_DIR}/threat_intel/urlhaus.txt" ]; then
-                if grep -qF "$ioc" "${TEMP_DIR}/threat_intel/urlhaus.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/urlhaus.txt" ]; then
+                if grep -qF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/urlhaus.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "MALWARE URL DETECTED" \
                         "$ioc" \
@@ -19762,8 +20876,8 @@ check_against_threat_intel() {
             fi
             
             # PhishTank
-            if [ -f "${TEMP_DIR}/threat_intel/phishtank.json" ]; then
-                if jq -e ".[] | select(.url == \"$ioc\")" "${TEMP_DIR}/threat_intel/phishtank.json" > /dev/null 2>&1; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/phishtank.json" ]; then
+                if jq -e ".[] | select(.url == \"$ioc\")" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/phishtank.json" > /dev/null 2>&1; then
                     log_forensic_detection 100 \
                         "VERIFIED PHISHING URL" \
                         "$ioc" \
@@ -19777,8 +20891,8 @@ check_against_threat_intel() {
             ;;
         "domain")
             # Ransomware domains
-            if [ -f "${TEMP_DIR}/threat_intel/ransomware_domains.txt" ]; then
-                if grep -qiF "$ioc" "${TEMP_DIR}/threat_intel/ransomware_domains.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ransomware_domains.txt" ]; then
+                if grep -qiF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/ransomware_domains.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "RANSOMWARE DOMAIN DETECTED" \
                         "domain:$ioc" \
@@ -19792,8 +20906,8 @@ check_against_threat_intel() {
             fi
             
             # OTX IOCs
-            if [ -f "${TEMP_DIR}/threat_intel/otx_iocs.txt" ]; then
-                if grep -qiF "$ioc" "${TEMP_DIR}/threat_intel/otx_iocs.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/otx_iocs.txt" ]; then
+                if grep -qiF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/otx_iocs.txt" 2>/dev/null; then
                     log_forensic_detection 80 \
                         "Threat Intelligence Match - OTX" \
                         "domain:$ioc" \
@@ -19808,8 +20922,8 @@ check_against_threat_intel() {
             ;;
         "ip")
             # Spamhaus DROP
-            if [ -f "${TEMP_DIR}/threat_intel/spamhaus_drop.txt" ]; then
-                if grep -qF "$ioc" "${TEMP_DIR}/threat_intel/spamhaus_drop.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt" ]; then
+                if grep -qF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/spamhaus_drop.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "BLOCKED IP DETECTED - Spamhaus DROP" \
                         "ip:$ioc" \
@@ -19823,8 +20937,8 @@ check_against_threat_intel() {
             fi
             
             # Feodo Tracker
-            if [ -f "${TEMP_DIR}/threat_intel/feodo_ips.txt" ]; then
-                if grep -qF "$ioc" "${TEMP_DIR}/threat_intel/feodo_ips.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" ]; then
+                if grep -qF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "BANKING TROJAN C2 DETECTED" \
                         "ip:$ioc, type:banking_trojan_c2" \
@@ -19838,8 +20952,8 @@ check_against_threat_intel() {
             fi
             
             # ET Compromised
-            if [ -f "${TEMP_DIR}/threat_intel/et_compromised.txt" ]; then
-                if grep -qF "$ioc" "${TEMP_DIR}/threat_intel/et_compromised.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_compromised.txt" ]; then
+                if grep -qF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/et_compromised.txt" 2>/dev/null; then
                     log_forensic_detection 80 \
                         "Compromised IP Detected" \
                         "ip:$ioc" \
@@ -19853,8 +20967,8 @@ check_against_threat_intel() {
             ;;
         "hash")
             # Malware Bazaar
-            if [ -f "${TEMP_DIR}/threat_intel/malware_bazaar_md5.txt" ]; then
-                if grep -qiF "$ioc" "${TEMP_DIR}/threat_intel/malware_bazaar_md5.txt" 2>/dev/null; then
+            if [ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malware_bazaar_md5.txt" ]; then
+                if grep -qiF "$ioc" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/malware_bazaar_md5.txt" 2>/dev/null; then
                     log_forensic_detection 100 \
                         "KNOWN MALWARE HASH DETECTED" \
                         "hash:$ioc" \
@@ -19872,8 +20986,10 @@ check_against_threat_intel() {
 }
 
 check_virustotal() {
+    set +u
     local target="$1"
     local target_type="$2"  # url, domain, ip, file
+    set -u
     
     # AUDIT: Check for API key without logging it
     if [ -z "${VT_API_KEY:-}" ]; then
@@ -19953,7 +21069,9 @@ check_virustotal() {
 }
 
 check_urlscan() {
+    set +u
     local url="$1"
+    set -u
     
     # AUDIT: Check API key without logging it
     if [ -z "${URLSCAN_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
@@ -19997,7 +21115,9 @@ check_urlscan() {
 }
 
 check_abuseipdb() {
+    set +u
     local ip="$1"
+    set -u
     
     # AUDIT: Check API key without logging it
     if [ -z "${ABUSEIPDB_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
@@ -20052,9 +21172,11 @@ check_abuseipdb() {
 
 # Check CISA KEV for CVE references in content
 check_cisa_kev() {
+    set +u
     local content="$1"
+    set -u
     
-    if [ ! -s "${TEMP_DIR}/threat_intel/cisa_kev.json" ]; then
+    if [ ! -s "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/cisa_kev.json" ]; then
         return
     fi
     
@@ -20074,7 +21196,9 @@ check_cisa_kev() {
 
 # CrowdStrike Falcon X API-based IOC lookup
 check_crowdstrike() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${CROWDSTRIKE_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20101,7 +21225,9 @@ check_crowdstrike() {
 
 # Recorded Future API-based threat intelligence
 check_recorded_future() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${RECORDED_FUTURE_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20128,7 +21254,9 @@ check_recorded_future() {
 
 # ThreatFox API lookup for specific IOCs
 check_threatfox() {
+    set +u
     local content="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20158,7 +21286,9 @@ check_threatfox() {
 
 # MalwareBazaar API hash lookup
 check_malwarebazaar() {
+    set +u
     local content="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20187,7 +21317,9 @@ check_malwarebazaar() {
 
 # RiskIQ/PassiveTotal (Microsoft) API
 check_riskiq() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${RISKIQ_API_KEY:-}" ] || [ -z "${RISKIQ_API_SECRET:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20214,7 +21346,9 @@ check_riskiq() {
 
 # Hybrid Analysis sandbox API
 check_hybrid_analysis() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${HYBRID_ANALYSIS_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20242,7 +21376,9 @@ check_hybrid_analysis() {
 
 # ANY.RUN API lookup
 check_anyrun() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${ANYRUN_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20269,7 +21405,9 @@ check_anyrun() {
 
 # Joe Sandbox Cloud API
 check_joesandbox() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${JOESANDBOX_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20295,7 +21433,9 @@ check_joesandbox() {
 
 # Triage sandbox API
 check_triage() {
+    set +u
     local content="$1"
+    set -u
     
     if [ -z "${TRIAGE_API_KEY:-}" ] || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -20321,8 +21461,10 @@ check_triage() {
 }
 
 check_qr_code_threat_iocs() {
+    set +u
     local qr_source="$1"    # original QR code image/file
     local ioc_list_file="$2" # file containing one IOC per line (urls, domains, ips, hashes)
+    set -u
 
     log_info "Running QR code threat intelligence checks on: $qr_source"
 
@@ -20361,9 +21503,11 @@ check_qr_code_threat_iocs() {
 }
 
 enrich_qr_ioc_context() {
+    set +u
     local ioc="$1"
     local context="$2" # e.g., "malicious_url", "phishing_domain", etc
     local qr_source="$3"
+    set -u
 
     local ctx_file="${EVIDENCE_DIR}/qr_enrichment_$(md5sum <<<"$ioc" | cut -d' ' -f1)_$(date +%s).log"
     echo "IOC: $ioc" > "$ctx_file"
@@ -20503,7 +21647,9 @@ calculate_apt_confidence() {
 ################################################################################
 
 perform_behavioral_analysis() {
+    set +u
     local content="$1"
+    set -u
     
     if [ "$BEHAVIORAL_ANALYSIS" = false ]; then
         return
@@ -20549,7 +21695,9 @@ perform_behavioral_analysis() {
 }
 
 check_sandbox_evasion() {
+    set +u
     local content="$1"
+    set -u
     
     local evasion_techniques=(
         "mouse_move" "cursor_pos" "GetCursorPos"
@@ -20584,7 +21732,9 @@ check_sandbox_evasion() {
 }
 
 check_anti_vm_techniques() {
+    set +u
     local content="$1"
+    set -u
     
     local vm_indicators=(
         "VMware" "VirtualBox" "VBOX" "QEMU" "Xen" "Hyper-V"
@@ -20616,7 +21766,9 @@ check_anti_vm_techniques() {
 }
 
 check_anti_debug_techniques() {
+    set +u
     local content="$1"
+    set -u
     
     local debug_checks=(
         "IsDebuggerPresent" "CheckRemoteDebuggerPresent"
@@ -20651,7 +21803,9 @@ check_anti_debug_techniques() {
 }
 
 check_time_based_evasion() {
+    set +u
     local content="$1"
+    set -u
     
     # Check for time delays
     if echo "$content" | safe_grep_qiE "sleep[[:space:]]*[(\[]?[[:space:]]*[0-9]{4,}|timeout[[:space:]]*[/]?[[:space:]]*t?[[:space:]]*[0-9]{3,}|delay[[:space:]]*[:\(][[:space:]]*[0-9]{4,}"; then
@@ -20671,7 +21825,9 @@ check_time_based_evasion() {
 }
 
 check_persistence_techniques() {
+    set +u
     local content="$1"
+    set -u
 
     local persistence_indicators=(
         # Windows Registry & Boot
@@ -20728,7 +21884,9 @@ check_persistence_techniques() {
 }
 
 check_lateral_movement() {
+    set +u
     local content="$1"
+    set -u
 
     local lateral_indicators=(
         # Windows tools and techniques
@@ -20776,7 +21934,9 @@ check_lateral_movement() {
 }
 
 check_exfiltration_patterns() {
+    set +u
     local content="$1"
+    set -u
 
     local exfil_indicators=(
         # Data staging
@@ -20832,7 +21992,9 @@ check_exfiltration_patterns() {
 }
 
 check_privilege_escalation() {
+    set +u
     local content="$1"
+    set -u
 
     local privesc_indicators=(
         # Windows
@@ -20886,7 +22048,9 @@ check_privilege_escalation() {
 }
 
 check_defense_evasion() {
+    set +u
     local content="$1"
+    set -u
 
     local evasion_indicators=(
         # AV/EDR tampering (Windows, cross-platform)
@@ -20943,7 +22107,9 @@ check_defense_evasion() {
 }
 
 check_c2_patterns() {
+    set +u
     local content="$1"
+    set -u
 
     local found_patterns=()
     # Check against C2 pattern database
@@ -20986,7 +22152,9 @@ check_c2_patterns() {
 }
 
 check_credential_access() {
+    set +u
     local content="$1"
+    set -u
 
     local cred_indicators=(
         # Windows password dumping
@@ -21040,7 +22208,9 @@ check_credential_access() {
 }
 
 check_discovery_techniques() {
+    set +u
     local content="$1"
+    set -u
 
     local discovery_indicators=(
         # General system discovery: desktop/server
@@ -21121,7 +22291,9 @@ check_discovery_techniques() {
 }
 
 check_impact_techniques() {
+    set +u
     local content="$1"
+    set -u
 
     local impact_indicators=(
         # Ransomware & encryption
@@ -21418,7 +22590,9 @@ analyze_obfuscation() {
 }
 
 calculate_string_entropy() {
+    set +u
     local str="$1"
+    set -u
 
     # Validate input
     [[ -z "$str" ]] && { echo "0.0"; return; }
@@ -22539,7 +23713,9 @@ analyze_email_addresses() {
 }
 
 evaluate_all_yara_rules() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "  Evaluating YARA-like rules..."
     
@@ -22647,8 +23823,10 @@ evaluate_all_yara_rules() {
 }
 
 evaluate_yara_rule() {
+    set +u
     local content="$1"
     local rule_name="$2"
+    set -u
     local matched_patterns=""
 
     case "$rule_name" in
@@ -23037,7 +24215,9 @@ analyze_exploit_payloads() {
 }
 
 check_persistence_techniques() {
+    set +u
     local content="$1"
+    set -u
     # Persistence: autorun, crontab, scheduled task
     if echo "$content" | safe_grep_qiE "HKLM.*Run|LaunchAgent|systemctl.*enable|chmod.*777|crontab|schtasks|rc\.local"; then
         log_forensic_detection 45 \
@@ -23051,7 +24231,9 @@ check_persistence_techniques() {
 }
 
 check_privilege_escalation() {
+    set +u
     local content="$1"
+    set -u
     # Privilege escalation/local root/admin
     if echo "$content" | safe_grep_qiE "sudo|su |runas|setuid|potato|printspoofer|getsystem|escalate"; then
         log_forensic_detection 58 \
@@ -23065,7 +24247,9 @@ check_privilege_escalation() {
 }
 
 check_discovery_techniques() {
+    set +u
     local content="$1"
+    set -u
     # Discovery: host, network, user, cloud, AD, mobile/MaaS recon
     if echo "$content" | safe_grep_qiE "systeminfo|hostname|whoami|wmic|Get-ComputerInfo|ipconfig|ifconfig|ip addr|netstat|nslookup|nltest|Get-ADDomain|net view|ps aux|Get-Process|tasklist|dir /s|ls -laR|find /|Get-ChildItem.*Recurse|tree|android\.intent\.action|pm list packages|dumpsys|getprop"; then
         log_forensic_detection 47 \
@@ -23079,7 +24263,9 @@ check_discovery_techniques() {
 }
 
 check_lateral_movement() {
+    set +u
     local content="$1"
+    set -u
     # Lateral: pass-the-hash, PsExec, WinRM, SSH, RDP, SMB, mobile/QR handoff
     if echo "$content" | safe_grep_qiE "psexec|wmic.*process.*create|pass.the.hash|winrm|smbclient|net use|net rpc|rdesktop|mstsc|ssh |scp |adb connect|intent://" ; then
         log_forensic_detection 63 \
@@ -23093,7 +24279,9 @@ check_lateral_movement() {
 }
 
 check_exfiltration_patterns() {
+    set +u
     local content="$1"
+    set -u
     # Exfil: upload, cloud/drive/pastebin, base64/FTP/email/QR/mobile exfil
     if echo "$content" | safe_grep_qiE "upload|ftp|get.*password|scp|sftp|aws s3 cp|gsutil cp|azcopy|curl.*--upload|-T|wget.*--post|dropbox|gdrive|sendBeacon|base64|encode|mail\.send|sendTextMessage|pastebin\.com|telegram\.api|intent://" ; then
         log_forensic_detection 67 \
@@ -23107,7 +24295,9 @@ check_exfiltration_patterns() {
 }
 
 check_credential_access() {
+    set +u
     local content="$1"
+    set -u
     # Credential access: Mimikatz, lsass, browser dump, token stealers, mobile/QR abuse
     if echo "$content" | safe_grep_qiE "mimikatz|lsass|sekurlsa|credential.dump|password|keychain|SAM|GetCredential|browser.*password|getpass|get_token|keyring|android\.permission.GET_ACCOUNTS"; then
         log_forensic_detection 60 \
@@ -23121,7 +24311,9 @@ check_credential_access() {
 }
 
 check_c2_patterns() {
+    set +u
     local content="$1"
+    set -u
     # C2: beacon, checkin, reverse shell, RATs, QR/mobile C2 patterns, cloud
     if echo "$content" | safe_grep_qiE "beacon|checkin|callback|pastebin\.com/raw|raw\.githubusercontent|reverse.shell|bind.shell|websocket|rat|quasar|empire|meterpreter|cobaltstrike|ngrok|tunnel|discord\.api|telegram\.api"; then
         log_forensic_detection 66 \
@@ -23135,7 +24327,9 @@ check_c2_patterns() {
 }
 
 check_impact_techniques() {
+    set +u
     local content="$1"
+    set -u
     # Impact: ransomware, wipe, destroy, wiper, sabotage, DDoS, mining
     if echo "$content" | safe_grep_qiE "encrypt|ransom|decrypt|bitcoin|monero|\.onion|\.locked|\.encrypted|wipe|destroy|shred|rm -rf|format|cipher /w|disable|shutdown|ddos|xmrig|minergate|minerd|stratum"; then
         log_forensic_detection 80 \
@@ -23245,7 +24439,9 @@ analyze_steganography() {
 }
 
 log_evidence_tags() {
+    set +u
     local content="$1"
+    set -u
     # Evidence/forensic chain tagging; log source/time/context
     log_forensic_detection 10 \
         "Evidence Chain Tag" \
@@ -23262,9 +24458,11 @@ log_evidence_tags() {
 ################################################################################
 
 record_ioc() {
+    set +u
     local ioc_type="$1"
     local indicator="$2"
     local context="$3"
+    set -u
     
     local timestamp=$(date -Iseconds)
     
@@ -23514,7 +24712,9 @@ analyze_qr_image() {
 }
 
 validate_image_format() {
+    set +u
     local image="$1"
+    set -u
     local file_type=$(file -b "$image")
     
     # Check for valid image formats
@@ -25406,7 +26606,9 @@ analyze_fileless_malware() {
 
 # 1. QRLJacking - QR Login Jacking attacks
 detect_qrljacking() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for QRLJacking attacks..."
     
@@ -25475,7 +26677,9 @@ detect_qrljacking() {
 
 # 2. Quishing Kits - Known QR phishing kit signatures
 detect_quishing_kits() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for quishing kit signatures..."
     
@@ -25546,7 +26750,9 @@ detect_quishing_kits() {
 
 # 3. QR Overlay Malware - QR overlay attack indicators
 detect_qr_overlay_malware() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for QR overlay malware..."
     
@@ -25604,7 +26810,9 @@ detect_qr_overlay_malware() {
 
 # 4. QR Replacement - Physical QR replacement indicators
 detect_qr_replacement() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for QR replacement attack indicators..."
     
@@ -25673,7 +26881,9 @@ detect_qr_replacement() {
 
 # 5. Invisible QR - Near-invisible QR watermarks
 detect_invisible_qr() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for invisible QR patterns..."
     
@@ -25729,7 +26939,9 @@ detect_invisible_qr() {
 
 # 6. Animated QR - Animated/video QR abuse
 detect_animated_qr() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for animated QR abuse..."
     
@@ -25785,7 +26997,9 @@ detect_animated_qr() {
 
 # 7. Multi-QR Chaining - QR-to-QR redirect chains
 detect_multi_qr_chaining() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for multi-QR chaining..."
     
@@ -25841,7 +27055,9 @@ detect_multi_qr_chaining() {
 
 # 8. Conditional Content - Time/geo-conditional payloads
 detect_conditional_content() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for conditional payloads..."
     
@@ -25910,7 +27126,9 @@ detect_conditional_content() {
 
 # 9. Browser-in-Browser - BITB phishing indicators
 detect_browser_in_browser() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for Browser-in-Browser (BITB) attacks..."
     
@@ -25964,7 +27182,9 @@ detect_browser_in_browser() {
 
 # 10. Reverse Proxy Phishing - Evilginx/Modlishka patterns
 detect_reverse_proxy_phish() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for reverse proxy phishing..."
     
@@ -26031,7 +27251,9 @@ detect_reverse_proxy_phish() {
 
 # 11. Adversary-in-the-Middle (AiTM) - AiTM attack indicators
 detect_adversary_in_middle() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for Adversary-in-the-Middle attacks..."
     
@@ -26102,7 +27324,9 @@ detect_adversary_in_middle() {
 
 # 12. Windows LOLBin Detection
 detect_lolbin_windows() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for Windows LOLBin abuse..."
     
@@ -26156,7 +27380,9 @@ detect_lolbin_windows() {
 
 # 13. Linux LOLBin Detection (GTFOBins)
 detect_lolbin_linux() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for Linux LOLBin (GTFOBins) abuse..."
     
@@ -26215,7 +27441,9 @@ detect_lolbin_linux() {
 
 # 14. macOS LOLBin Detection
 detect_lolbin_macos() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for macOS LOLBin abuse..."
     
@@ -26269,7 +27497,9 @@ detect_lolbin_macos() {
 
 # 15. LOLBas Scripts Detection
 detect_lolbas_scripts() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for LOLBas script abuse..."
     
@@ -26338,7 +27568,9 @@ detect_lolbas_scripts() {
 
 # 16. Living-off-Cloud Detection
 detect_living_off_cloud() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Analyzing for Living-off-Cloud techniques..."
     
@@ -26768,7 +28000,9 @@ analyze_tor_vpn() {
 }
 
 check_tor_exit_nodes() {
+    set +u
     local content="$1"
+    set -u
     
     # Extract IPs from content
     local ips=$(echo "$content" | safe_grep_oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
@@ -26778,7 +28012,7 @@ check_tor_exit_nodes() {
     fi
     
     # Download Tor exit node list (cached)
-    local tor_list="${TEMP_DIR}/threat_intel/tor_exits.txt"
+    local tor_list="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/tor_exits.txt"
     
     if [ ! -f "$tor_list" ]; then
         curl -sfL --max-time 15 "https://check.torproject.org/exit-addresses" > "$tor_list" 2>/dev/null
@@ -29943,7 +31177,7 @@ analyze_asn_infrastructure() {
             while read -r ip; do
                 [ -z "$ip" ] && continue
                 # Direct match in blocklist
-                if [[ -n "${KNOWN_MALICIOUS_IPS[$ip]}" ]]; then
+                if [[ -v "KNOWN_MALICIOUS_IPS[$ip]" ]] && [[ -n "${KNOWN_MALICIOUS_IPS[$ip]}" ]]; then
                     log_warning "Registrar/WHOIS IP $ip in $(basename "$whois_file") is known malicious (blocklist match)"
                     asn_findings+=("suspicious_registrar_ip:$ip")
                     ((asn_score += 15))
@@ -30542,7 +31776,9 @@ analyze_parser_differentials() {
 }
 
 check_known_cve_patterns() {
+    set +u
     local content="$1"
+    set -u
     
     # CVE-2021-44228 (Log4Shell)
     if echo "$content" | safe_grep_qiE "\\\$\{jndi:(ldap|rmi|dns|corba)://"; then
@@ -30788,7 +32024,9 @@ analyze_ngram_patterns() {
 }
 
 calculate_brand_similarity() {
+    set +u
     local content="$1"
+    set -u
     local max_similarity=0
     
     # Check similarity to known brands
@@ -32054,7 +33292,9 @@ analyze_injection_attacks() {
 
 # Decode various encoding schemes for deeper analysis
 decode_payload() {
+    set +u
     local payload="$1"
+    set -u
     local decoded=""
     
     # URL decoding
@@ -32098,9 +33338,11 @@ analyze_nested_injection() {
 
 # Generate machine-readable output (JSON format)
 generate_injection_report_json() {
+    set +u
     local findings_array="$1"
     local score="$2"
     local risk="$3"
+    set -u
     
     echo "{"
     echo "  \"analysis_type\": \"injection_attack\","
@@ -36509,8 +37751,8 @@ analyze_social_threat_tracking() {
     
     # This would integrate with real threat intelligence APIs
     # For now, check against local threat intel we've downloaded
-    if [ -d "${TEMP_DIR}/threat_intel" ]; then
-        for feed_file in "${TEMP_DIR}/threat_intel"/*.txt; do
+    if [ -d "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}" ]; then
+        for feed_file in "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}"/*.txt; do
             [ -f "$feed_file" ] || continue
             if grep -qi "$domain" "$feed_file" 2>/dev/null || grep -qi "$url" "$feed_file" 2>/dev/null; then
                 local feed_name=$(basename "$feed_file" .txt)
@@ -37324,10 +38566,12 @@ initialize_feedback_system() {
 }
 
 record_analysis_feedback() {
+    set +u
     local verdict="$1"
     local confidence="$2"
     local user_feedback="$3"
     local notes="$4"
+    set -u
     
     if [ "$FEEDBACK_LOOP_ENABLED" = false ]; then
         return
@@ -37700,7 +38944,9 @@ declare -a SOCIAL_ENGINEERING_PHRASES=(
 
 # Advanced entropy analysis for detecting encoded payloads
 calculate_detailed_entropy() {
+    set +u
     local data="$1"
+    set -u
     
     # Validate input
     [[ -z "$data" ]] && { echo '{"entropy": 0, "normalized": 0}'; return; }
@@ -37769,7 +39015,9 @@ print(json.dumps(result))
 
 # Domain age checker
 check_domain_age() {
+    set +u
     local domain="$1"
+    set -u
     
     if [ -z "$domain" ]; then
         return
@@ -37837,9 +39085,11 @@ EOF
 # ============================================================================
 
 run_audit_enhanced_analysis() {
+    set +u
     local content="$1"
     local url="$2"
     local image="$3"
+    set -u
     
     log_info ""
     log_info "════════════════════════════════════════════════════════════════"
@@ -38272,9 +39522,11 @@ FEEDBACK_HISTORY="${OUTPUT_DIR}/feedback_history.log"
 CHAIN_OF_CUSTODY_FILE="${OUTPUT_DIR}/chain_of_custody.txt"
 
 generate_feedback_interface() {
+    set +u
     local analysis_id="$1"
     local threat_score="$2"
     local findings_count="$3"
+    set -u
     
     if [ "$FEEDBACK_LOOP_ENABLED" = false ]; then
         return
@@ -38348,9 +39600,11 @@ FEEDBACK_JSON
 }
 
 generate_chain_of_custody() {
+    set +u
     local analysis_id="$1"
     local input_file="$2"
     local findings_summary="$3"
+    set -u
     
     if [ "$FEEDBACK_LOOP_ENABLED" = false ]; then
         return
@@ -38461,10 +39715,12 @@ generate_chain_of_custody() {
 }
 
 process_feedback() {
+    set +u
     local analysis_id="$1"
     local verdict="$2"
     local notes="$3"
     local reviewer="$4"
+    set -u
     
     if [ -z "$analysis_id" ] || [ -z "$verdict" ]; then
         log_error "Usage: process_feedback <analysis_id> <verdict> [notes] [reviewer]"
@@ -38568,9 +39824,11 @@ EOF
 # ============================================================================
 
 run_all_audit_enhancements() {
+    set +u
     local content="$1"
     local url="$2"
     local image="$3"
+    set -u
     local analysis_id="${4:-$(date +%s)-$(head -c 4 /dev/urandom | xxd -p)}"
     
     echo ""
@@ -38855,10 +40113,10 @@ analyze_c2_frameworks() {
     done
     
     # Also check against downloaded threat intel C2 feeds
-    if [[ -f "${TEMP_DIR}/threat_intel/feodo_ips.txt" ]]; then
+    if [[ -f "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" ]]; then
         local c2_match
         c2_match=$(echo "$content" | safe_grep_oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -5 | while read -r ip; do
-            grep -qF "$ip" "${TEMP_DIR}/threat_intel/feodo_ips.txt" 2>/dev/null && echo "$ip"
+            grep -qF "$ip" "${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}/feodo_ips.txt" 2>/dev/null && echo "$ip"
         done)
         if [[ -n "$c2_match" ]]; then
             log_threat 80 "C2 IP match from Feodo Tracker: $c2_match"
@@ -39082,8 +40340,10 @@ PYTHON_SCRIPT
 }
 
 check_greynoise() {
+    set +u
     [ -z "$GREYNOISE_API_KEY" ] && return
     local ip="$1"
+    set -u
     
     local resp=$(curl -s -H "key: $GREYNOISE_API_KEY" \
         "https://api.greynoise.io/v3/community/$ip" 2>/dev/null)
@@ -39093,7 +40353,7 @@ check_greynoise() {
 }
 
 download_enhanced_threat_feeds() {
-    local feeds_dir="${TEMP_DIR}/threat_intel"
+    local feeds_dir="${THREAT_INTEL_DIR:-${TEMP_DIR}/threat_intel}"
     mkdir -p "$feeds_dir" 2>/dev/null
     local feeds_loaded=0
     
@@ -39111,8 +40371,10 @@ download_enhanced_threat_feeds() {
 }
 
 push_to_siem() {
+    set +u
     [ "$SIEM_LIVE_PUSH" != true ] && return
     local event_data="$1"
+    set -u
     [ -z "$SIEM_ENDPOINT" ] && return
     
     curl -s -X POST -H "Content-Type: application/json" \
@@ -39121,9 +40383,11 @@ push_to_siem() {
 }
 
 run_advanced_detection_engines() {
+    set +u
     local file="$1"
     local content="$2"
     local url="$3"
+    set -u
     
     local total_score=0
     local engines_run=0
@@ -40492,7 +41756,9 @@ declare -A URL_SHORTENER_EXTENDED_IOCS=(
 
 # XOR encoding detection
 detect_xor_encoding() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Detecting XOR encoding patterns..."
     
@@ -40594,7 +41860,9 @@ EOF
 
 # Multi-language malware detection orchestrator
 detect_malware_languages() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Detecting malware in multiple languages..."
     
@@ -40609,7 +41877,9 @@ detect_malware_languages() {
 
 # PowerShell malware detection
 detect_powershell_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local ps_patterns=(
         "IEX|Invoke-Expression"
@@ -40638,7 +41908,9 @@ detect_powershell_malware() {
 
 # Python malware detection
 detect_python_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local py_patterns=(
         "exec\(.*compile\("
@@ -40664,7 +41936,9 @@ detect_python_malware() {
 
 # JavaScript malware detection
 detect_javascript_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local js_patterns=(
         "eval\(.*atob\("
@@ -40688,7 +41962,9 @@ detect_javascript_malware() {
 
 # Shell malware detection
 detect_shell_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local shell_patterns=(
         "wget.*\|.*sh"
@@ -40712,7 +41988,9 @@ detect_shell_malware() {
 
 # VBScript malware detection
 detect_vbscript_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local vbs_patterns=(
         "CreateObject.*WScript\.Shell"
@@ -40736,7 +42014,9 @@ detect_vbscript_malware() {
 
 # Perl malware detection
 detect_perl_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local perl_patterns=(
         "use Socket.*connect"
@@ -40755,7 +42035,9 @@ detect_perl_malware() {
 
 # Ruby malware detection
 detect_ruby_malware() {
+    set +u
     local content="$1"
+    set -u
     
     local ruby_patterns=(
         "IO\.popen.*system"
@@ -40774,7 +42056,9 @@ detect_ruby_malware() {
 
 # ML-style heuristic analysis
 ml_style_heuristics() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Running ML-style heuristic analysis..."
     
@@ -40862,7 +42146,9 @@ analyze_deep_links() {
 
 # Blockchain address checking
 check_blockchain_address() {
+    set +u
     local address="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -40877,7 +42163,9 @@ check_blockchain_address() {
 
 # Bitcoin address checking
 check_bitcoin_address() {
+    set +u
     local address="$1"
+    set -u
     
     log_info "Checking Bitcoin address on blockchain..."
     
@@ -40891,7 +42179,9 @@ check_bitcoin_address() {
 
 # Ethereum address checking
 check_ethereum_address() {
+    set +u
     local address="$1"
+    set -u
     
     log_info "Checking Ethereum address..."
     log_warning "Ethereum blockchain lookup requires API key"
@@ -42472,8 +43762,10 @@ analyze_script_injection() {
 
 # Steghide detection
 detect_steghide() {
+    set +u
     local image="$1"
     local base_name="$2"
+    set -u
     
     if ! command -v steghide &> /dev/null; then
         return
@@ -42491,8 +43783,10 @@ detect_steghide() {
 
 # zsteg detection
 detect_zsteg() {
+    set +u
     local image="$1"
     local base_name="$2"
+    set -u
     
     if ! command -v zsteg &> /dev/null; then
         return
@@ -42510,8 +43804,10 @@ detect_zsteg() {
 
 # stegdetect analysis
 detect_stegdetect() {
+    set +u
     local image="$1"
     local base_name="$2"
+    set -u
     
     if ! command -v stegdetect &> /dev/null; then
         return
@@ -42572,7 +43868,9 @@ EOF
 
 # Multiple QR code detection
 detect_multiple_qr_codes() {
+    set +u
     local image="$1"
+    set -u
     
     log_info "Checking for multiple/split QR codes..."
     
@@ -42639,8 +43937,10 @@ analyze_metadata() {
 
 # Hash computation
 compute_hashes() {
+    set +u
     local file="$1"
     local base_name="$2"
+    set -u
     
     log_info "Computing file hashes..."
     
@@ -42656,7 +43956,9 @@ compute_hashes() {
 
 # VirusTotal file hash check
 check_virustotal_file_hash() {
+    set +u
     local hash="$1"
+    set -u
     
     if [ -z "$VT_API_KEY" ]; then
         return
@@ -42677,7 +43979,9 @@ check_virustotal_file_hash() {
 
 # URLhaus check
 check_urlhaus() {
+    set +u
     local url="$1"
+    set -u
     
     log_info "Checking URLhaus database..."
     
@@ -42693,7 +43997,9 @@ check_urlhaus() {
 
 # PhishTank check
 check_phishtank() {
+    set +u
     local url="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ] || [ -z "$PHISHTANK_API_KEY" ]; then
         return
@@ -42727,7 +44033,9 @@ EOF
 
 # OpenPhish direct check
 check_openphish_direct() {
+    set +u
     local url="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -42742,7 +44050,9 @@ check_openphish_direct() {
 
 # AlienVault OTX domain check
 check_alienvault_otx_domain() {
+    set +u
     local domain="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -42796,8 +44106,10 @@ analyze_url_content_type() {
 
 # File download and analysis
 download_and_analyze_file() {
+    set +u
     local url="$1"
     local content_type="$2"
+    set -u
     
     log_warning "Downloading file for analysis..."
     
@@ -42858,7 +44170,9 @@ analyze_api_keys() {
 
 # Calculate entropy
 calculate_entropy() {
+    set +u
     local content="$1"
+    set -u
     
     echo "$content" | python3 2>/dev/null <<'EOF'
 import math
@@ -42933,7 +44247,9 @@ analyze_qr_behavior() {
 
 # APT indicators check
 check_apt_indicators() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Checking APT indicators..."
     
@@ -42948,7 +44264,9 @@ check_apt_indicators() {
 
 # Obfuscation detection
 detect_obfuscation() {
+    set +u
     local content="$1"
+    set -u
     
     log_info "Detecting obfuscation techniques..."
     
@@ -43016,9 +44334,11 @@ EOF
 
 # Comprehensive payload analysis
 comprehensive_payload_analysis() {
+    set +u
     local content="$1"
     local image="$2"
     local base_name="$3"
+    set -u
     
     log_info "========================================="
     log_info "COMPREHENSIVE PAYLOAD ANALYSIS"
@@ -43091,7 +44411,7 @@ analyze_network_indicators() {
             if [[ "$ip" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.) ]]; then
                 log_warning "Private IP address detected: $ip"
             else
-                if [ -n "${KNOWN_MALICIOUS_IPS[$ip]}" ]; then
+                if [[ -v "KNOWN_MALICIOUS_IPS[$ip]" ]] && [[ -n "${KNOWN_MALICIOUS_IPS[$ip]}" ]]; then
                     log_threat 100 "KNOWN MALICIOUS IP: $ip"
                 fi
                 check_tor_exit_node "$ip"
@@ -43114,7 +44434,9 @@ analyze_network_indicators() {
 
 # Tor exit node check
 check_tor_exit_node() {
+    set +u
     local ip="$1"
+    set -u
     
     for tor_node in "${TOR_EXIT_INDICATORS[@]}"; do
         if [ "$ip" = "$tor_node" ]; then
@@ -43126,7 +44448,9 @@ check_tor_exit_node() {
 
 # Reverse DNS lookup
 perform_reverse_dns() {
+    set +u
     local ip="$1"
+    set -u
     
     if ! command -v dig &> /dev/null || [ "$NETWORK_CHECK" = false ]; then
         return
@@ -43147,7 +44471,9 @@ perform_reverse_dns() {
 
 # IP reputation check
 check_ip_reputation() {
+    set +u
     local ip="$1"
+    set -u
     
     if [ "$NETWORK_CHECK" = false ]; then
         return
@@ -43178,7 +44504,7 @@ analyze_email_address() {
     
     log_info "Analyzing email address: $email"
     
-    if [ -n "${KNOWN_MALICIOUS_DOMAINS[$domain]}" ]; then
+    if [[ -v "KNOWN_MALICIOUS_DOMAINS[$domain]" ]] && [[ -n "${KNOWN_MALICIOUS_DOMAINS[$domain]}" ]]; then
         log_threat 80 "Email from KNOWN MALICIOUS DOMAIN: $domain"
     fi
     
@@ -43194,7 +44520,9 @@ analyze_email_address() {
 
 # Sandbox simulation
 simulate_sandbox_analysis() {
+    set +u
     local content="$1"
+    set -u
     
     log_forensic "Simulating sandbox analysis..."
     
@@ -43206,7 +44534,9 @@ simulate_sandbox_analysis() {
 
 # Sandbox evasion check
 check_sandbox_evasion_techniques() {
+    set +u
     local content="$1"
+    set -u
     
     local evasion_techniques=(
         "Sleep\("
@@ -43226,7 +44556,9 @@ check_sandbox_evasion_techniques() {
 
 # Anti-VM check
 check_anti_vm_techniques() {
+    set +u
     local content="$1"
+    set -u
     
     local vm_indicators=(
         "VMware" "VirtualBox" "VBOX" "QEMU" "Xen" "Hyper-V" "Parallels"
@@ -43241,7 +44573,9 @@ check_anti_vm_techniques() {
 
 # Anti-debug check
 check_anti_debug_techniques() {
+    set +u
     local content="$1"
+    set -u
     
     local debug_checks=(
         "IsDebuggerPresent" "CheckRemoteDebuggerPresent" "OutputDebugString"
@@ -43257,7 +44591,9 @@ check_anti_debug_techniques() {
 
 # Time-based evasion check
 check_time_based_evasion() {
+    set +u
     local content="$1"
+    set -u
     
     if echo "$content" | safe_grep_qiE "sleep.*[0-9]{4,}|timeout.*[0-9]{4,}|delay.*[0-9]{4,}"; then
         log_threat 40 "Time-based evasion detected (long sleep/delay)"
@@ -43266,7 +44602,9 @@ check_time_based_evasion() {
 
 # Mobile config download and analysis
 download_and_analyze_mobileconfig() {
+    set +u
     local url="$1"
+    set -u
     local profile_file="${TEMP_DIR}/suspicious_profile.mobileconfig"
     
     log_warning "Downloading mobile config profile..."
@@ -43434,9 +44772,11 @@ generate_yara_rules_file() {
 
 # Generate individual report for each image
 generate_individual_report() {
+    set +u
     local image="$1"
     local content="$2"
     local base_name="$3"
+    set -u
     
     local report="${EVIDENCE_DIR}/${base_name}_report.txt"
     
@@ -43532,6 +44872,9 @@ main() {
     check_disk_space
     validate_network_connectivity
     check_dns_resolver
+    
+    # NEW: Segfault prevention checks (architecture, resources, Python environment)
+    run_segfault_prevention_checks || true
     
     # Check dependencies
     check_dependencies
