@@ -2100,6 +2100,377 @@ check_sandbox_environment() {
     return 1
 }
 
+################################################################################
+# SEGFAULT PREVENTION: Architecture, Environment, and Resource Validation
+# Addresses: Native extension bugs, ABI mismatches, resource exhaustion,
+# wrong architecture binaries, multiprocessing issues, and stack overflows
+################################################################################
+
+# Validate architecture consistency for Python and native binaries
+# Prevents: x86_64/ARM64 mismatch crashes (causes #1, #6, #12)
+validate_architecture_consistency() {
+    log_info "Validating architecture consistency..."
+    
+    local host_arch
+    host_arch=$(uname -m 2>/dev/null || echo "unknown")
+    local arch_issues=0
+    
+    # Get native architecture on macOS (accounts for Rosetta)
+    local native_arch="$host_arch"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # Check if running under Rosetta
+        if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = "1" ]; then
+            log_warning "Running under Rosetta 2 (x86_64 emulation on ARM64)"
+            native_arch="arm64"  # Host is actually ARM64
+        fi
+    fi
+    
+    # Check Python architecture
+    local python_cmd="${DISCOVERED_PATHS[python3]:-python3}"
+    if command -v "$python_cmd" &>/dev/null; then
+        local python_path
+        python_path=$(command -v "$python_cmd" 2>/dev/null)
+        
+        if [ -n "$python_path" ] && command -v file &>/dev/null; then
+            local python_arch
+            python_arch=$(file "$python_path" 2>/dev/null)
+            
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                if [[ "$native_arch" == "arm64" ]] && ! echo "$python_arch" | grep -qiE "arm64|universal"; then
+                    log_warning "Python binary may be x86_64 on ARM64 system"
+                    log_warning "  Binary: $python_path"
+                    log_warning "  This can cause segfaults with ARM64 native extensions"
+                    ((arch_issues++))
+                fi
+            fi
+        fi
+        
+        # Check Python ABI and platform
+        local platform_info
+        platform_info=$("$python_cmd" -c "import platform; print(platform.machine())" 2>/dev/null || echo "unknown")
+        log_info "  Python platform: $platform_info"
+        
+        if [[ "$OSTYPE" == "darwin"* ]] && [[ "$native_arch" == "arm64" ]]; then
+            if [[ "$platform_info" != "arm64" ]] && [[ "$platform_info" != "aarch64" ]]; then
+                log_warning "  Python reports $platform_info but system is $native_arch"
+                ((arch_issues++))
+            fi
+        fi
+    fi
+    
+    if [ $arch_issues -gt 0 ]; then
+        log_warning "Architecture issues detected: $arch_issues"
+        log_warning "Consider using native ARM64 Python on Apple Silicon"
+        return 1
+    fi
+    
+    log_success "Architecture consistency check passed (host: $host_arch)"
+    return 0
+}
+
+# Validate stack and resource limits
+# Prevents: Stack overflow segfaults (cause #4)
+validate_resource_limits() {
+    log_info "Validating resource limits..."
+    
+    local issues=0
+    
+    # Check stack size - minimum 8MB recommended for deep recursion
+    local stack_limit
+    stack_limit=$(ulimit -s 2>/dev/null || echo "0")
+    
+    if [ "$stack_limit" != "unlimited" ] && [ "$stack_limit" -lt 8192 ] 2>/dev/null; then
+        log_warning "Stack size limit is low: ${stack_limit}KB (recommended: 8192KB+)"
+        log_warning "  This can cause segfaults in deep recursion or native code"
+        log_info "  To increase: ulimit -s 8192"
+        ((issues++))
+        
+        # Try to increase stack limit
+        if ulimit -s 8192 2>/dev/null; then
+            log_info "  Stack limit increased to 8MB"
+        fi
+    else
+        log_info "  Stack limit: ${stack_limit}KB (OK)"
+    fi
+    
+    # Check virtual memory limit
+    local mem_limit
+    mem_limit=$(ulimit -v 2>/dev/null || echo "unlimited")
+    
+    if [ "$mem_limit" != "unlimited" ] && [ "$mem_limit" -lt $((512 * 1024)) ] 2>/dev/null; then
+        log_warning "Virtual memory limit is low: ${mem_limit}KB"
+        ((issues++))
+    fi
+    
+    # Check file descriptor limit
+    local fd_limit
+    fd_limit=$(ulimit -n 2>/dev/null || echo "256")
+    
+    if [ "$fd_limit" -lt 256 ] 2>/dev/null; then
+        log_warning "File descriptor limit is low: $fd_limit (recommended: 256+)"
+        ((issues++))
+    fi
+    
+    if [ $issues -gt 0 ]; then
+        log_warning "Resource limit issues detected: $issues"
+        return 1
+    fi
+    
+    log_success "Resource limits are adequate"
+    return 0
+}
+
+# Validate Python environment integrity
+# Prevents: Corrupted Python, ABI mismatches (causes #2, #14)
+validate_python_environment() {
+    log_info "Validating Python environment..."
+    
+    local python_cmd="${DISCOVERED_PATHS[python3]:-python3}"
+    local issues=0
+    
+    if ! command -v "$python_cmd" &>/dev/null; then
+        log_warning "Python not found in PATH"
+        return 1
+    fi
+    
+    # Test basic Python functionality
+    if ! "$python_cmd" -c "print('OK')" &>/dev/null; then
+        log_error "Python interpreter test failed"
+        return 1
+    fi
+    
+    # Check for corrupted or partial Python installation
+    local python_check
+    python_check=$("$python_cmd" 2>/dev/null <<'PYCHECK'
+import sys
+import os
+
+issues = []
+
+# Check Python version
+if sys.version_info < (3, 7):
+    issues.append(f"Python version too old: {sys.version}")
+
+# Check for critical standard library modules
+critical_modules = ['os', 'sys', 'json', 'base64', 'hashlib', 'subprocess', 'signal']
+for mod in critical_modules:
+    try:
+        __import__(mod)
+    except ImportError as e:
+        issues.append(f"Missing critical module: {mod}")
+
+# Check for ctypes (needed for many extensions)
+try:
+    import ctypes
+except ImportError:
+    issues.append("ctypes not available - extension loading may fail")
+
+# Check for multiprocessing fork safety (macOS specific)
+if sys.platform == 'darwin':
+    try:
+        import multiprocessing
+        if multiprocessing.get_start_method(allow_none=True) == 'fork':
+            # fork can cause issues with certain libraries on macOS
+            pass  # Just noting it
+    except:
+        pass
+
+# Check site-packages exists
+try:
+    import site
+    if not site.getsitepackages():
+        issues.append("No site-packages directories found")
+except:
+    pass
+
+if issues:
+    for issue in issues:
+        print(f"ISSUE: {issue}")
+    print("RESULT: ISSUES_FOUND")
+else:
+    print("RESULT: OK")
+PYCHECK
+) || python_check="RESULT: FAILED"
+    
+    if echo "$python_check" | grep -q "RESULT: OK"; then
+        log_success "Python environment is valid"
+    elif echo "$python_check" | grep -q "RESULT: ISSUES_FOUND"; then
+        log_warning "Python environment issues detected:"
+        echo "$python_check" | grep "ISSUE:" | while read -r line; do
+            log_warning "  ${line#ISSUE: }"
+        done
+        ((issues++))
+    else
+        log_warning "Could not validate Python environment"
+        ((issues++))
+    fi
+    
+    return $issues
+}
+
+# Validate native extensions for common QR/image libraries
+# Prevents: Native extension crashes, ABI mismatches (causes #1, #3, #6)
+validate_native_extensions() {
+    log_info "Validating native extensions..."
+    
+    local python_cmd="${DISCOVERED_PATHS[python3]:-python3}"
+    local issues=0
+    
+    if ! command -v "$python_cmd" &>/dev/null; then
+        return 0  # Skip if no Python
+    fi
+    
+    # Test commonly used libraries that have native extensions
+    local test_modules=(
+        "PIL:pillow"
+        "cv2:opencv-python"
+        "numpy:numpy"
+        "pyzbar.pyzbar:pyzbar"
+    )
+    
+    for mod_info in "${test_modules[@]}"; do
+        local module_name="${mod_info%%:*}"
+        local package_name="${mod_info##*:}"
+        
+        # Test module import with crash protection
+        local test_result
+        test_result=$(timeout 10 "$python_cmd" 2>&1 <<PYTEST
+import sys
+import signal
+
+def handler(signum, frame):
+    print("SIGNAL: " + str(signum))
+    sys.exit(139)
+
+signal.signal(signal.SIGSEGV, handler)
+signal.signal(signal.SIGABRT, handler)
+signal.signal(signal.SIGBUS, handler)
+
+try:
+    __import__("$module_name")
+    print("OK")
+except ImportError:
+    print("NOT_INSTALLED")
+except Exception as e:
+    print(f"ERROR: {e}")
+PYTEST
+) || test_result="CRASH"
+        
+        case "$test_result" in
+            *"OK"*)
+                log_info "  $package_name: OK"
+                ;;
+            *"NOT_INSTALLED"*)
+                log_info "  $package_name: not installed"
+                ;;
+            *"SIGNAL"*|*"CRASH"*)
+                log_warning "  $package_name: CRASH DETECTED - possible ABI/architecture issue"
+                ((issues++))
+                ;;
+            *"ERROR"*)
+                log_warning "  $package_name: ${test_result#*ERROR: }"
+                ((issues++))
+                ;;
+        esac
+    done
+    
+    if [ $issues -gt 0 ]; then
+        log_warning "Native extension issues detected: $issues"
+        log_warning "Consider reinstalling affected packages with: pip install --force-reinstall <package>"
+        return 1
+    fi
+    
+    log_success "Native extensions validated"
+    return 0
+}
+
+# Check for environment variable corruption
+# Prevents: Library loading failures, path issues (cause #3)
+validate_environment_variables() {
+    log_info "Validating environment variables..."
+    
+    local issues=0
+    
+    # Check DYLD_LIBRARY_PATH on macOS (can cause issues)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        if [ -n "${DYLD_LIBRARY_PATH:-}" ]; then
+            log_warning "DYLD_LIBRARY_PATH is set: $DYLD_LIBRARY_PATH"
+            log_warning "  This can cause library loading issues on macOS"
+            ((issues++))
+        fi
+        
+        if [ -n "${DYLD_INSERT_LIBRARIES:-}" ]; then
+            log_warning "DYLD_INSERT_LIBRARIES is set"
+            log_warning "  This can cause unexpected behavior"
+            ((issues++))
+        fi
+    fi
+    
+    # Check LD_LIBRARY_PATH on Linux
+    if [[ "$OSTYPE" == "linux"* ]]; then
+        if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+            log_info "  LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+            # Just informational, not necessarily an issue
+        fi
+        
+        if [ -n "${LD_PRELOAD:-}" ]; then
+            log_warning "LD_PRELOAD is set: $LD_PRELOAD"
+            ((issues++))
+        fi
+    fi
+    
+    # Check for PATH issues
+    if ! echo "$PATH" | grep -q '/usr/bin'; then
+        log_warning "PATH does not include /usr/bin"
+        ((issues++))
+    fi
+    
+    # Check PYTHONPATH for potential conflicts
+    if [ -n "${PYTHONPATH:-}" ]; then
+        log_info "  PYTHONPATH is set: $PYTHONPATH"
+        # Check for potential conflicts
+        if echo "$PYTHONPATH" | grep -qE "x86_64|i386" && [[ "$(uname -m)" == "arm64" ]]; then
+            log_warning "PYTHONPATH may contain x86_64 paths on ARM64 system"
+            ((issues++))
+        fi
+    fi
+    
+    if [ $issues -gt 0 ]; then
+        log_warning "Environment variable issues detected: $issues"
+        return 1
+    fi
+    
+    log_success "Environment variables validated"
+    return 0
+}
+
+# Master segfault prevention check
+# Runs all validation checks
+run_segfault_prevention_checks() {
+    log_info ""
+    log_info "═══════════════════════════════════════════════════════════════"
+    log_info "  SEGFAULT PREVENTION CHECKS"
+    log_info "═══════════════════════════════════════════════════════════════"
+    
+    local total_issues=0
+    
+    validate_architecture_consistency || ((total_issues++))
+    validate_resource_limits || ((total_issues++))
+    validate_environment_variables || ((total_issues++))
+    validate_python_environment || ((total_issues++))
+    validate_native_extensions || ((total_issues++))
+    
+    log_info ""
+    if [ $total_issues -gt 0 ]; then
+        log_warning "Segfault prevention checks: $total_issues potential issue(s) found"
+        log_warning "The script will continue but may encounter crashes"
+    else
+        log_success "All segfault prevention checks passed"
+    fi
+    
+    return $total_issues
+}
+
 # Validate API key formats
 validate_api_key_formats() {
     log_info "Validating API key formats..."
@@ -43972,6 +44343,9 @@ main() {
     check_disk_space
     validate_network_connectivity
     check_dns_resolver
+    
+    # NEW: Segfault prevention checks (architecture, resources, Python environment)
+    run_segfault_prevention_checks || true
     
     # Check dependencies
     check_dependencies
