@@ -44201,17 +44201,20 @@ def main():
     makes it executable, and runs it with subprocess,
     passing through all command-line arguments.
     """
-    # Create a temporary file to hold the bash script
-    with tempfile.NamedTemporaryFile(
-        mode='w',
-        suffix='.sh',
-        delete=False,
-        prefix='qr_scanner_'
-    ) as temp_script:
-        temp_script.write(BASH_SCRIPT_CONTENT)
-        temp_script_path = temp_script.name
+    temp_script_path = None
+    return_code = 1
     
     try:
+        # Create a temporary file to hold the bash script
+        with tempfile.NamedTemporaryFile(
+            mode='w',
+            suffix='.sh',
+            delete=False,
+            prefix='qr_scanner_'
+        ) as temp_script:
+            temp_script.write(BASH_SCRIPT_CONTENT)
+            temp_script_path = temp_script.name
+        
         # Make the temporary script executable
         os.chmod(temp_script_path, 0o755)
         
@@ -44226,15 +44229,26 @@ def main():
             stderr=sys.stderr
         )
         
-        # Exit with the same code as the bash script
-        sys.exit(result.returncode)
+        return_code = result.returncode
         
     finally:
         # Clean up the temporary file
-        try:
-            os.unlink(temp_script_path)
-        except OSError:
-            pass
+        if temp_script_path is not None:
+            try:
+                os.unlink(temp_script_path)
+            except FileNotFoundError:
+                # File already removed, no action needed
+                pass
+            except PermissionError as e:
+                # Permission error - log warning but don't fail
+                print(f"Warning: Could not remove temporary script file: {e}",
+                      file=sys.stderr)
+            except OSError as e:
+                # Other OS error - log warning
+                print(f"Warning: Error removing temporary script file: {e}",
+                      file=sys.stderr)
+    
+    sys.exit(return_code)
 
 
 if __name__ == '__main__':
