@@ -3315,8 +3315,11 @@ get_connections_ss() {
 get_external_connections() {
     local connections
     
-    # Try ss first, fall back to netstat
-    if command -v ss &>/dev/null; then
+    # On macOS, netstat output format is different - use lsof for better results
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # Use lsof to get all network connections on macOS
+        connections=$(lsof -i -n -P 2>/dev/null | grep -E "ESTABLISHED|UDP" | grep -v "localhost")
+    elif command -v ss &>/dev/null; then
         connections=$(get_connections_ss "established")
     else
         connections=$(get_connections_netstat "established")
@@ -3324,7 +3327,7 @@ get_external_connections() {
     
     # Filter to external IPs only
     echo "$connections" | while read -r line; do
-        # Extract remote IP
+        # Extract remote IP - handle both netstat and lsof formats
         local remote_ip
         remote_ip=$(echo "$line" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
         
@@ -3332,6 +3335,38 @@ get_external_connections() {
             echo "$line"
         fi
     done
+}
+
+# Get ALL connections including from packet capture
+get_all_live_connections() {
+    local interface="${1:-any}"
+    local duration="${2:-1}"
+    
+    # Capture packets briefly to detect connections
+    local temp_output="/tmp/extipmon_capture_$$"
+    
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS tcpdump
+        sudo tcpdump -i "$interface" -n -c 500 -q 2>/dev/null | \
+            grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | \
+            sort -u > "$temp_output" &
+    else
+        # Linux tcpdump
+        sudo tcpdump -i "$interface" -n -c 500 -q 2>/dev/null | \
+            grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | \
+            sort -u > "$temp_output" &
+    fi
+    
+    local tcpdump_pid=$!
+    sleep "$duration"
+    kill "$tcpdump_pid" 2>/dev/null
+    wait "$tcpdump_pid" 2>/dev/null
+    
+    # Read captured IPs
+    if [[ -f "$temp_output" ]]; then
+        cat "$temp_output"
+        rm -f "$temp_output"
+    fi
 }
 
 # ==============================================================================
@@ -3343,11 +3378,17 @@ get_network_interfaces() {
     local active_only="${1:-1}"
     
     if [[ "$(uname)" == "Darwin" ]]; then
-        # macOS
+        # macOS - use ifconfig -l to list all interfaces
         if [[ $active_only -eq 1 ]]; then
-            networksetup -listallhardwareports 2>/dev/null | grep "Device:" | awk '{print $2}'
+            # Get active interfaces (those with inet addresses)
+            for iface in $(ifconfig -l 2>/dev/null); do
+                if ifconfig "$iface" 2>/dev/null | grep -q "inet "; then
+                    echo "$iface"
+                fi
+            done
         else
-            ifconfig -l 2>/dev/null
+            # List all interfaces
+            ifconfig -l 2>/dev/null | tr ' ' '\n'
         fi
     else
         # Linux
@@ -3356,6 +3397,40 @@ get_network_interfaces() {
         else
             ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | cut -d'@' -f1
         fi
+    fi
+}
+
+# List and display available interfaces
+list_interfaces() {
+    echo -e "${CLR256_CYAN}[*] Available network interfaces:${NC}"
+    
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS
+        for iface in $(ifconfig -l 2>/dev/null); do
+            local ip_addr
+            ip_addr=$(ifconfig "$iface" 2>/dev/null | grep "inet " | awk '{print $2}' | head -1)
+            if [[ -n "$ip_addr" ]]; then
+                echo -e "    ${CLR256_GREEN}${ICON_CONNECTED}${NC} $iface ($ip_addr)"
+            else
+                echo -e "    ${CLR256_GRAY_12}${ICON_DISCONNECTED}${NC} $iface"
+            fi
+        done
+    else
+        # Linux
+        ip -o link show 2>/dev/null | while read -r line; do
+            local iface
+            iface=$(echo "$line" | awk -F': ' '{print $2}' | cut -d'@' -f1)
+            local state
+            state=$(echo "$line" | grep -o "state [A-Z]*" | awk '{print $2}')
+            local ip_addr
+            ip_addr=$(ip -4 addr show "$iface" 2>/dev/null | grep "inet " | awk '{print $2}' | head -1)
+            
+            if [[ "$state" == "UP" ]] && [[ -n "$ip_addr" ]]; then
+                echo -e "    ${CLR256_GREEN}${ICON_CONNECTED}${NC} $iface ($ip_addr)"
+            else
+                echo -e "    ${CLR256_GRAY_12}${ICON_DISCONNECTED}${NC} $iface"
+            fi
+        done
     fi
 }
 
@@ -3807,6 +3882,12 @@ cleanup() {
     echo -e "    ├── Events: ${CLR256_WHITE}${EXTIPMON_EVENT_LOG}${NC}"
     echo -e "    └── Connections: ${CLR256_WHITE}${EXTIPMON_CONNECTION_LOG}${NC}"
     echo -e "${COLOR_SUCCESS}[✓] ExtIPMon System Halted.${NC}"
+    
+    # Clean up FIFO
+    rm -f "/tmp/extipmon_fifo_$$" 2>/dev/null
+    rm -f /tmp/extipmon_fifo_* 2>/dev/null
+    rm -f /tmp/extipmon_capture_* 2>/dev/null
+    
     exit 0
 }
 
@@ -3905,8 +3986,28 @@ run_monitor() {
     # Initialize connection tracking
     init_connection_tracking
     
-    # Start packet capture
-    start_packet_capture
+    # List available interfaces
+    echo ""
+    list_interfaces
+    echo ""
+    
+    # Determine interface to use
+    local capture_interface="${EXTIPMON_INTERFACE:-any}"
+    if [[ "$capture_interface" == "any" ]]; then
+        # Try to get primary interface
+        local primary
+        primary=$(get_primary_interface)
+        if [[ -n "$primary" ]]; then
+            print_info "Primary interface detected: $primary"
+        fi
+    fi
+    
+    print_info "Monitoring interface: $capture_interface"
+    print_info "Starting live packet capture..."
+    echo ""
+    
+    # Start packet capture in background
+    start_packet_capture "$capture_interface"
     
     # Hide cursor for cleaner display
     hide_cursor
@@ -3914,7 +4015,51 @@ run_monitor() {
     # Set terminal title
     set_terminal_title "ExtIPMon - External IP Monitor"
     
-    # Main loop
+    # Start tcpdump and parse output in real-time
+    local tcpdump_fifo="/tmp/extipmon_fifo_$$"
+    mkfifo "$tcpdump_fifo" 2>/dev/null
+    
+    # Start tcpdump and redirect to FIFO
+    (
+        sudo tcpdump -i "$capture_interface" -n -l -q 2>/dev/null | while read -r line; do
+            echo "$line"
+        done
+    ) > "$tcpdump_fifo" &
+    local tcpdump_reader_pid=$!
+    
+    # Process tcpdump output in background
+    (
+        while read -r line; do
+            # Extract IPs from tcpdump output
+            local src_ip dst_ip
+            src_ip=$(echo "$line" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+            dst_ip=$(echo "$line" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
+            
+            # Extract ports
+            local src_port dst_port
+            src_port=$(echo "$line" | grep -oE '\.[0-9]+:' | head -1 | tr -d '.:' | tail -c 6)
+            dst_port=$(echo "$line" | grep -oE '\.[0-9]+:' | tail -1 | tr -d '.:' | tail -c 6)
+            
+            # Determine protocol
+            local protocol="TCP"
+            if echo "$line" | grep -qi "UDP"; then
+                protocol="UDP"
+            elif echo "$line" | grep -qi "ICMP"; then
+                protocol="ICMP"
+            fi
+            
+            # Process external IPs
+            if [[ -n "$src_ip" ]] && is_external_ip "$src_ip"; then
+                process_connection_event "UPDATE" "$src_ip" "${src_port:-0}" "$protocol" 0
+            fi
+            if [[ -n "$dst_ip" ]] && [[ "$dst_ip" != "$src_ip" ]] && is_external_ip "$dst_ip"; then
+                process_connection_event "UPDATE" "$dst_ip" "${dst_port:-0}" "$protocol" 0
+            fi
+        done < "$tcpdump_fifo"
+    ) &
+    local processor_pid=$!
+    
+    # Also monitor using lsof/netstat for established connections
     local last_refresh=0
     local refresh_interval=1  # Refresh every second
     
@@ -3922,7 +4067,7 @@ run_monitor() {
         local current_time
         current_time=$(date +%s)
         
-        # Get current connections
+        # Get current connections from system (netstat/lsof)
         local connections
         connections=$(get_external_connections)
         
