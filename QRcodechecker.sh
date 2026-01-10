@@ -9871,6 +9871,166 @@ init_yara_rules() {
 }
 
 ################################################################################
+# DECODER OUTPUT NORMALIZATION AND DEDUPLICATION
+################################################################################
+# These functions ensure:
+# 1. Each decoder output is cleaned (metadata stripped)
+# 2. Metadata doesn't pollute analysis
+# 3. Each unique decoded value is analyzed once
+# 4. No massive concatenated string with repetitive patterns
+################################################################################
+
+# Normalize decoder output by stripping common metadata patterns
+# This cleans decoder-specific prefixes, timestamps, debug info, etc.
+normalize_decoder_output() {
+    set +u
+    local raw_output="${1:-}"
+    set -u
+    
+    [[ -z "$raw_output" ]] && return
+    
+    local normalized="$raw_output"
+    
+    # Remove common decoder metadata prefixes (case-insensitive)
+    # ZBar format: "QR-Code:", "CODE-128:", "EAN-13:", etc.
+    normalized=$(echo "$normalized" | sed -E 's/^[A-Za-z0-9]+-[A-Za-z0-9]+:[[:space:]]*//')
+    
+    # Remove type indicators like "[QR]", "[Code128]", "[EAN13]"
+    normalized=$(echo "$normalized" | sed -E 's/^\[[A-Za-z0-9_-]+\][[:space:]]*//')
+    
+    # Remove common debug/info prefixes
+    normalized=$(echo "$normalized" | sed -E 's/^(Data|Result|Decoded|Content|Value):[[:space:]]*//i')
+    
+    # Remove timestamp prefixes like "[2024-01-01 12:00:00]" or "2024-01-01T12:00:00Z:"
+    normalized=$(echo "$normalized" | sed -E 's/^\[[0-9]{4}-[0-9]{2}-[0-9]{2}[T[:space:]][0-9:]+[^]]*\][[:space:]]*//')
+    normalized=$(echo "$normalized" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+[A-Z]*:[[:space:]]*//')
+    
+    # Remove position/coordinate metadata like "(x=10, y=20)"
+    normalized=$(echo "$normalized" | sed -E 's/\(x=[0-9]+,[[:space:]]*y=[0-9]+\)[[:space:]]*//')
+    
+    # Remove quality/confidence scores like "confidence: 0.99" or "[score: 100]"
+    normalized=$(echo "$normalized" | sed -E 's/\[(confidence|score|quality)[[:space:]]*:[[:space:]]*[0-9.]+\][[:space:]]*//gi')
+    normalized=$(echo "$normalized" | sed -E 's/(confidence|score|quality)[[:space:]]*:[[:space:]]*[0-9.]+[[:space:]]*//gi')
+    
+    # Remove barcode type suffixes like " (QR_CODE)" or " [QRCODE]"
+    normalized=$(echo "$normalized" | sed -E 's/[[:space:]]*\((QR_?CODE|CODE[_-]?128|EAN[_-]?13|UPC[_-]?A|AZTEC|PDF417|DATAMATRIX)[^)]*\)$//i')
+    normalized=$(echo "$normalized" | sed -E 's/[[:space:]]*\[(QR_?CODE|CODE[_-]?128|EAN[_-]?13|UPC[_-]?A|AZTEC|PDF417|DATAMATRIX)[^]]*\]$//i')
+    
+    # Strip leading/trailing whitespace
+    normalized=$(echo "$normalized" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    
+    # Remove null bytes and normalize line endings
+    normalized=$(echo "$normalized" | tr -d '\0' | tr '\r' '\n')
+    
+    echo "$normalized"
+}
+
+# Deduplicate decoded values from multiple decoders
+# Returns unique decoded values (one per line)
+deduplicate_decoded_values() {
+    set +u
+    local combined_output="${1:-}"
+    set -u
+    
+    [[ -z "$combined_output" ]] && return
+    
+    local temp_dedup
+    temp_dedup=$(create_secure_temp_file "dedup") || return
+    
+    # Write combined output to temp file
+    echo "$combined_output" > "$temp_dedup"
+    
+    # Process each line: normalize then deduplicate
+    local normalized_file
+    normalized_file=$(create_secure_temp_file "normalized") || { rm -f "$temp_dedup"; return; }
+    
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip empty lines
+        [[ -z "$line" ]] && continue
+        
+        # Normalize this line
+        local norm_line
+        norm_line=$(normalize_decoder_output "$line")
+        
+        # Skip if normalization results in empty
+        [[ -z "$norm_line" ]] && continue
+        
+        echo "$norm_line"
+    done < "$temp_dedup" | sort -u > "$normalized_file"
+    
+    # Output unique values
+    cat "$normalized_file"
+    
+    # Cleanup
+    rm -f "$temp_dedup" "$normalized_file" 2>/dev/null
+}
+
+# Process decoder results for analysis
+# Takes raw decoder output, returns array of unique normalized values
+# Usage: mapfile -t unique_values < <(get_unique_decoded_values "$all_decoded")
+get_unique_decoded_values() {
+    set +u
+    local raw_combined="${1:-}"
+    set -u
+    
+    [[ -z "$raw_combined" ]] && return
+    
+    # Deduplicate and return unique values
+    deduplicate_decoded_values "$raw_combined"
+}
+
+# Analyze each unique decoded value separately
+# This ensures each unique payload is analyzed once without metadata pollution
+analyze_unique_decoded_values() {
+    set +u
+    local raw_combined="${1:-}"
+    local report_file="${2:-}"
+    set -u
+    
+    [[ -z "$raw_combined" ]] && return
+    
+    log_info "Processing decoder outputs for unique values..."
+    
+    # Get unique normalized values
+    local unique_count=0
+    local unique_values_file
+    unique_values_file=$(create_secure_temp_file "unique_vals") || return
+    
+    get_unique_decoded_values "$raw_combined" > "$unique_values_file"
+    unique_count=$(wc -l < "$unique_values_file" 2>/dev/null | tr -d ' ')
+    
+    if [[ "$unique_count" -eq 0 ]]; then
+        log_warning "No unique decoded values found after normalization"
+        rm -f "$unique_values_file" 2>/dev/null
+        return 1
+    fi
+    
+    log_info "Found $unique_count unique decoded value(s) after normalization/deduplication"
+    
+    # Analyze each unique value
+    local value_index=0
+    while IFS= read -r decoded_value || [[ -n "$decoded_value" ]]; do
+        [[ -z "$decoded_value" ]] && continue
+        ((value_index++))
+        
+        if [[ "$unique_count" -gt 1 ]]; then
+            log_info "Analyzing unique value $value_index of $unique_count..."
+            echo "" >> "$report_file"
+            echo "═══════════════════════════════════════════════" >> "$report_file"
+            echo "UNIQUE DECODED VALUE #${value_index}" >> "$report_file"
+            echo "═══════════════════════════════════════════════" >> "$report_file"
+        fi
+        
+        # Call the main content analysis for this unique value
+        analyze_decoded_qr_content "$decoded_value" "$report_file"
+        
+    done < "$unique_values_file"
+    
+    rm -f "$unique_values_file" 2>/dev/null
+    return 0
+}
+
+################################################################################
 # MULTI-DECODER SYSTEM WITH ENHANCED CAPABILITIES
 ################################################################################
 #
@@ -16402,8 +16562,21 @@ EOF
         done
     fi
 
-    # Merge and output
-    echo "$all_decoded" | sort -u > "${base_output}_merged.txt" 2>/dev/null
+    # Merge and output - normalize each line and deduplicate
+    # This ensures:
+    # 1. Each decoder output is cleaned (metadata stripped)
+    # 2. Metadata doesn't pollute analysis
+    # 3. Each unique decoded value is analyzed once
+    # 4. No massive concatenated string with repetitive patterns
+    log_info "Normalizing and deduplicating decoder outputs..."
+    local unique_values
+    unique_values=$(get_unique_decoded_values "$all_decoded")
+    local unique_count
+    unique_count=$(echo "$unique_values" | grep -c . 2>/dev/null || echo 0)
+    log_info "Reduced to $unique_count unique decoded value(s) after normalization"
+    
+    # Write unique normalized values to merged file
+    echo "$unique_values" > "${base_output}_merged.txt" 2>/dev/null
 
     # Return 0 if any decoder succeeded
     [ $success_count -gt 0 ]
@@ -16612,23 +16785,33 @@ multi_decoder_analysis_parallel() {
     fi
     
     # Aggregate results using memory-mapped I/O (400GB available)
+    # Normalize and deduplicate decoder outputs
     if [[ -f "$aggregate_output" ]] && [[ -s "$aggregate_output" ]]; then
         local agg_size=$(wc -c < "$aggregate_output" 2>/dev/null || echo 0)
-        if [ "$agg_size" -gt 100000000 ]; then
-            # Large aggregate (>100MB) - use streaming sort with mmap
-            log_info "Large aggregate output (${agg_size} bytes) - using memory-mapped streaming sort"
-            # sort uses mmap internally for large files - let it handle memory management
-            LC_ALL=C sort -u -S 10G "$aggregate_output" > "${base_output}_merged.txt"
-        else
-            # Standard sort for smaller files
-            sort -u "$aggregate_output" > "${base_output}_merged.txt"
-        fi
-        # For all_decoded, reference file instead of loading into variable for large files
+        log_info "Normalizing and deduplicating ${agg_size} bytes of decoder output..."
+        
+        # Load raw output for normalization
+        local raw_output
         if [ "$agg_size" -gt 10485760 ]; then
+            # For large files, process streaming
+            log_info "Large aggregate output - using streaming normalization"
+            # Normalize each line and deduplicate
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                [[ -z "$line" ]] && continue
+                normalize_decoder_output "$line"
+            done < "$aggregate_output" | sort -u > "${base_output}_merged.txt"
             all_decoded="<large_output:${agg_size}_bytes:see_${base_output}_merged.txt>"
         else
-            all_decoded=$(cat "$aggregate_output")
+            raw_output=$(cat "$aggregate_output")
+            local unique_values
+            unique_values=$(get_unique_decoded_values "$raw_output")
+            echo "$unique_values" > "${base_output}_merged.txt"
+            all_decoded="$unique_values"
         fi
+        
+        local unique_count
+        unique_count=$(wc -l < "${base_output}_merged.txt" 2>/dev/null | tr -d ' ')
+        log_info "Reduced to $unique_count unique decoded value(s) after normalization"
     fi
     
     # AUDIT FIX: Load all decoder results without artificial limits (400GB available)
@@ -24634,37 +24817,77 @@ analyze_qr_image() {
     mkdir -p "$(dirname "$decode_output")"
     
     if multi_decoder_analysis "$image" "$decode_output"; then
-        # Read and clean decoded content - remove null bytes, newlines, and trim whitespace
-        local merged_content=$(cat "${decode_output}_merged.txt" 2>/dev/null | tr -d '\0\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        CURRENT_DECODED_CONTENT="$merged_content"
+        # The merged file now contains normalized, deduplicated values (one per line)
+        # Read each unique decoded value separately for analysis
+        local merged_file="${decode_output}_merged.txt"
         
-        if [ -n "$merged_content" ]; then
-            log_success "QR code decoded successfully"
+        if [[ -f "$merged_file" ]] && [[ -s "$merged_file" ]]; then
+            # Count unique values
+            local unique_count
+            unique_count=$(wc -l < "$merged_file" 2>/dev/null | tr -d ' ')
             
-            # AUDIT: Check content length and truncate if needed
-            local content_length=${#merged_content}
-            if [[ $content_length -gt 65536 ]]; then
-                log_warning "Decoded content exceeds maximum length ($content_length chars) - truncating for analysis"
-                merged_content="${merged_content:0:65536}"
-            fi
+            log_success "QR code decoded successfully: $unique_count unique value(s) found"
             
-            log_info "Content preview: ${merged_content:0:200}..."
+            # Store first value for backward compatibility
+            local first_value
+            first_value=$(head -1 "$merged_file" 2>/dev/null | tr -d '\0\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            CURRENT_DECODED_CONTENT="$first_value"
             
             {
                 echo "QR CODE CONTENT:"
                 echo "─────────────────"
-                echo "$merged_content"
+                echo "Unique decoded values: $unique_count"
                 echo ""
             } >> "$image_report"
             
-            # AUDIT: Check against additional IOC databases
-            check_against_additional_iocs "$merged_content" "decoded_qr_content"
-            
-            # Analyze the decoded content
-            analyze_decoded_qr_content "$merged_content" "$image_report"
+            # Analyze each unique decoded value separately
+            # This ensures:
+            # 1. Each decoder output is cleaned (metadata stripped) - done by normalization
+            # 2. Metadata doesn't pollute analysis
+            # 3. Each unique decoded value is analyzed once
+            # 4. No massive concatenated string with repetitive patterns
+            local value_index=0
+            while IFS= read -r decoded_value || [[ -n "$decoded_value" ]]; do
+                [[ -z "$decoded_value" ]] && continue
+                ((value_index++))
+                
+                # AUDIT: Check content length and truncate if needed
+                local content_length=${#decoded_value}
+                if [[ $content_length -gt 65536 ]]; then
+                    log_warning "Decoded value #$value_index exceeds maximum length ($content_length chars) - truncating"
+                    decoded_value="${decoded_value:0:65536}"
+                fi
+                
+                if [[ "$unique_count" -gt 1 ]]; then
+                    log_info "Analyzing unique decoded value $value_index of $unique_count..."
+                    {
+                        echo ""
+                        echo "═══════════════════════════════════════════════"
+                        echo "UNIQUE DECODED VALUE #${value_index}"
+                        echo "═══════════════════════════════════════════════"
+                        echo "Content: ${decoded_value:0:200}$([ ${#decoded_value} -gt 200 ] && echo '...')"
+                        echo ""
+                    } >> "$image_report"
+                else
+                    log_info "Content preview: ${decoded_value:0:200}..."
+                    {
+                        echo "Content: $decoded_value"
+                        echo ""
+                    } >> "$image_report"
+                fi
+                
+                # AUDIT: Check against additional IOC databases for this value
+                check_against_additional_iocs "$decoded_value" "decoded_qr_content"
+                
+                # Analyze this specific decoded content
+                analyze_decoded_qr_content "$decoded_value" "$image_report"
+                
+            done < "$merged_file"
             
             # AUDIT: Record content analysis in chain of custody
-            record_custody_action "CONTENT_DECODED" "QR content decoded and analyzed" "$image" "$file_hash_sha256"
+            record_custody_action "CONTENT_DECODED" "QR content decoded: $unique_count unique value(s) analyzed" "$image" "$file_hash_sha256"
+        else
+            log_warning "Merged file not found or empty after decoding"
         fi
     else
         log_warning "Failed to decode QR code from image"
