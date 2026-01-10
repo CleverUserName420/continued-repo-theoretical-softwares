@@ -125,6 +125,9 @@ cleanup_handler() {
         find "$TEMP_DIR" -type f -name "*.tmp" -delete 2>/dev/null || true
         find "$TEMP_DIR" -type f -name "*.key" -delete 2>/dev/null || true
     fi
+    
+    # Clean mmap temp directory
+    cleanup_mmap_temp
 }
 
 # Set up trap handlers
@@ -538,6 +541,276 @@ create_secure_temp_dir() {
     echo "$temp_dir"
 }
 
+################################################################################
+# MMAP/VIRTUAL MEMORY BACKED TEMP FILE SYSTEM
+# Ensures all temp files use virtual memory for efficient large-scale processing
+################################################################################
+
+# Global mmap temp directory - uses tmpfs/ramfs when available
+MMAP_TEMP_DIR=""
+MMAP_AVAILABLE=false
+
+# Initialize mmap-backed temp directory
+# Uses tmpfs on Linux, RAM disk on macOS if available, falls back to /tmp
+init_mmap_temp_system() {
+    log_info "Initializing mmap-backed temp file system..."
+    
+    local mmap_base=""
+    
+    # Check for tmpfs (Linux) - memory-backed filesystem
+    if [[ "$OSTYPE" == "linux"* ]]; then
+        # Prefer /dev/shm (POSIX shared memory) as it's always tmpfs
+        if [[ -d "/dev/shm" ]] && [[ -w "/dev/shm" ]]; then
+            mmap_base="/dev/shm"
+            log_info "  Using /dev/shm (POSIX shared memory - tmpfs backed)"
+        # Check /run/user/$UID (systemd user runtime)
+        elif [[ -d "/run/user/$(id -u)" ]] && [[ -w "/run/user/$(id -u)" ]]; then
+            mmap_base="/run/user/$(id -u)"
+            log_info "  Using /run/user/$(id -u) (systemd user runtime - tmpfs backed)"
+        # Check if /tmp is tmpfs
+        elif mount 2>/dev/null | grep -q "^tmpfs on /tmp"; then
+            mmap_base="/tmp"
+            log_info "  Using /tmp (tmpfs backed)"
+        fi
+    # macOS - check for RAM disk
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # Check if a RAM disk exists at common mount points
+        if [[ -d "/Volumes/RAMDisk" ]] && [[ -w "/Volumes/RAMDisk" ]]; then
+            mmap_base="/Volumes/RAMDisk"
+            log_info "  Using /Volumes/RAMDisk (RAM disk)"
+        # Use /tmp which is often backed by APFS with compression
+        else
+            mmap_base="/tmp"
+            log_info "  Using /tmp (APFS with compression - efficient virtual memory)"
+        fi
+    fi
+    
+    # Fallback to regular /tmp but leverage OS virtual memory
+    if [[ -z "$mmap_base" ]]; then
+        mmap_base="/tmp"
+        log_info "  Using /tmp with OS virtual memory management"
+    fi
+    
+    # Create our mmap temp directory
+    MMAP_TEMP_DIR="${mmap_base}/qr_mmap_${TIMESTAMP}_$$"
+    if mkdir -p "$MMAP_TEMP_DIR" 2>/dev/null && chmod 700 "$MMAP_TEMP_DIR" 2>/dev/null; then
+        MMAP_AVAILABLE=true
+        register_temp_file "$MMAP_TEMP_DIR"
+        log_success "  mmap temp directory: $MMAP_TEMP_DIR"
+    else
+        # Fallback to TEMP_DIR
+        MMAP_TEMP_DIR="${TEMP_DIR:-/tmp}/mmap_$$"
+        mkdir -p "$MMAP_TEMP_DIR" 2>/dev/null || true
+        chmod 700 "$MMAP_TEMP_DIR" 2>/dev/null || true
+        log_warning "  Fallback mmap directory: $MMAP_TEMP_DIR"
+    fi
+    
+    # Set environment hint for Python to use mmap
+    export QR_MMAP_TEMP="$MMAP_TEMP_DIR"
+    
+    return 0
+}
+
+# Create mmap-backed temp file
+# These files are backed by virtual memory and efficiently handle large data
+create_mmap_temp_file() {
+    set +u
+    local prefix="${1:-qr_mmap}"
+    local size_hint="${2:-0}"  # Optional size hint in bytes for pre-allocation
+    set -u
+    
+    local mmap_file
+    
+    # Use mmap directory if available
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "$MMAP_TEMP_DIR" ]]; then
+        mmap_file=$(mktemp "${MMAP_TEMP_DIR}/${prefix}.XXXXXXXXXX" 2>/dev/null)
+    else
+        # Fallback to regular temp with explicit mmap hint
+        mmap_file=$(mktemp "${TEMP_DIR:-/tmp}/${prefix}.XXXXXXXXXX" 2>/dev/null)
+    fi
+    
+    if [[ -z "$mmap_file" ]]; then
+        return 1
+    fi
+    
+    chmod 600 "$mmap_file" 2>/dev/null || true
+    
+    # Pre-allocate file if size hint provided (enables efficient mmap)
+    if [[ "$size_hint" -gt 0 ]] 2>/dev/null; then
+        # Use fallocate if available (Linux) or dd (portable)
+        if command -v fallocate &>/dev/null; then
+            fallocate -l "$size_hint" "$mmap_file" 2>/dev/null || true
+        elif command -v dd &>/dev/null; then
+            dd if=/dev/zero of="$mmap_file" bs=1 count=0 seek="$size_hint" 2>/dev/null || true
+        fi
+    fi
+    
+    register_temp_file "$mmap_file"
+    echo "$mmap_file"
+}
+
+# Create mmap-backed temp directory for decoder results
+create_mmap_decoder_dir() {
+    local decoder_name="${1:-decoder}"
+    local decoder_dir
+    
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "$MMAP_TEMP_DIR" ]]; then
+        decoder_dir="${MMAP_TEMP_DIR}/decoder_${decoder_name}_$$"
+    else
+        decoder_dir="${TEMP_DIR:-/tmp}/decoder_${decoder_name}_$$"
+    fi
+    
+    mkdir -p "$decoder_dir" 2>/dev/null || true
+    chmod 700 "$decoder_dir" 2>/dev/null || true
+    echo "$decoder_dir"
+}
+
+# Get streamlined temp path for a specific purpose
+# Usage: get_temp_path "purpose" -> returns path in mmap-backed directory
+get_mmap_temp_path() {
+    set +u
+    local purpose="${1:-temp}"
+    local extension="${2:-.tmp}"
+    set -u
+    
+    local safe_purpose
+    safe_purpose=$(echo "$purpose" | tr -cd 'a-zA-Z0-9_-')
+    
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "$MMAP_TEMP_DIR" ]]; then
+        echo "${MMAP_TEMP_DIR}/${safe_purpose}_$$${extension}"
+    else
+        echo "${TEMP_DIR:-/tmp}/${safe_purpose}_$$${extension}"
+    fi
+}
+
+# Streamlined temp file paths for common operations
+# These are all mmap-backed when available
+declare -A MMAP_PATHS
+init_mmap_paths() {
+    # Initialize common mmap-backed paths
+    MMAP_PATHS["decoder_results"]="$(get_mmap_temp_path 'decoder_results' '.txt')"
+    MMAP_PATHS["threat_intel"]="$(get_mmap_temp_path 'threat_intel' '.json')"
+    MMAP_PATHS["yara_scan"]="$(get_mmap_temp_path 'yara_scan' '.txt')"
+    MMAP_PATHS["image_processing"]="$(get_mmap_temp_path 'image_proc' '.bin')"
+    MMAP_PATHS["stego_analysis"]="$(get_mmap_temp_path 'stego' '.dat')"
+    MMAP_PATHS["entropy_data"]="$(get_mmap_temp_path 'entropy' '.dat')"
+    MMAP_PATHS["hash_cache"]="$(get_mmap_temp_path 'hash_cache' '.txt')"
+    MMAP_PATHS["api_cache"]="$(get_mmap_temp_path 'api_cache' '.json')"
+    
+    log_info "  Initialized ${#MMAP_PATHS[@]} streamlined mmap temp paths"
+}
+
+# Get a streamlined mmap path by name
+get_mmap_path() {
+    local name="$1"
+    if [[ -v "MMAP_PATHS[$name]" ]]; then
+        echo "${MMAP_PATHS[$name]}"
+    else
+        get_mmap_temp_path "$name" ".tmp"
+    fi
+}
+
+# Read file using mmap (via Python for large files)
+# Automatically uses mmap for files > 10MB
+mmap_read_file() {
+    set +u
+    local file_path="$1"
+    local max_bytes="${2:-0}"  # 0 = read all
+    set -u
+    
+    if [[ ! -f "$file_path" ]]; then
+        return 1
+    fi
+    
+    local file_size
+    file_size=$(stat -f%z "$file_path" 2>/dev/null || stat -c%s "$file_path" 2>/dev/null || echo 0)
+    
+    # Use mmap for files > 10MB
+    if [[ "$file_size" -gt $((10 * 1024 * 1024)) ]] && command -v python3 &>/dev/null; then
+        python3 -c "
+import mmap
+import sys
+import os
+
+file_path = '$file_path'
+max_bytes = $max_bytes
+
+try:
+    with open(file_path, 'rb') as f:
+        # Memory-map the file
+        mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        if max_bytes > 0:
+            data = mm.read(max_bytes)
+        else:
+            data = mm.read()
+        mm.close()
+        # Output as text (decode if possible)
+        try:
+            sys.stdout.write(data.decode('utf-8', errors='replace'))
+        except:
+            sys.stdout.buffer.write(data)
+except Exception as e:
+    sys.exit(1)
+" 2>/dev/null
+    else
+        # Small file - use cat
+        if [[ "$max_bytes" -gt 0 ]]; then
+            head -c "$max_bytes" "$file_path"
+        else
+            cat "$file_path"
+        fi
+    fi
+}
+
+# Write data using mmap (efficient for large writes)
+mmap_write_file() {
+    set +u
+    local file_path="$1"
+    local data="$2"
+    set -u
+    
+    local data_size=${#data}
+    
+    # Use mmap for data > 1MB
+    if [[ "$data_size" -gt $((1024 * 1024)) ]] && command -v python3 &>/dev/null; then
+        python3 -c "
+import mmap
+import os
+import sys
+
+file_path = '$file_path'
+# Read data from stdin
+data = sys.stdin.buffer.read()
+
+try:
+    # Create/truncate file with proper size
+    with open(file_path, 'wb') as f:
+        f.write(b'\\x00' * len(data))
+    
+    # Memory-map and write
+    with open(file_path, 'r+b') as f:
+        mm = mmap.mmap(f.fileno(), len(data), access=mmap.ACCESS_WRITE)
+        mm.write(data)
+        mm.flush()
+        mm.close()
+except Exception as e:
+    # Fallback to regular write
+    with open(file_path, 'wb') as f:
+        f.write(data)
+" <<< "$data" 2>/dev/null
+    else
+        # Small data - use echo
+        printf '%s' "$data" > "$file_path"
+    fi
+}
+
+# Cleanup mmap temp system
+cleanup_mmap_temp() {
+    if [[ -n "${MMAP_TEMP_DIR:-}" ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        rm -rf "$MMAP_TEMP_DIR" 2>/dev/null || true
+    fi
+}
+
 # AUDIT: Validate that output file path is safe for decoder functions
 # Allows paths in known temp directories (like /tmp/qr_analysis)
 validate_decoder_output_path() {
@@ -564,12 +837,15 @@ validate_decoder_output_path() {
         return 1
     fi
     
-    # Allow paths in safe temp directories
+    # Allow paths in safe temp directories (including mmap-backed paths)
     local safe_prefixes=(
         "/tmp/qr_analysis/"
         "${TEMP_DIR}/"
         "${OUTPUT_DIR}/"
         "/var/tmp/qr_"
+        "${MMAP_TEMP_DIR:-/tmp/qr_mmap}/"
+        "/dev/shm/qr_"
+        "/run/user/"
     )
     
     for prefix in "${safe_prefixes[@]}"; do
@@ -2001,6 +2277,10 @@ initialize() {
     # AUDIT: Load additional IOC databases
     load_additional_iocs
     
+    # Initialize mmap-backed temp file system for efficient processing
+    init_mmap_temp_system
+    init_mmap_paths
+    
     log_success "Initialization complete"
 }
 
@@ -2894,7 +3174,13 @@ parallel_decoder_analysis() {
         
         # Launch decoder in background
         (
-            local result_file="$TEMP_DIR/decoder_${decoder}_$$.txt"
+            # Use mmap-backed temp file for decoder results
+            local result_file
+            if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+                result_file="${MMAP_TEMP_DIR}/decoder_${decoder}_$$.txt"
+            else
+                result_file="$TEMP_DIR/decoder_${decoder}_$$.txt"
+            fi
             # Run decoder based on type
             # AUDIT FIX: Wrap decoders with crash protection
             case "$decoder" in
@@ -2944,8 +3230,14 @@ PYZBAR_DECODE
     log_success "Parallel decoder analysis complete: $decoder_count decoders"
     
     # Collect results
-    cat "$TEMP_DIR"/decoder_*_$$.txt 2>/dev/null | sort -u
-    rm -f "$TEMP_DIR"/decoder_*_$$.txt 2>/dev/null || true
+    # Collect results from mmap-backed temp directory
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        cat "${MMAP_TEMP_DIR}"/decoder_*_$$.txt 2>/dev/null | sort -u
+        rm -f "${MMAP_TEMP_DIR}"/decoder_*_$$.txt 2>/dev/null || true
+    else
+        cat "$TEMP_DIR"/decoder_*_$$.txt 2>/dev/null | sort -u
+        rm -f "$TEMP_DIR"/decoder_*_$$.txt 2>/dev/null || true
+    fi
     
     return 0
 }
@@ -2985,7 +3277,13 @@ parallel_threat_intel_check() {
             
             # Launch check in background
             (
-                local result_file="$TEMP_DIR/threat_${check_name}_$$.txt"
+                # Use mmap-backed temp file for threat intel results
+                local result_file
+                if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+                    result_file="${MMAP_TEMP_DIR}/threat_${check_name}_$$.txt"
+                else
+                    result_file="$TEMP_DIR/threat_${check_name}_$$.txt"
+                fi
                 # Placeholder for actual check
                 echo "checked:$check_name" > "$result_file" 2>/dev/null || true
             ) &
@@ -3000,8 +3298,12 @@ parallel_threat_intel_check() {
     
     log_success "Parallel threat intel checks complete: $check_count checks"
     
-    # Cleanup
-    rm -f "$TEMP_DIR"/threat_*_$$.txt 2>/dev/null || true
+    # Cleanup from mmap-backed or regular temp directory
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        rm -f "${MMAP_TEMP_DIR}"/threat_*_$$.txt 2>/dev/null || true
+    else
+        rm -f "$TEMP_DIR"/threat_*_$$.txt 2>/dev/null || true
+    fi
     
     return 0
 }
@@ -3014,7 +3316,13 @@ cache_threat_intel() {
     set -u
     local ttl_seconds="${3:-3600}"  # Default 1 hour
     
-    local cache_dir="${TEMP_DIR}/feed_cache"
+    # Use mmap-backed cache directory for efficient large feed handling
+    local cache_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        cache_dir="${MMAP_TEMP_DIR}/feed_cache"
+    else
+        cache_dir="${TEMP_DIR}/feed_cache"
+    fi
     mkdir -p "$cache_dir" 2>/dev/null || true
     
     local cache_file="${cache_dir}/${feed_name}.cache"
@@ -3063,7 +3371,14 @@ incremental_yara_scan() {
     
     # Generate content hash
     local content_hash=$(md5sum "$target_file" 2>/dev/null | cut -d' ' -f1 || echo "unknown")
-    local scan_cache="$TEMP_DIR/yara_scan_cache.txt"
+    
+    # Use mmap-backed cache for efficient large file scanning
+    local scan_cache
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        scan_cache="${MMAP_TEMP_DIR}/yara_scan_cache.txt"
+    else
+        scan_cache="$TEMP_DIR/yara_scan_cache.txt"
+    fi
     
     # Check if we've scanned this content before
     if [ -f "$scan_cache" ]; then
