@@ -32,6 +32,9 @@ brew install libdmtx dmtx-utils
 # Install other tools the script references
 brew install imagemagick tesseract qrencode
 
+# Install GNU parallel for resource-safe parallel execution (prevents fork exhaustion)
+brew install parallel
+
 and run the software with source ~/.venv/bin/activate
 Enter: source ~/.venv/bin/activate
 then
