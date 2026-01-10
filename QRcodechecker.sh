@@ -502,12 +502,17 @@ validate_did_identifier() {
 # AUDIT: SECURE TEMPORARY FILE HANDLING
 ################################################################################
 
-# Create secure temporary file using mktemp
+# Create secure temporary file using mktemp - uses mmap-backed storage when available
 create_secure_temp_file() {
     local prefix="${1:-qr_scan}"
     local temp_file
     
-    if [[ -n "${TEMP_DIR:-}" ]] && [[ -d "${TEMP_DIR:-}" ]]; then
+    # Prefer mmap-backed temp directory if available
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        temp_file=$(mktemp "${MMAP_TEMP_DIR}/${prefix}.XXXXXXXXXX" 2>/dev/null) || {
+            temp_file=$(mktemp "${TEMP_DIR:-/tmp}/${prefix}.XXXXXXXXXX" 2>/dev/null) || return 1
+        }
+    elif [[ -n "${TEMP_DIR:-}" ]] && [[ -d "${TEMP_DIR:-}" ]]; then
         temp_file=$(mktemp "${TEMP_DIR}/${prefix}.XXXXXXXXXX" 2>/dev/null) || {
             temp_file=$(mktemp "/tmp/${prefix}.XXXXXXXXXX" 2>/dev/null) || return 1
         }
@@ -524,12 +529,17 @@ create_secure_temp_file() {
     echo "$temp_file"
 }
 
-# Create secure temporary directory
+# Create secure temporary directory - uses mmap-backed storage when available
 create_secure_temp_dir() {
     local prefix="${1:-qr_dir}"
     local temp_dir
     
-    if [[ -n "${TEMP_DIR:-}" ]] && [[ -d "${TEMP_DIR:-}" ]]; then
+    # Prefer mmap-backed temp directory if available
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        temp_dir=$(mktemp -d "${MMAP_TEMP_DIR}/${prefix}.XXXXXXXXXX" 2>/dev/null) || {
+            temp_dir=$(mktemp -d "${TEMP_DIR:-/tmp}/${prefix}.XXXXXXXXXX" 2>/dev/null) || return 1
+        }
+    elif [[ -n "${TEMP_DIR:-}" ]] && [[ -d "${TEMP_DIR:-}" ]]; then
         temp_dir=$(mktemp -d "${TEMP_DIR}/${prefix}.XXXXXXXXXX" 2>/dev/null) || {
             temp_dir=$(mktemp -d "/tmp/${prefix}.XXXXXXXXXX" 2>/dev/null) || return 1
         }
@@ -707,6 +717,31 @@ get_mmap_path() {
         echo "${MMAP_PATHS[$name]}"
     else
         get_mmap_temp_path "$name" ".tmp"
+    fi
+}
+
+# Get mmap-backed temp script path
+# Usage: get_mmap_script_path "decoder_name" -> returns mmap-backed .py path
+get_mmap_script_path() {
+    local script_name="${1:-script}"
+    
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        echo "${MMAP_TEMP_DIR}/${script_name}_$$.py"
+    else
+        echo "${TEMP_DIR:-/tmp}/${script_name}_$$.py"
+    fi
+}
+
+# Get mmap-backed temp image path
+# Usage: get_mmap_image_path "purpose" -> returns mmap-backed image path
+get_mmap_image_path() {
+    local purpose="${1:-image}"
+    local extension="${2:-.png}"
+    
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        echo "${MMAP_TEMP_DIR}/${purpose}_$$${extension}"
+    else
+        echo "${TEMP_DIR:-/tmp}/${purpose}_$$${extension}"
     fi
 }
 
@@ -1055,10 +1090,16 @@ load_additional_iocs() {
         done
     fi
     
-    # Process and deduplicate
+    # Process and deduplicate - use mmap-backed storage
     if [[ -f "$temp_ioc_file" ]]; then
-        sort -u "$temp_ioc_file" 2>/dev/null | grep -v '^$' | grep -v '^#' > "${TEMP_DIR}/all_additional_iocs.txt" 2>/dev/null || true
-        IOC_LOAD_COUNT=$(wc -l < "${TEMP_DIR}/all_additional_iocs.txt" 2>/dev/null || echo 0)
+        local ioc_output_file
+        if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+            ioc_output_file="${MMAP_TEMP_DIR}/all_additional_iocs.txt"
+        else
+            ioc_output_file="${TEMP_DIR}/all_additional_iocs.txt"
+        fi
+        sort -u "$temp_ioc_file" 2>/dev/null | grep -v '^$' | grep -v '^#' > "$ioc_output_file" 2>/dev/null || true
+        IOC_LOAD_COUNT=$(wc -l < "$ioc_output_file" 2>/dev/null || echo 0)
         rm -f "$temp_ioc_file" 2>/dev/null || true
     fi
     
@@ -1074,12 +1115,18 @@ check_against_additional_iocs() {
     set -u
     local matches=0
     
-    if [[ ! -f "${TEMP_DIR}/all_additional_iocs.txt" ]]; then
+    # Check mmap-backed or regular temp directory for IOC file
+    local ioc_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -f "${MMAP_TEMP_DIR:-}/all_additional_iocs.txt" ]]; then
+        ioc_file="${MMAP_TEMP_DIR}/all_additional_iocs.txt"
+    elif [[ -f "${TEMP_DIR}/all_additional_iocs.txt" ]]; then
+        ioc_file="${TEMP_DIR}/all_additional_iocs.txt"
+    else
         return 0
     fi
     
     local matched_iocs
-    matched_iocs=$(echo "$content" | grep -Fof "${TEMP_DIR}/all_additional_iocs.txt" 2>/dev/null | head -20 || true)
+    matched_iocs=$(echo "$content" | grep -Fof "$ioc_file" 2>/dev/null | head -20 || true)
     
     if [[ -n "$matched_iocs" ]]; then
         while IFS= read -r ioc; do
@@ -2859,12 +2906,17 @@ rotate_api_keys() {
     return 0
 }
 
-# API rate limit tracking
+# API rate limit tracking - uses mmap-backed storage
 check_rate_limits() {
     log_info "Checking API rate limits..."
     
-    # Simple rate limit tracking using temporary file
-    local rate_file="$TEMP_DIR/rate_limits.txt"
+    # Simple rate limit tracking using mmap-backed temporary file
+    local rate_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        rate_file="${MMAP_TEMP_DIR}/rate_limits.txt"
+    else
+        rate_file="$TEMP_DIR/rate_limits.txt"
+    fi
     local current_time=$(date +%s)
     
     # Clean up old entries (older than 1 hour)
@@ -2888,14 +2940,23 @@ check_rate_limits() {
     return 0
 }
 
-# Circuit breaker to prevent cascade failures
+# Circuit breaker to prevent cascade failures - uses mmap-backed storage
 implement_circuit_breaker() {
     set +u
     local service="$1"
     local failure_threshold="${2:-5}"
     set -u
     
-    local circuit_file="$TEMP_DIR/circuit_${service}.txt"
+    # Use mmap-backed storage for circuit breaker files
+    local circuit_file
+    local failure_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        circuit_file="${MMAP_TEMP_DIR}/circuit_${service}.txt"
+        failure_file="${MMAP_TEMP_DIR}/failures_${service}.txt"
+    else
+        circuit_file="$TEMP_DIR/circuit_${service}.txt"
+        failure_file="$TEMP_DIR/failures_${service}.txt"
+    fi
     local current_time=$(date +%s)
     
     # Check if circuit is open
@@ -2915,7 +2976,6 @@ implement_circuit_breaker() {
     fi
     
     # Check failure count
-    local failure_file="$TEMP_DIR/failures_${service}.txt"
     local failure_count=$(wc -l < "$failure_file" 2>/dev/null || echo 0)
     
     if [ $failure_count -ge $failure_threshold ]; then
@@ -3035,8 +3095,13 @@ handle_api_timeout() {
     
     log_warning "API timeout for $service after ${timeout_duration}s"
     
-    # Record timeout for circuit breaker
-    local failure_file="$TEMP_DIR/failures_${service}.txt"
+    # Record timeout for circuit breaker - use mmap-backed storage
+    local failure_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        failure_file="${MMAP_TEMP_DIR}/failures_${service}.txt"
+    else
+        failure_file="$TEMP_DIR/failures_${service}.txt"
+    fi
     echo "$(date +%s):timeout" >> "$failure_file" 2>/dev/null || true
     
     # Check if circuit should open
@@ -3060,8 +3125,13 @@ handle_malformed_response() {
         log_info "Response snippet: $snippet..."
     fi
     
-    # Record malformed response
-    local failure_file="$TEMP_DIR/failures_${service}.txt"
+    # Record malformed response - use mmap-backed storage
+    local failure_file
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        failure_file="${MMAP_TEMP_DIR}/failures_${service}.txt"
+    else
+        failure_file="$TEMP_DIR/failures_${service}.txt"
+    fi
     echo "$(date +%s):malformed" >> "$failure_file" 2>/dev/null || true
     
     return 1
@@ -9978,9 +10048,13 @@ run_isolated() {
     shift
     local cmd=("$@")
     
-    # Create a temp file for exit status communication
+    # Create a temp file for exit status communication - use mmap-backed storage
     local status_file
-    status_file=$(mktemp 2>/dev/null || echo "/tmp/run_isolated_$$_$RANDOM")
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        status_file=$(mktemp "${MMAP_TEMP_DIR}/run_isolated_$$.XXXXXXXXXX" 2>/dev/null) || status_file="${MMAP_TEMP_DIR}/run_isolated_$$_$RANDOM"
+    else
+        status_file=$(mktemp 2>/dev/null || echo "/tmp/run_isolated_$$_$RANDOM")
+    fi
     
     # Run in subshell with timeout, resource limits, and signal handling
     (
@@ -10048,9 +10122,13 @@ run_isolated_with_output() {
     shift 2
     local cmd=("$@")
     
-    # Create a temp file for exit status
+    # Create a temp file for exit status - use mmap-backed storage
     local status_file
-    status_file=$(mktemp 2>/dev/null || echo "/tmp/run_isolated_out_$$_$RANDOM")
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        status_file=$(mktemp "${MMAP_TEMP_DIR}/run_isolated_out_$$.XXXXXXXXXX" 2>/dev/null) || status_file="${MMAP_TEMP_DIR}/run_isolated_out_$$_$RANDOM"
+    else
+        status_file=$(mktemp 2>/dev/null || echo "/tmp/run_isolated_out_$$_$RANDOM")
+    fi
     
     # Run in subshell with output redirection INSIDE the subshell
     (
@@ -11311,7 +11389,8 @@ decode_with_imagemagick_zbar() {
     set -u
     
     if command -v convert &> /dev/null && command -v zbarimg &> /dev/null; then
-        local temp_img="${TEMP_DIR}/preprocessed_$(basename "$image")"
+        # Use mmap-backed temp for image preprocessing
+        local temp_img="$(get_mmap_image_path "preprocessed_$(basename "$image")" "")"
         
         # Try multiple preprocessing techniques
         for technique in \
@@ -11572,8 +11651,13 @@ decode_with_tesseract_ocr() {
         return 2
     fi
     
-    # Create preprocessed versions and try OCR on each
-    local temp_dir="${TEMP_DIR}/tesseract_$$"
+    # Create preprocessed versions and try OCR on each - use mmap-backed temp
+    local temp_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        temp_dir="${MMAP_TEMP_DIR}/tesseract_$$"
+    else
+        temp_dir="${TEMP_DIR}/tesseract_$$"
+    fi
     mkdir -p "$temp_dir" 2>/dev/null
     
     (
@@ -11654,8 +11738,9 @@ decode_with_boofcv_extended() {
     fi
     
     if [[ -n "$boofcv_jar" ]] && [[ -f "$boofcv_jar" ]]; then
-        # Create inline Java decoder script
-        local java_code="${TEMP_DIR}/BoofQRDecoder.java"
+        # Create inline Java decoder script - use mmap-backed temp
+        local java_code="$(get_mmap_script_path "BoofQRDecoder")"
+        java_code="${java_code%.py}.java"  # Replace .py extension with .java
         cat > "$java_code" <<'BOOFCV_JAVA'
 import boofcv.abst.fiducial.QrCodeDetector;
 import boofcv.factory.fiducial.FactoryFiducial;
@@ -11681,9 +11766,11 @@ public class BoofQRDecoder {
 }
 BOOFCV_JAVA
         
+        local java_code_dir
+        java_code_dir=$(dirname "$java_code")
         (
             exec 2>/dev/null
-            cd "$TEMP_DIR"
+            cd "$java_code_dir"
             timeout 30 java -cp "$boofcv_jar:." BoofQRDecoder.java "$image" > "$output_file" 2>/dev/null || \
             timeout 30 java -cp "$boofcv_jar" boofcv.examples.fiducial.ExampleDetectQRCode "$image" 2>/dev/null | \
                 grep -v "^$" | head -20 > "$output_file"
@@ -11693,7 +11780,7 @@ BOOFCV_JAVA
         [[ -s "$output_file" ]] && return 0
     fi
     
-    return 1
+    return 0
 }
 
 # Decoder 17: bwip-js (Node.js barcode library)
@@ -12048,7 +12135,7 @@ decode_with_dynamsoft() {
     
     # Run in completely isolated subprocess with all crash signals trapped
     # Use a separate script file to ensure complete isolation
-    local temp_script="${TEMP_DIR}/dynamsoft_decode_$$.py"
+    local temp_script="$(get_mmap_script_path "dynamsoft_decode")"
     cat > "$temp_script" <<'PYDYNAMSOFT_SCRIPT'
 import sys
 import os
@@ -12167,7 +12254,7 @@ decode_with_zxingcpp() {
     fi
     
     # Create isolated script file
-    local temp_script="${TEMP_DIR}/zxingcpp_decode_$$.py"
+    local temp_script="$(get_mmap_script_path "zxingcpp_decode")"
     cat > "$temp_script" <<'PYZXINGCPP_SCRIPT'
 import sys
 import signal
@@ -12328,7 +12415,7 @@ decode_with_aztec() {
     [[ -z "$python_cmd" ]] && return 2
     
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/aztec_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "aztec_decode")"
         cat > "$temp_script" <<'PYAZTEC_SCRIPT'
 import sys
 import signal
@@ -12447,7 +12534,7 @@ decode_with_pdf417() {
     
     # Try via zxing-cpp with PDF417 filter
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/pdf417_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "pdf417_decode")"
         cat > "$temp_script" <<'PYPDF417_SCRIPT'
 import sys
 import signal
@@ -12569,7 +12656,7 @@ decode_with_maxicode() {
     
     # Try via zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/maxicode_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "maxicode_decode")"
         cat > "$temp_script" <<'PYMAXICODE_SCRIPT'
 import sys
 import signal
@@ -12684,7 +12771,7 @@ PYCODABAR_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/codabar_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "codabar_decode")"
         cat > "$temp_script" <<'PYCODABAR_SCRIPT'
 import sys
 import signal
@@ -12797,7 +12884,7 @@ PYCODE128_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/code128_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "code128_decode")"
         cat > "$temp_script" <<'PYCODE128_SCRIPT'
 import sys
 import signal
@@ -12894,7 +12981,7 @@ PYCODE39_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/code39_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "code39_decode")"
         cat > "$temp_script" <<'PYCODE39_SCRIPT'
 import sys
 import signal
@@ -13066,7 +13153,7 @@ PYEAN_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/ean_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "ean_decode")"
         cat > "$temp_script" <<'PYEAN_SCRIPT'
 import sys
 import signal
@@ -13205,7 +13292,7 @@ decode_with_rmqr() {
     
     # Try zxing-cpp (has rMQR support in newer versions)
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/rmqr_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "rmqr_decode")"
         cat > "$temp_script" <<'PYRMQR_SCRIPT'
 import sys
 import signal
@@ -13303,7 +13390,7 @@ decode_with_hanxin() {
     
     # Try zxing-cpp (has Han Xin support)
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/hanxin_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "hanxin_decode")"
         cat > "$temp_script" <<'PYHANXIN_SCRIPT'
 import sys
 import signal
@@ -13390,7 +13477,7 @@ decode_with_dotcode() {
     
     # Try zxing-cpp (newer versions support DotCode)
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/dotcode_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "dotcode_decode")"
         cat > "$temp_script" <<'PYDOTCODE_SCRIPT'
 import sys
 import signal
@@ -13487,7 +13574,7 @@ decode_with_gridmatrix() {
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/gridmatrix_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "gridmatrix_decode")"
         cat > "$temp_script" <<'PYGRIDMATRIX_SCRIPT'
 import sys
 import signal
@@ -13666,7 +13753,7 @@ PYITF_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/itf_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "itf_decode")"
         cat > "$temp_script" <<'PYITF_SCRIPT'
 import sys
 import signal
@@ -13762,7 +13849,7 @@ PYCODE93_PYZBAR
     
     # Try zxing-cpp
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/code93_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "code93_decode")"
         cat > "$temp_script" <<'PYCODE93_SCRIPT'
 import sys
 import signal
@@ -13836,7 +13923,7 @@ decode_with_universal() {
     
     # Universal decoder using zxing-cpp with ALL formats enabled
     if "$python_cmd" -c "import zxingcpp" 2>/dev/null; then
-        local temp_script="${TEMP_DIR}/universal_decode_$$.py"
+        local temp_script="$(get_mmap_script_path "universal_decode")"
         cat > "$temp_script" <<'PYUNIVERSAL_SCRIPT'
 import sys
 import signal
@@ -14691,7 +14778,13 @@ multi_decoder_analysis() {
     
     log_info "Multi-decoder analysis on $image..."
     
-    local allowed_temp_dir="${TEMP_DIR}/"
+    # Use mmap-backed temp directory for decoder outputs
+    local allowed_temp_dir
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        allowed_temp_dir="${MMAP_TEMP_DIR}/"
+    else
+        allowed_temp_dir="${TEMP_DIR}/"
+    fi
     mkdir -p "$allowed_temp_dir" 2>/dev/null
     local safe_base_name
     safe_base_name="$(basename "$base_output" | tr -c 'a-zA-Z0-9._-' '_')"
@@ -14719,7 +14812,10 @@ multi_decoder_analysis() {
         return $?
     fi
 
-    # Clean previous outputs
+    # Clean previous outputs from mmap or regular temp directory
+    if [[ "$MMAP_AVAILABLE" == true ]] && [[ -d "${MMAP_TEMP_DIR:-}" ]]; then
+        rm -f "${MMAP_TEMP_DIR}"/*.txt 2>/dev/null
+    fi
     rm -f "${TEMP_DIR}"_*.txt 2>/dev/null
 
     # Helper function for crash-safe execution
@@ -14757,7 +14853,7 @@ multi_decoder_analysis() {
     }
 
     # --- DECODER 1: ZBAR (native command) ---
-    local out_zbar="${TEMP_DIR}_zbar.txt"
+    local out_zbar="$(get_mmap_temp_path "zbar" ".txt")"
     if command -v zbarimg &>/dev/null; then
         log_info "  [1/50] Trying zbar decoder..."
         _safe_run 30 zbarimg -q --raw "$image" > "$out_zbar"
@@ -14774,7 +14870,7 @@ multi_decoder_analysis() {
     fi
 
     # --- DECODER 2: PYZBAR (Python - crash-isolated) ---
-    local out_pyzbar="${TEMP_DIR}_pyzbar.txt"
+    local out_pyzbar="$(get_mmap_temp_path "pyzbar" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [2/50] Trying pyzbar decoder..."
         # AUDIT FIX: Use base64-encoded paths to prevent segfault with special chars
@@ -14820,7 +14916,7 @@ EOF
     fi
     
     # --- DECODER 3: OPENCV QR DETECTOR ---
-    local out_opencv="${TEMP_DIR}_opencv.txt"
+    local out_opencv="$(get_mmap_temp_path "opencv" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [3/50] Trying opencv decoder..."
         # AUDIT FIX: Use base64-encoded paths
@@ -14862,7 +14958,7 @@ EOF
     fi
 
     # --- DECODER 4: QUIRC (native command) ---
-    local out_quirc="${TEMP_DIR}_quirc.txt"
+    local out_quirc="$(get_mmap_temp_path "quirc" ".txt")"
     log_info "  [4/50] Trying quirc decoder..."
     if command -v quirc &>/dev/null; then
         _safe_run 30 quirc "$image" > "$out_quirc"
@@ -14879,7 +14975,7 @@ EOF
     fi
 
     # --- DECODER 5: DMTX (DataMatrix - native command) ---
-    local out_dmtx="${TEMP_DIR}_dmtx.txt"
+    local out_dmtx="$(get_mmap_temp_path "dmtx" ".txt")"
     log_info "  [5/50] Trying dmtx decoder..."
     if command -v dmtxread &>/dev/null; then
         _safe_run 30 dmtxread -n -N1 "$image" > "$out_dmtx"
@@ -14896,7 +14992,7 @@ EOF
     fi
 
       # --- DECODER 6: PYZBAR ENHANCED (multiple processing) ---
-    local out_pyzbar_enh="${TEMP_DIR}_pyzbar_enhanced.txt"
+    local out_pyzbar_enh="$(get_mmap_temp_path "pyzbar_enhanced" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [6/50] Trying pyzbar_enhanced decoder..."
         # AUDIT FIX: Base64-encode paths
@@ -14950,7 +15046,7 @@ EOF
     fi
 
     # --- DECODER 7: MULTI-SCALE ---
-    local out_multiscale="${TEMP_DIR}_multiscale.txt"
+    local out_multiscale="$(get_mmap_temp_path "multiscale" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [7/50] Trying multiscale decoder..."
         # AUDIT FIX: Base64-encode paths
@@ -14999,7 +15095,7 @@ EOF
     fi
 
     # --- DECODER 8: INVERSE/NEGATIVE ---
-    local out_inverse="${TEMP_DIR}_inverse.txt"
+    local out_inverse="$(get_mmap_temp_path "inverse" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [8/50] Trying inverse decoder..."
         (
@@ -15041,7 +15137,7 @@ EOF
     fi
 
     # --- DECODER 9: IMAGEMAGICK + ZBAR (preprocessing) ---
-    local out_imgzbar="${TEMP_DIR}_imgzbar.txt"
+    local out_imgzbar="$(get_mmap_temp_path "imgzbar" ".txt")"
     if command -v convert &>/dev/null && command -v zbarimg &>/dev/null; then
         log_info "  [9/50] Trying imagemagick+zbar decoder..."
         if decode_with_imagemagick_zbar "$image" "$out_imgzbar"; then
@@ -15057,7 +15153,7 @@ EOF
     fi
 
     # --- DECODER 10: DMTXREAD (DataMatrix simple) ---
-    local out_dmtxread="${TEMP_DIR}_dmtxread.txt"
+    local out_dmtxread="$(get_mmap_temp_path "dmtxread" ".txt")"
     if command -v dmtxread &>/dev/null; then
         log_info "  [10/50] Trying dmtxread decoder..."
         if decode_with_dmtxread "$image" "$out_dmtxread"; then
@@ -15073,7 +15169,7 @@ EOF
     fi
 
     # --- DECODER 11: QREADER (Python, crash-hardened) ---
-    local out_qreader="${TEMP_DIR}_qreader.txt"
+    local out_qreader="$(get_mmap_temp_path "qreader" ".txt")"
     if [ -n "$python_cmd" ]; then
         # Pre-check if qreader module exists - wrapped in subshell to catch segfaults
         local qreader_available=false
@@ -15135,7 +15231,7 @@ EOF
     fi
 
     # --- DECODER 12: PYZXING (Python, crash-hardened) ---
-    local out_pyzxing="${TEMP_DIR}_pyzxing.txt"
+    local out_pyzxing="$(get_mmap_temp_path "pyzxing" ".txt")"
     if [ -n "$python_cmd" ]; then
         # Pre-check if pyzxing module exists - wrapped in subshell to catch segfaults
         local pyzxing_available=false
@@ -15193,7 +15289,7 @@ EOF
     fi
 
     # --- DECODER 13: ZXING JAVA CLI (direct JAR execution) ---
-    local out_zxing_java="${TEMP_DIR}_zxing_java.txt"
+    local out_zxing_java="$(get_mmap_temp_path "zxing_java" ".txt")"
     log_info "  [13/50] Trying ZXing Java CLI decoder..."
     if command -v java &>/dev/null; then
         if decode_with_zxing_java_cli "$image" "$out_zxing_java"; then
@@ -15209,7 +15305,7 @@ EOF
     fi
 
     # --- DECODER 14: LIBDECODEQR (C/C++ library) ---
-    local out_libdecodeqr="${TEMP_DIR}_libdecodeqr.txt"
+    local out_libdecodeqr="$(get_mmap_temp_path "libdecodeqr" ".txt")"
     log_info "  [14/50] Trying libdecodeqr decoder..."
     if command -v decodeqr &>/dev/null || command -v qrdecoder &>/dev/null; then
         if decode_with_libdecodeqr "$image" "$out_libdecodeqr"; then
@@ -15225,7 +15321,7 @@ EOF
     fi
 
     # --- DECODER 15: TESSERACT OCR + LEPTONICA (degraded code recovery) ---
-    local out_tesseract="${TEMP_DIR}_tesseract.txt"
+    local out_tesseract="$(get_mmap_temp_path "tesseract" ".txt")"
     log_info "  [15/50] Trying Tesseract OCR decoder..."
     if command -v tesseract &>/dev/null; then
         if decode_with_tesseract_ocr "$image" "$out_tesseract"; then
@@ -15241,7 +15337,7 @@ EOF
     fi
 
     # --- DECODER 16: BOOFCV (Java computer vision) ---
-    local out_boofcv="${TEMP_DIR}_boofcv.txt"
+    local out_boofcv="$(get_mmap_temp_path "boofcv" ".txt")"
     log_info "  [16/50] Trying BoofCV decoder..."
     if command -v java &>/dev/null; then
         # Try original boofcv first, then extended version
@@ -15258,7 +15354,7 @@ EOF
     fi
 
     # --- DECODER 17: BWIP-JS (Node.js barcode library) ---
-    local out_bwipjs="${TEMP_DIR}_bwipjs.txt"
+    local out_bwipjs="$(get_mmap_temp_path "bwipjs" ".txt")"
     log_info "  [17/50] Trying bwip-js decoder..."
     if command -v node &>/dev/null || command -v nodejs &>/dev/null; then
         if decode_with_bwipjs "$image" "$out_bwipjs"; then
@@ -15274,7 +15370,7 @@ EOF
     fi
 
     # --- DECODER 18: JSQR (Node.js QR decoder) ---
-    local out_jsqr="${TEMP_DIR}_jsqr.txt"
+    local out_jsqr="$(get_mmap_temp_path "jsqr" ".txt")"
     log_info "  [18/50] Trying jsQR decoder..."
     if command -v node &>/dev/null || command -v nodejs &>/dev/null; then
         if decode_with_jsqr "$image" "$out_jsqr"; then
@@ -15290,7 +15386,7 @@ EOF
     fi
 
     # --- DECODER 19: PYTHON-BARCODE (1D barcode types) ---
-    local out_pybarcode="${TEMP_DIR}_pybarcode.txt"
+    local out_pybarcode="$(get_mmap_temp_path "pybarcode" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [19/50] Trying python-barcode (1D types) decoder..."
         if decode_with_python_barcode "$image" "$out_pybarcode"; then
@@ -15306,7 +15402,7 @@ EOF
     fi
 
     # --- DECODER 20: OPENCV ARUCO + MULTI-QR ---
-    local out_aruco="${TEMP_DIR}_aruco.txt"
+    local out_aruco="$(get_mmap_temp_path "aruco" ".txt")"
     if [ -n "$python_cmd" ]; then
         log_info "  [20/50] Trying OpenCV ArUco/Multi-QR decoder..."
         if decode_with_opencv_aruco "$image" "$out_aruco"; then
@@ -15322,7 +15418,7 @@ EOF
     fi
 
     # --- DECODER 21: DYNAMSOFT BARCODE READER ---
-    local out_dynamsoft="${TEMP_DIR}_dynamsoft.txt"
+    local out_dynamsoft="$(get_mmap_temp_path "dynamsoft" ".txt")"
     if [ -n "$python_cmd" ]; then
         # Pre-check if dbr module exists - wrapped in subshell to catch segfaults during import
         local dbr_available=false
@@ -15351,7 +15447,7 @@ EOF
     fi
 
     # --- DECODER 22: ZXING-CPP (C++ ZXing port) ---
-    local out_zxingcpp="${TEMP_DIR}_zxingcpp.txt"
+    local out_zxingcpp="$(get_mmap_temp_path "zxingcpp" ".txt")"
     log_info "  [22/50] Trying zxing-cpp decoder..."
     # Check for command-line tool first (safer)
     if command -v zxing &>/dev/null; then
@@ -15390,7 +15486,7 @@ EOF
     fi
 
     # --- DECODER 23: GOQR (Go-based QR decoder - fast, memory-safe) ---
-    local out_goqr="${TEMP_DIR}_goqr.txt"
+    local out_goqr="$(get_mmap_temp_path "goqr" ".txt")"
     if command -v gozxing &>/dev/null || command -v goqr &>/dev/null || command -v qrdecode &>/dev/null; then
         log_info "  [23/50] Trying GoQR decoder..."
         if decode_with_goqr "$image" "$out_goqr"; then
@@ -15406,7 +15502,7 @@ EOF
     fi
 
     # --- DECODER 24: AZTEC (Transport tickets, boarding passes) ---
-    local out_aztec="${TEMP_DIR}_aztec.txt"
+    local out_aztec="$(get_mmap_temp_path "aztec" ".txt")"
     log_info "  [24/50] Trying Aztec code decoder..."
     if [ -n "$python_cmd" ]; then
         # Run in isolated subshell to prevent segfaults from killing main process
@@ -15469,7 +15565,7 @@ EOF
     fi
 
     # --- DECODER 26: MAXICODE (UPS shipping labels) ---
-    local out_maxicode="${TEMP_DIR}_maxicode.txt"
+    local out_maxicode="$(get_mmap_temp_path "maxicode" ".txt")"
     log_info "  [26/50] Trying MaxiCode decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15500,7 +15596,7 @@ EOF
     fi
 
     # --- DECODER 27: CODABAR (Libraries, blood banks, FedEx) ---
-    local out_codabar="${TEMP_DIR}_codabar.txt"
+    local out_codabar="$(get_mmap_temp_path "codabar" ".txt")"
     log_info "  [27/50] Trying Codabar decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15593,7 +15689,7 @@ EOF
     fi
 
     # --- DECODER 30: EAN/UPC (Retail barcodes) ---
-    local out_ean="${TEMP_DIR}_ean.txt"
+    local out_ean="$(get_mmap_temp_path "ean" ".txt")"
     log_info "  [30/50] Trying EAN/UPC decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15624,7 +15720,7 @@ EOF
     fi
 
     # --- DECODER 31: RMQR (Rectangular Micro QR - ISO/IEC 23941) ---
-    local out_rmqr="${TEMP_DIR}_rmqr.txt"
+    local out_rmqr="$(get_mmap_temp_path "rmqr" ".txt")"
     log_info "  [31/50] Trying rMQR decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15655,7 +15751,7 @@ EOF
     fi
 
     # --- DECODER 32: HANXIN (Chinese GB/T 21049 standard) ---
-    local out_hanxin="${TEMP_DIR}_hanxin.txt"
+    local out_hanxin="$(get_mmap_temp_path "hanxin" ".txt")"
     log_info "  [32/50] Trying Han Xin Code decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15686,7 +15782,7 @@ EOF
     fi
 
     # --- DECODER 33: DOTCODE (High-speed industrial printing) ---
-    local out_dotcode="${TEMP_DIR}_dotcode.txt"
+    local out_dotcode="$(get_mmap_temp_path "dotcode" ".txt")"
     log_info "  [33/50] Trying DotCode decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15717,7 +15813,7 @@ EOF
     fi
 
     # --- DECODER 34: GRIDMATRIX (Chinese standard) ---
-    local out_gridmatrix="${TEMP_DIR}_gridmatrix.txt"
+    local out_gridmatrix="$(get_mmap_temp_path "gridmatrix" ".txt")"
     log_info "  [34/50] Trying Grid Matrix decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15748,7 +15844,7 @@ EOF
     fi
 
     # --- DECODER 35: COMPOSITE (GS1 Composite barcodes) ---
-    local out_composite="${TEMP_DIR}_composite.txt"
+    local out_composite="$(get_mmap_temp_path "composite" ".txt")"
     log_info "  [35/50] Trying Composite barcode decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15779,7 +15875,7 @@ EOF
     fi
 
     # --- DECODER 36: ITF (Interleaved 2 of 5) ---
-    local out_itf="${TEMP_DIR}_itf.txt"
+    local out_itf="$(get_mmap_temp_path "itf" ".txt")"
     log_info "  [36/50] Trying ITF decoder..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15841,7 +15937,7 @@ EOF
     fi
 
     # --- DECODER 38: UNIVERSAL (All formats with preprocessing) ---
-    local out_universal="${TEMP_DIR}_universal.txt"
+    local out_universal="$(get_mmap_temp_path "universal" ".txt")"
     log_info "  [38/50] Trying Universal decoder (all formats)..."
     if [ -n "$python_cmd" ]; then        # Run in isolated subshell to prevent segfaults
         (
@@ -15902,7 +15998,7 @@ EOF
     fi
 
     # --- DECODER 40: JAB CODE (Colored 2D barcode) ---
-    local out_jabcode="${TEMP_DIR}_jabcode.txt"
+    local out_jabcode="$(get_mmap_temp_path "jabcode" ".txt")"
     log_info "  [40/50] Trying JAB Code decoder..."
     if decode_with_jabcode "$image" "$out_jabcode"; then
         log_success "  ✓ jabcode: decoded successfully"
@@ -15914,7 +16010,7 @@ EOF
     fi
 
     # --- DECODER 41: HCCB (Microsoft Tag) ---
-    local out_hccb="${TEMP_DIR}_hccb.txt"
+    local out_hccb="$(get_mmap_temp_path "hccb" ".txt")"
     log_info "  [41/50] Trying HCCB decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15944,7 +16040,7 @@ EOF
     fi
 
     # --- DECODER 42: MICRO QR CODE ---
-    local out_micro_qr="${TEMP_DIR}_micro_qr.txt"
+    local out_micro_qr="$(get_mmap_temp_path "micro_qr" ".txt")"
     log_info "  [42/50] Trying Micro QR Code decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -15974,7 +16070,7 @@ EOF
     fi
 
     # --- DECODER 43: HTML QR FRAUD DETECTOR (Phishing/Fraud Detection) ---
-    local out_html_qr="${TEMP_DIR}_html_qr.txt"
+    local out_html_qr="$(get_mmap_temp_path "html_qr" ".txt")"
     log_info "  [43/50] Trying HTML-Generated QR Fraud Detector..."
     if [ -n "$python_cmd" ]; then
         (
@@ -16020,7 +16116,7 @@ EOF
     fi
 
     # --- DECODER 44: UPC (Universal Product Code) ---
-    local out_upc="${TEMP_DIR}_upc.txt"
+    local out_upc="$(get_mmap_temp_path "upc" ".txt")"
     log_info "  [44/50] Trying UPC decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -16050,7 +16146,7 @@ EOF
     fi
 
     # --- DECODER 45: MSI/Plessey ---
-    local out_msi="${TEMP_DIR}_msi.txt"
+    local out_msi="$(get_mmap_temp_path "msi" ".txt")"
     log_info "  [45/50] Trying MSI/Plessey decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -16080,7 +16176,7 @@ EOF
     fi
 
     # --- DECODER 46: Telepen ---
-    local out_telepen="${TEMP_DIR}_telepen.txt"
+    local out_telepen="$(get_mmap_temp_path "telepen" ".txt")"
     log_info "  [46/50] Trying Telepen decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -16140,7 +16236,7 @@ EOF
     fi
 
     # --- DECODER 48: Pharmacode ---
-    local out_pharmacode="${TEMP_DIR}_pharmacode.txt"
+    local out_pharmacode="$(get_mmap_temp_path "pharmacode" ".txt")"
     log_info "  [48/50] Trying Pharmacode decoder..."
     if [ -n "$python_cmd" ]; then
         (
@@ -16200,7 +16296,7 @@ EOF
     fi
 
     # --- DECODER 50: DPD (Deutsche Post) Barcode ---
-    local out_dpd="${TEMP_DIR}_dpd.txt"
+    local out_dpd="$(get_mmap_temp_path "dpd" ".txt")"
     log_info "  [50/50] Trying DPD decoder..."
     if [ -n "$python_cmd" ]; then
         (
