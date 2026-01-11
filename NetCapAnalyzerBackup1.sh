@@ -1,26 +1,473 @@
 #!/bin/bash
 
+# =============================================================================
 # Enhanced Network Traffic Capture and Analysis Script - macOS Edition
 # Version 4.0 - macOS M1 Compatible with C2/Malware Detection
+# Merged with C2 Hunter v5.0 - Fileless Malware & C2 Abuse Detection
+# =============================================================================
 
 set -u  # Exit on undefined vars
 
-# Color codes
+# Initialize arrays to avoid unbound variable errors (from Fileless.sh)
+DISCOVERED_INTERFACES=()
+
+# Color codes (merged - includes additional colors from Fileless.sh)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+BOLD='\033[1m'
 NC='\033[0m'
 
-# Configuration
+# Configuration (original)
 CAPTURE_DURATION=${1:-1000}
 PCAP_FILE="/tmp/traffic_$(date +%Y%m%d_%H%M%S).pcap"
 REPORT_DIR="/tmp/network_analysis_$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="/tmp/netcap_$(date +%Y%m%d_%H%M%S).log"
 TCPDUMP_PIDS=""
 
+# Additional configuration from Fileless.sh
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+DESKTOP_DIR="$HOME/Desktop"
+FILELESS_PCAP_FILE="$DESKTOP_DIR/PCAP_FILE_${TIMESTAMP}.pcap"
+RAW_PCAP_FILE="$DESKTOP_DIR/RAW_PCAP_FILE_${TIMESTAMP}.pcap"
+MONITOR_PCAP_FILE="$DESKTOP_DIR/MONITOR_PCAP_FILE_${TIMESTAMP}.pcap"
+FILELESS_REPORT_DIR="$DESKTOP_DIR/REPORT_DIR_${TIMESTAMP}"
+FILELESS_LOG_FILE="$DESKTOP_DIR/LOG_FILE_${TIMESTAMP}.log"
+TCPDUMP_PIDS_ARRAY=()
+MONITOR_INTERFACES=()
+ORIGINAL_INTERFACE_STATES=()
+
+# Capture settings - NO LIMITS (from Fileless.sh)
+SNAPLEN=65535          # Maximum packet size (0 not supported on all platforms)
+BUFFER_SIZE=256        # MB - maximum ring buffer
+PACKET_COUNT=0         # 0 = unlimited packets
+PROMISC_MODE=1         # Enable promiscuous mode
+
+# =============================================================================
+# COMPREHENSIVE C2/MALICIOUS NETWORK INDICATORS (from Fileless.sh)
+# Sources: MITRE ATT&CK, Cobalt Strike docs, Metasploit, Sliver, Empire,
+#          SANS, Picus Security Red Report 2024, threat intelligence feeds
+# Last Updated: 2025-12-02
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# DNS-over-HTTPS (DoH) Resolvers - Legitimate but often abused by malware
+# These are commonly used by malware to bypass DNS monitoring/filtering
+# Sources: Cloudflare, Google, Quad9, OpenDNS, CleanBrowsing, Comodo, AdGuard,
+#          NextDNS, Control D, Mullvad
+# -----------------------------------------------------------------------------
+DOH_SERVERS=(
+    # Cloudflare
+    "1.1.1.1" "1.0.0.1" "1.1.1.2" "1.0.0.2" "1.1.1.3" "1.0.0.3"
+    # Google
+    "8.8.8.8" "8.8.4.4"
+    # Quad9
+    "9.9.9.9" "149.112.112.112" "9.9.9.10" "149.112.112.10"
+    # OpenDNS
+    "208.67.222.222" "208.67.220.220" "208.67.222.123" "208.67.220.123"
+    # CleanBrowsing
+    "185.228.168.168" "185.228.169.168" "185.228.168.9" "185.228.169.9"
+    # Comodo Secure DNS
+    "8.26.56.26" "8.20.247.20"
+    # AdGuard
+    "94.140.14.14" "94.140.15.15" "94.140.14.15" "94.140.15.16"
+    # NextDNS
+    "45.90.28.0" "45.90.30.0"
+    # Control D
+    "76.76.2.0" "76.76.10.0" "76.76.19.19"
+    # Mullvad
+    "194.242.2.2" "193.19.108.2"
+    # LibreDNS
+    "116.202.176.26"
+    # DNS.SB
+    "185.222.222.222" "45.11.45.11"
+)
+
+# -----------------------------------------------------------------------------
+# SUSPICIOUS PORTS - Classic Backdoor/RAT/Trojan Ports
+# Sources: MITRE ATT&CK T1571, historical malware analysis, SANS
+# -----------------------------------------------------------------------------
+SUSPICIOUS_PORTS=(
+    # Classic backdoor ports
+    4444        # Metasploit default, DarkVishnya
+    4445        # DarkVishnya alternate
+    5555        # Android ADB exploitation, various RATs
+    6666        # DarkComet, various trojans
+    7777        # Various backdoors
+    8888        # Sliver C2 default (mTLS/TCP)
+    9999        # Various RATs
+    1337        # "Elite" backdoor port
+    31337       # "Elite" - Back Orifice, DarkVishnya
+    12345       # NetBus trojan
+    54321       # Back Orifice 2000
+    
+    # IRC-based botnets
+    6667        # IRC default
+    6668        # IRC alternate
+    6669        # IRC alternate
+    6697        # IRC over TLS
+    
+    # Tor network
+    9001        # Tor ORPort
+    9030        # Tor DirPort
+    9050        # Tor SOCKS proxy
+    9051        # Tor control port
+    9150        # Tor Browser SOCKS
+    
+    # XMPP/Jabber (used by some C2)
+    5222        # XMPP client
+    5223        # XMPP client TLS
+    5269        # XMPP server-to-server
+    5280        # XMPP BOSH
+    5281        # XMPP BOSH TLS
+    
+    # Additional known malware ports (MITRE ATT&CK documented)
+    1058        # Bankshot HTTP
+    1224        # BeaverTail
+    1244        # BeaverTail alternate
+    7080        # Emotet
+    14146       # APT32 HTTP
+    46769       # GravityRAT HTTP
+    33666       # GoldenSpy WebSocket
+    50000       # Emotet
+    
+    # Classic RAT ports
+    1981        # Shockwave
+    2001        # Trojan Cow
+    2023        # Ripper Pro
+    2140        # Deep Throat
+    3150        # Deep Throat
+    3700        # Portal of Doom
+    5400        # Back Construction
+    5401        # Back Construction
+    5402        # Back Construction
+    5569        # Robo-Hack
+    6670        # DeepThroat
+    6771        # DeepThroat
+    6969        # GateCrasher, Priority
+    10067       # Portal of Doom
+    10167       # Portal of Doom
+    11000       # Senna Spy
+    11223       # Progenic Trojan
+    12223       # Hack99 KeyLogger
+    12346       # NetBus
+    20034       # NetBus Pro
+    21544       # GirlFriend
+    22222       # Prosiak
+    27374       # SubSeven
+    27444       # Trinoo
+    27665       # Trinoo
+    29891       # The Unexplained
+    30100       # NetSphere
+    30129       # Masters Paradise
+    30303       # Socket de Troie
+    30999       # Kuang2
+    31338       # Back Orifice, DeepBO
+    31339       # NetSpy DK
+    33333       # Prosiak
+    33911       # Spirit 2001
+    34324       # BigGluck
+    40412       # The Spy
+    40421       # Masters Paradise
+    40422       # Masters Paradise
+    40423       # Masters Paradise
+    40426       # Masters Paradise
+    65000       # Devil
+)
+
+# -----------------------------------------------------------------------------
+# C2 FRAMEWORK PORTS - Known defaults for offensive security tools
+# Sources: Cobalt Strike, Metasploit, Sliver, Empire, Havoc, Mythic, Brute Ratel,
+#          PoshC2, Covenant, Merlin, SILENTTRINITY, Villain
+# -----------------------------------------------------------------------------
+C2_FRAMEWORKS_PORTS=(
+    # Cobalt Strike
+    50050       # Cobalt Strike team server default
+    50051       # Cobalt Strike alternate
+    
+    # Metasploit
+    4444        # Meterpreter default handler
+    4445        # Meterpreter alternate
+    
+    # Common C2 web ports
+    2222        # SSH tunneling / alternate SSH
+    4443        # HTTPS alternate
+    8443        # HTTPS alternate (common C2)
+    8080        # HTTP proxy / C2
+    8000        # HTTP alternate / BADCALL
+    8001        # HTTP alternate
+    8008        # HTTP alternate
+    8081        # HTTP alternate
+    8082        # HTTP alternate
+    8181        # HTTP alternate
+    8888        # Sliver mTLS/TCP default
+    9090        # Various C2 admin panels
+    9091        # Various C2
+    7443        # HTTPS alternate
+    6443        # Kubernetes API / C2 masquerading
+    
+    # VNC (used for remote access in attacks)
+    5900        # VNC default
+    5901        # VNC display :1
+    5902        # VNC display :2
+    5903        # VNC display :3
+    5904        # VNC display :4
+    5905        # VNC display :5
+    
+    # Havoc C2
+    40056       # Havoc default
+    443         # Havoc HTTPS listener
+    
+    # Mythic C2
+    7443        # Mythic default
+    
+    # Brute Ratel C4
+    8443        # Common BR listener
+    443         # BR HTTPS
+    
+    # PoshC2
+    443         # PoshC2 HTTPS
+    8080        # PoshC2 HTTP
+    
+    # Covenant
+    7443        # Covenant default
+    80          # Covenant HTTP
+    443         # Covenant HTTPS
+    
+    # Merlin
+    443         # Merlin HTTPS
+    80          # Merlin HTTP
+    
+    # Sliver C2
+    8888        # Sliver mTLS
+    443         # Sliver HTTPS
+    80          # Sliver HTTP
+    
+    # Empire / Starkiller
+    1337        # Empire RESTful API
+    443         # Empire HTTPS listeners
+    80          # Empire HTTP listeners
+    
+    # Villain
+    6501        # Villain default
+    
+    # Additional C2 ports
+    3389        # RDP - often used for lateral movement
+    5985        # WinRM HTTP
+    5986        # WinRM HTTPS
+    
+    # High ports commonly used by RATs for evasion
+    28035       # Custom RDP backdoors
+    32467       # Custom RDP backdoors
+    41578       # Custom RDP backdoors
+    46892       # Custom RDP backdoors
+)
+
+# -----------------------------------------------------------------------------
+# CRYPTO MINING PORTS - Cryptocurrency mining pool connections
+# -----------------------------------------------------------------------------
+CRYPTO_MINING_PORTS=(
+    3333        # Stratum mining
+    3334        # Stratum alternate
+    4444        # Stratum (also Metasploit - dual use)
+    5555        # Stratum alternate
+    7777        # Stratum alternate
+    8899        # Stratum alternate
+    9999        # Stratum alternate
+    14433       # Stratum TLS
+    14444       # Stratum TLS
+    45560       # Monero mining
+    45700       # Monero mining
+)
+
+# -----------------------------------------------------------------------------
+# DATA EXFILTRATION PORTS - Commonly abused for data theft
+# -----------------------------------------------------------------------------
+EXFIL_PORTS=(
+    20          # FTP data (Emotet documented)
+    21          # FTP control
+    22          # SSH/SCP/SFTP
+    69          # TFTP
+    115         # SFTP (simple)
+    443         # HTTPS (encrypted exfil)
+    989         # FTPS data
+    990         # FTPS control
+    992         # Telnets
+    993         # IMAPS
+    995         # POP3S
+    1194        # OpenVPN
+    3128        # Squid proxy
+    8080        # HTTP proxy
+    8118        # Privoxy
+)
+
+# -----------------------------------------------------------------------------
+# SUSPICIOUS USER AGENTS - Known malware/C2 user agent strings
+# Sources: Threat intelligence, malware analysis reports
+# -----------------------------------------------------------------------------
+SUSPICIOUS_USER_AGENTS=(
+    "Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.0; Trident/5.0)"  # Cobalt Strike default
+    "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1)"               # Common in older malware
+    "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1"  # Cobalt Strike
+    "Java/1."                                                           # Java-based RATs
+    "Python-urllib"                                                     # Python scripts/bots
+    "curl/"                                                             # Scripted requests
+    "Wget/"                                                             # Scripted downloads
+    "PowerShell/"                                                       # PowerShell Empire, etc.
+)
+
+# -----------------------------------------------------------------------------
+# TOR EXIT NODE DETECTION - Check against Tor exit node lists
+# Note: Use live feeds for production - these are example ranges
+# Sources: https://check.torproject.org/torbulkexitlist
+# -----------------------------------------------------------------------------
+TOR_CHECK_URLS=(
+    "https://check.torproject.org/torbulkexitlist"
+    "https://www.dan.me.uk/torlist/"
+)
+
+# -----------------------------------------------------------------------------
+# KNOWN C2 DOMAINS - Placeholder for threat intelligence integration
+# Note: Populate with your threat intelligence feed
+# Sources: Custom threat intel, OSINT feeds, threat sharing platforms
+# -----------------------------------------------------------------------------
+C2_DOMAINS=(
+)
+
+# -----------------------------------------------------------------------------
+# DNS TUNNELING PATTERNS - Suspicious DNS query patterns
+# Sources: DNS tunneling detection research
+# -----------------------------------------------------------------------------
+DNS_TUNNELING_PATTERNS=(
+    "^[a-f0-9]{20,}"        # Long hex strings
+    "\.[a-z]{50,}\."        # Very long subdomains
+    "[0-9]{10,}\."          # Long numeric strings
+)
+
+# -----------------------------------------------------------------------------
+# MITRE ATT&CK TECHNIQUE REFERENCES
+# -----------------------------------------------------------------------------
+# T1571 - Non-Standard Port: Adversaries use unusual ports for C2
+# T1219 - Remote Access Tools: Legitimate tools abused for access
+# T1572 - Protocol Tunneling: DNS, HTTPS tunneling for C2
+# T1071.001 - Application Layer Protocol: Web Protocols
+# T1071.004 - Application Layer Protocol: DNS
+# =============================================================================
+
 # Export for Python access
 export PCAP_FILE REPORT_DIR
+export FILELESS_PCAP_FILE RAW_PCAP_FILE MONITOR_PCAP_FILE FILELESS_REPORT_DIR TIMESTAMP
+
+# =============================================================================
+# UTILITY FUNCTIONS (from Fileless.sh)
+# =============================================================================
+
+# Print banner (from Fileless.sh)
+print_banner() {
+    echo -e "${CYAN}"
+    cat << "EOF"
+    +===============================================================+
+    |                                                               |
+    |     + + ++  +    +  ++   +    |
+    |    +==++==++====+++++    |  ||   |    |
+    |    |+++   +++     ||   |    |
+    |    +==|+===+ +==+   ++     +==||   |    |
+    |    |  ||     +++ +    |  |+++    |
+    |    +=+  +=++=+     +======++=+  +=+    +=+  +=+ +=====+     |
+    |                                                               |
+    |              Network C2 Hunter & Threat Detector             |
+    |                    macOS Edition - v5.0                      |
+    |                                                               |
+    |            For MacBook Air M1 2020 (Apple Silicon)           |
+    |                                                               |
+    +===============================================================+
+EOF
+    echo -e "${NC}"
+}
+
+# Alert function for suspicious findings (from Fileless.sh)
+alert() {
+    local severity="$1"
+    local category="$2"
+    local message="$3"
+    local alert_file="$FILELESS_REPORT_DIR/analysis/ALERTS.txt"
+    
+    local color=""
+    case "$severity" in
+        "CRITICAL") color="$RED" ;;
+        "HIGH") color="$MAGENTA" ;;
+        "MEDIUM") color="$YELLOW" ;;
+        "LOW") color="$CYAN" ;;
+        *) color="$NC" ;;
+    esac
+    
+    echo -e "${color}[${severity}] [${category}] ${message}${NC}"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${severity}] [${category}] ${message}" >> "$alert_file"
+    log "ALERT" "[$severity] [$category] $message"
+}
+
+# Terminal display function for analysis results (from Fileless.sh)
+display_findings() {
+    local title=$1
+    local file=$2
+    local max_lines=${3:-15}
+    
+    if [[ -f "$file" && -s "$file" ]]; then
+        local line_count=$(wc -l < "$file")
+        echo -e "\n${CYAN}+- $title ($line_count items found)${NC}"
+        echo -e "${CYAN}${NC}"
+        head -n "$max_lines" "$file" | while IFS= read -r line; do
+            echo -e "${CYAN}${NC}  $line"
+        done
+        if [[ $line_count -gt $max_lines ]]; then
+            echo -e "${CYAN}${NC}  ${YELLOW}... and $((line_count - max_lines)) more items${NC}"
+            echo -e "${CYAN}${NC}  ${YELLOW}Full results saved to: $file${NC}"
+        fi
+        echo -e "${CYAN}+-${NC}"
+    fi
+}
+
+# Display summary statistics (from Fileless.sh)
+display_stats() {
+    local category=$1
+    local dir=$2
+    
+    if [[ -d "$dir" ]]; then
+        local file_count=$(find "$dir" -type f 2>/dev/null | wc -l)
+        local total_size=$(du -sh "$dir" 2>/dev/null | awk '{print $1}')
+        echo -e "  ${GREEN}[+]${NC} $category: $file_count files ($total_size)"
+        
+        # List files
+        find "$dir" -type f 2>/dev/null | while read -r file; do
+            local size=$(ls -lh "$file" 2>/dev/null | awk '{print $5}')
+            local basename=$(basename "$file")
+            echo -e "    ${CYAN}->${NC} $basename ($size)"
+        done
+    fi
+}
+
+# Display suspicious findings in real-time (from Fileless.sh)
+analyze_and_display() {
+    local analysis_file=$1
+    local pattern=$2
+    local alert_msg=$3
+    local severity=$4
+    
+    if [[ -f "$analysis_file" ]]; then
+        local matches=$(grep -c "$pattern" "$analysis_file" 2>/dev/null || echo "0")
+        if [[ $matches -gt 0 ]]; then
+            echo -e "  ${YELLOW}[!]${NC}  Found $matches potential issues"
+            grep "$pattern" "$analysis_file" 2>/dev/null | head -5 | while IFS= read -r line; do
+                echo -e "     ${RED}->${NC} $line"
+                alert "$severity" "DETECTION" "$alert_msg: $line"
+            done
+        fi
+    fi
+}
 
 # Logging function
 log() {
